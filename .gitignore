@@ -1,0 +1,16 @@
+node_modules/
+.env
+# === J.A.R.V.I.S — Secret files ===
+.env
+.env.local
+.env.*.local
+
+# === Personal knowledge base ===
+knowledge/*.txt
+knowledge/*.md
+!knowledge/.gitkeep
+
+# === OS files ===
+.DS_Store
+Thumbs.db
+*.log
