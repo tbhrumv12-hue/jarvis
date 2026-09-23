@@ -2,9 +2,13 @@
 <html lang="he" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="description" content="J.A.R.V.I.S — Neural Kernel V3.2">
     <meta name="theme-color" content="#04070d">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="J.A.R.V.I.S">
     <title>J.A.R.V.I.S // NEURAL CORE V3.2</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -12,6 +16,11 @@
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="/css/mobile.css" media="(max-width: 1024px)">
+
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" type="image/png" href="/icons/icon-192.png">
+    <link rel="apple-touch-icon" href="/icons/icon-192.png">
 </head>
 <body>
 
@@ -80,7 +89,7 @@
                         <button type="button" id="mic-btn" class="mic-btn" aria-label="הפעל מיקרופון" aria-pressed="false" hidden>🎤</button>
                         <canvas id="mic-spectrum" class="mic-spectrum" aria-hidden="true" hidden></canvas>
                     </div>
-                    <input type="text" id="user-input" placeholder="הקלד פקודה למערכת..." autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="פקודה למערכת" autofocus>
+                    <input type="text" id="user-input" placeholder="הקלד פקודה..." autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="פקודה למערכת" autofocus>
                     <button type="submit" id="send-btn">שיגור</button>
                 </form>
 
@@ -134,7 +143,6 @@
         </footer>
     </div>
 
-    <!-- === מודאל היסטוריית שיחות === -->
     <div id="history-modal" class="modal" hidden>
         <div class="modal-backdrop" id="history-backdrop"></div>
         <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="history-title">
@@ -159,5 +167,15 @@
 
     <script src="/js/neural.js" defer></script>
     <script src="/js/app.js" defer></script>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then((reg) => console.info('[pwa] SW registered'))
+                    .catch((err) => console.warn('[pwa] SW failed', err));
+            });
+        }
+    </script>
 </body>
 </html>

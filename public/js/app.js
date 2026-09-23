@@ -1,6 +1,6 @@
 /**
- * ⚡ J.A.R.V.I.S // CLIENT CORE v3.2
- * localStorage + Conversation Memory + History Modal + All previous features
+ * ⚡ J.A.R.V.I.S // CLIENT CORE v3.3
+ * Cinematic HUD + History + Mic (mobile-fixed) + Camera + Vision + TTS
  */
 
 (function () {
@@ -19,8 +19,11 @@
         hebrewLangCodes: ['he-IL', 'he'],
         speechLang: 'he-IL',
         speechInterimResults: true,
-        speechContinuous: false,
-        speechAutoSendDelayMs: 800,
+        speechContinuous: true,
+        speechAutoSendDelayMs: 900,
+        speechSafetyTimeoutMs: 8000,
+        speechRestartDelayMs: 300,
+        speechSilenceTimeoutMs: 2500,
         visionFrameWidth: 640,
         visionFrameHeight: 480,
         visionJpegQuality: 0.85,
@@ -34,6 +37,7 @@
         historyStorageKey: 'jarvis_history_v1',
         ttsStorageKey: 'jarvis_tts_enabled_v1',
         welcomeMessage: 'מערכת המוח הנוירונלי אותחלה בהצלחה. כל המערכות פועלות בקיבולת מלאה. במה אוכל לסייע לך, אדוני?',
+        isMobile: window.innerWidth <= 768,
     };
 
     const VISION_KEYWORDS = [
@@ -59,8 +63,8 @@
         hebrewVoice: null,
         isOnline: true,
 
-        // === History ===
-        history: [],              // [{ role: 'user'|'jarvis', text, ts }]
+        // History
+        history: [],
         historySearchQuery: '',
         autoScroll: true,
 
@@ -69,12 +73,16 @@
         isListening: false,
         recognitionSupported: false,
         autoSendTimer: null,
+        micSafetyTimer: null,
+        micSilenceTimer: null,
+        lastSpeechAt: 0,
         micStartTime: 0,
         micTimerInterval: null,
         micAudioCtx: null,
         micAnalyser: null,
         micStream: null,
         micSpectrumRAF: null,
+        micManualStop: false,
 
         // Camera
         cameraStream: null,
@@ -141,7 +149,6 @@
             sysTemp: document.getElementById('sys-temp'),
             sysMem: document.getElementById('sys-mem'),
             sysPwr: document.getElementById('sys-pwr'),
-            // History modal
             historyBtn: document.getElementById('history-btn'),
             historyModal: document.getElementById('history-modal'),
             historyBackdrop: document.getElementById('history-backdrop'),
@@ -215,15 +222,8 @@
         return trimmed;
     }
 
-    function escapeHtml(s) {
-        if (typeof s !== 'string') return '';
-        return s.replace(/[&<>"']/g, (c) => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-        }[c]));
-    }
-
     // ==============================
-    // 5. HISTORY — localStorage
+    // 5. HISTORY
     // ==============================
 
     function loadHistoryFromStorage() {
@@ -234,7 +234,7 @@
             if (!Array.isArray(parsed)) return [];
             return parsed
                 .filter((m) => m && typeof m === 'object' && (m.role === 'user' || m.role === 'jarvis') && typeof m.text === 'string')
-                .slice(-200); // הגנה
+                .slice(-200);
         } catch (e) {
             console.warn('[history] load failed', e);
             return [];
@@ -272,14 +272,6 @@
         setText(el.historyCount, String(state.history.length));
     }
 
-    function getRecentHistoryForServer() {
-        const recent = state.history.slice(-CONFIG.maxHistoryMessagesSent);
-        return recent.map((m) => ({
-            role: m.role,
-            text: m.text.substring(0, CONFIG.maxHistoryCharsPerMessage),
-        }));
-    }
-
     // ==============================
     // 6. Rendering — messages
     // ==============================
@@ -313,7 +305,6 @@
         if (opts.typing) body.textContent = '';
         else body.textContent = text;
 
-        // Actions (copy)
         const actions = document.createElement('span');
         actions.className = 'msg-actions';
         const copyBtn = document.createElement('button');
@@ -375,7 +366,6 @@
     }
 
     function appendMessage(role, text, options) {
-        // שמירה + רינדור + typing effect
         appendToHistory(role, text);
         const index = state.history.length;
         return appendMessageToDOM(role, text, Date.now(), { ...(options || {}), index });
@@ -428,7 +418,6 @@
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 await navigator.clipboard.writeText(text);
             } else {
-                // fallback
                 const ta = document.createElement('textarea');
                 ta.value = text;
                 ta.style.position = 'fixed';
@@ -479,6 +468,9 @@
         };
         tryLoad();
         window.speechSynthesis.onvoiceschanged = tryLoad;
+        // באנדרואיד לפעמים טעינת הקולות איטית
+        setTimeout(tryLoad, 500);
+        setTimeout(tryLoad, 1500);
     }
 
     function speak(text) {
@@ -694,7 +686,6 @@
             empty.textContent = q ? 'לא נמצאו תוצאות' : 'אין הודעות עדיין';
             el.historyList.appendChild(empty);
         } else {
-            // newest first
             const reversed = filtered.slice().reverse();
             for (const m of reversed) {
                 const item = document.createElement('div');
@@ -775,7 +766,7 @@
     }
 
     // ==============================
-    // 16. MIC
+    // 16. MIC — with mobile fixes
     // ==============================
 
     function initSpeechRecognition() {
@@ -783,6 +774,7 @@
         if (!SR) {
             state.recognitionSupported = false;
             if (el.micBtn) el.micBtn.hidden = true;
+            console.warn('[mic] Web Speech API not supported');
             return;
         }
         state.recognitionSupported = true;
@@ -796,30 +788,44 @@
 
         rec.onstart = () => {
             state.isListening = true;
+            state.micManualStop = false;
+            state.lastSpeechAt = Date.now();
+
             if (el.micBtn) el.micBtn.setAttribute('aria-pressed', 'true');
             if (el.micStatus) el.micStatus.hidden = false;
             setText(el.micStatusText, 'מקשיב...');
             setText(el.coreStatus, 'מצב: מקשיב לפקודה קולית');
             if (el.userInput) el.userInput.classList.add('interim');
+
             startMicTimer();
             startMicAudioAnalysis();
+            startMicSafetyTimer();
+            startMicSilenceWatcher();
         };
 
         rec.onresult = (event) => {
+            state.lastSpeechAt = Date.now();
             let interimText = '';
             let finalText = '';
+
             for (let i = event.resultIndex; i < event.results.length; i++) {
                 const t = event.results[i][0].transcript;
                 if (event.results[i].isFinal) finalText += t;
                 else interimText += t;
             }
-            if (interimText && el.userInput) el.userInput.value = interimText;
+
+            if (interimText && el.userInput) {
+                el.userInput.value = interimText;
+            }
+
             if (finalText && el.userInput) {
                 el.userInput.value = finalText;
                 el.userInput.classList.remove('interim');
                 setText(el.micStatusText, 'זוהה — שולח...');
+
                 if (state.autoSendTimer) clearTimeout(state.autoSendTimer);
                 const textToSend = finalText.trim();
+
                 state.autoSendTimer = setTimeout(() => {
                     state.autoSendTimer = null;
                     stopListening();
@@ -829,6 +835,12 @@
         };
 
         rec.onerror = (event) => {
+            console.warn('[mic] error', event.error);
+
+            if (event.error === 'aborted' && state.micManualStop) {
+                return;
+            }
+
             const messages = {
                 'no-speech': 'לא זוהה דיבור — נסה שוב',
                 'audio-capture': 'לא נמצא מיקרופון',
@@ -839,30 +851,75 @@
             };
             const msg = messages[event.error] || `שגיאה: ${event.error}`;
             setText(el.micStatusText, msg);
-            if (event.error === 'not-allowed' || event.error === 'service-not-allowed') showError(msg);
+
+            if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                showError(msg);
+            }
+
+            if (event.error === 'no-speech' && state.isListening) {
+                // restart אוטומטי
+                setTimeout(() => {
+                    if (!state.micManualStop && !state.isSending) {
+                        startListening();
+                    }
+                }, CONFIG.speechRestartDelayMs);
+                return;
+            }
+
             stopListening();
         };
 
         rec.onend = () => {
+            const wasManual = state.micManualStop;
             state.isListening = false;
+            state.micManualStop = false;
+
             if (el.micBtn) el.micBtn.setAttribute('aria-pressed', 'false');
             if (el.micStatus) el.micStatus.hidden = true;
             if (el.userInput) el.userInput.classList.remove('interim');
+
             stopMicTimer();
             stopMicAudioAnalysis();
-            if (state.isOnline && !state.isCameraOn) setText(el.coreStatus, 'מצב: סנכרון מוחי פעיל');
+            clearMicSafetyTimer();
+            clearMicSilenceTimer();
+
+            if (state.isOnline && !state.isCameraOn) {
+                setText(el.coreStatus, 'מצב: סנכרון מוחי פעיל');
+            }
+
+            // restart אוטומטי אם זו לא עצירה ידנית
+            if (!wasManual && !state.isSending && !state.autoSendTimer) {
+                const textInInput = el.userInput ? el.userInput.value.trim() : '';
+                if (!textInInput) {
+                    setTimeout(() => {
+                        if (!state.micManualStop && !state.isSending && !state.isListening) {
+                            startListening();
+                        }
+                    }, CONFIG.speechRestartDelayMs);
+                }
+            }
         };
 
         state.recognition = rec;
+        console.info('[mic] Web Speech API initialized (lang: he-IL)');
     }
 
     function startListening() {
-        if (!state.recognition || state.isSending || state.isListening) return;
-        try { state.recognition.start(); } catch (e) {}
+        if (!state.recognition) return;
+        if (state.isSending) return;
+        if (state.isListening) return;
+
+        try {
+            state.recognition.start();
+        } catch (e) {
+            // sometimes throws if already started — ignore
+        }
     }
 
     function stopListening() {
-        if (!state.recognition || !state.isListening) return;
+        if (!state.recognition) return;
+        if (!state.isListening) return;
+        state.micManualStop = true;
         try { state.recognition.stop(); } catch (e) {}
     }
 
@@ -883,6 +940,50 @@
     function stopMicTimer() {
         if (state.micTimerInterval) { clearInterval(state.micTimerInterval); state.micTimerInterval = null; }
         if (el.micTimer) el.micTimer.textContent = '00:00';
+    }
+
+    function startMicSafetyTimer() {
+        clearMicSafetyTimer();
+        state.micSafetyTimer = setTimeout(() => {
+            if (state.isListening && el.userInput && !el.userInput.value.trim()) {
+                console.warn('[mic] no result in ' + CONFIG.speechSafetyTimeoutMs + 'ms — restarting');
+                state.micManualStop = false;
+                try { state.recognition.stop(); } catch (e) {}
+            }
+        }, CONFIG.speechSafetyTimeoutMs);
+    }
+
+    function clearMicSafetyTimer() {
+        if (state.micSafetyTimer) {
+            clearTimeout(state.micSafetyTimer);
+            state.micSafetyTimer = null;
+        }
+    }
+
+    function startMicSilenceWatcher() {
+        clearMicSilenceTimer();
+        state.micSilenceTimer = setInterval(() => {
+            if (!state.isListening) return;
+            const sinceLastSpeech = Date.now() - state.lastSpeechAt;
+            const hasText = el.userInput && el.userInput.value.trim();
+            if (sinceLastSpeech > CONFIG.speechSilenceTimeoutMs && hasText) {
+                // silence after speech → trigger send
+                if (!state.autoSendTimer) {
+                    const text = el.userInput.value.trim();
+                    if (text && !state.isSending) {
+                        stopListening();
+                        sendMessage(text);
+                    }
+                }
+            }
+        }, 500);
+    }
+
+    function clearMicSilenceTimer() {
+        if (state.micSilenceTimer) {
+            clearInterval(state.micSilenceTimer);
+            state.micSilenceTimer = null;
+        }
     }
 
     async function startMicAudioAnalysis() {
@@ -1017,6 +1118,13 @@
                 try { await el.cameraFeed.play(); } catch (e) {}
             }
             showSidebarView('camera');
+
+            // במצב mobile — הצג את הפאנל
+            if (CONFIG.isMobile) {
+                const sidebar = document.querySelector('.brain-sidebar');
+                if (sidebar) sidebar.classList.add('mobile-visible');
+            }
+
             if (el.cameraBtn) el.cameraBtn.setAttribute('aria-pressed', 'true');
             setText(el.cameraStatusText, 'מצלמה פעילה');
             setText(el.coreStatus, 'מצב: עין אופטית פעילה');
@@ -1041,6 +1149,10 @@
         if (el.cameraFeed) el.cameraFeed.srcObject = null;
         state.isCameraOn = false;
         showSidebarView('brain');
+
+        const sidebar = document.querySelector('.brain-sidebar');
+        if (sidebar) sidebar.classList.remove('mobile-visible');
+
         if (el.cameraBtn) el.cameraBtn.setAttribute('aria-pressed', 'false');
         if (el.cameraFps) el.cameraFps.textContent = '-- FPS';
         if (el.cameraRes) el.cameraRes.textContent = '--';
@@ -1191,7 +1303,6 @@
     async function sendMessage(prompt) {
         if (state.isSending) return;
 
-        // Vision?
         if (state.isCameraOn && containsVisionKeyword(prompt) && !state.isAnalyzing) {
             appendMessage('user', prompt);
             if (el.userInput) {
@@ -1204,7 +1315,6 @@
 
         state.isSending = true;
 
-        // append user to history + DOM
         appendMessage('user', prompt);
 
         if (el.userInput) {
@@ -1221,7 +1331,6 @@
         const clientStart = performance.now();
 
         try {
-            // היסטוריה — בלי ההודעה הנוכחית (היא כבר לא תהיה כפולה בשרת)
             const historyForServer = state.history.slice(0, -1).slice(-CONFIG.maxHistoryMessagesSent);
 
             const res = await fetch('/api/ask', {
@@ -1293,7 +1402,6 @@
     }
 
     function handleKeydown(e) {
-        // Esc → נקה קלט
         if (e.key === 'Escape') {
             if (!el.historyModal || el.historyModal.hidden) {
                 if (el.userInput) el.userInput.value = '';
@@ -1301,7 +1409,6 @@
                 closeHistoryModal();
             }
         }
-        // Ctrl+Enter → שלח
         if (e.ctrlKey && e.key === 'Enter' && document.activeElement === el.userInput) {
             el.chatForm.dispatchEvent(new Event('submit', { cancelable: true }));
         }
@@ -1318,12 +1425,10 @@
             return;
         }
 
-        // === History ===
         state.history = loadHistoryFromStorage();
         updateHistoryCount();
         renderFullHistory();
 
-        // TTS state
         try {
             const saved = localStorage.getItem(CONFIG.ttsStorageKey);
             if (saved !== null) state.ttsEnabled = saved === 'true';
@@ -1369,6 +1474,8 @@
             if (state.metricsTimer) clearInterval(state.metricsTimer);
             if (state.autoSendTimer) clearTimeout(state.autoSendTimer);
             if (state.typingTimer) clearInterval(state.typingTimer);
+            if (state.micSafetyTimer) clearTimeout(state.micSafetyTimer);
+            if (state.micSilenceTimer) clearInterval(state.micSilenceTimer);
             if (state.recognition && state.isListening) {
                 try { state.recognition.stop(); } catch (e) {}
             }
@@ -1380,7 +1487,7 @@
             if ('speechSynthesis' in window) window.speechSynthesis.cancel();
         });
 
-        console.info(`[app] J.A.R.V.I.S v3.2 initialized — history: ${state.history.length} messages`);
+        console.info(`[app] J.A.R.V.I.S v3.3 — history: ${state.history.length} | mobile: ${CONFIG.isMobile}`);
     }
 
     if (document.readyState === 'loading') {
