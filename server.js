@@ -837,7 +837,132 @@ app.post('/api/ask', apiRateLimiter, async (req, res, next) => {
     }
 });
 
-// === VISION ===
+// === VISION === // === Analytics AI Analysis ===
+app.post('/api/analyze', apiRateLimiter, async (req, res, next) => {
+    const requestStart = Date.now();
+    metrics.totalRequests += 1;
+
+    try {
+        const videos = req.body?.videos;
+        if (!Array.isArray(videos) || videos.length === 0) {
+            return res.status(400).json({ reply: 'אין נתונים לניתוח' });
+        }
+
+        // === סיכום כללי ===
+        const totals = videos.reduce((acc, v) => {
+            acc.views += Number(v.views) || 0;
+            acc.likes += Number(v.likes) || 0;
+            acc.comments += Number(v.comments) || 0;
+            acc.shares += Number(v.shares) || 0;
+            acc.count += 1;
+            if (v.platform) {
+                acc.platforms[v.platform] = acc.platforms[v.platform] || { views: 0, likes: 0, comments: 0, count: 0 };
+                acc.platforms[v.platform].views += Number(v.views) || 0;
+                acc.platforms[v.platform].likes += Number(v.likes) || 0;
+                acc.platforms[v.platform].comments += Number(v.comments) || 0;
+                acc.platforms[v.platform].count += 1;
+            }
+            return acc;
+        }, { views: 0, likes: 0, comments: 0, shares: 0, count: 0, platforms: {} });
+
+        const ratio = totals.views ? ((totals.likes / totals.views) * 100).toFixed(2) : 0;
+        const commentRatio = totals.views ? ((totals.comments / totals.views) * 100).toFixed(2) : 0;
+
+        // === Top/Bottom ===
+        const sorted = [...videos].sort((a, b) => (b.views || 0) - (a.views || 0));
+        const top5 = sorted.slice(0, 5);
+        const bottom5 = sorted.slice(-5).reverse();
+
+        const byRatio = [...videos]
+            .filter((v) => (v.views || 0) > 100)
+            .sort((a, b) => ((b.likes || 0) / b.views) - ((a.likes || 0) / a.views))
+            .slice(0, 3);
+
+        // === בניית הפרומפט ===
+        const platformSummary = Object.entries(totals.platforms).map(([name, data]) => {
+            const pRatio = data.views ? ((data.likes / data.views) * 100).toFixed(2) : 0;
+            return `- ${name}: ${data.count} סרטונים, ${data.views.toLocaleString()} צפיות, ${data.likes} לייקים, ${data.comments} תגובות, יחס לייק/צפייה ${pRatio}%`;
+        }).join('\n');
+
+        const topSummary = top5.map((v, i) =>
+            `${i + 1}. [${v.platform}] "${v.title}" — ${v.views} צפיות, ${v.likes} לייקים, ${v.comments} תגובות, אורך ${v.duration}s`
+        ).join('\n');
+
+        const bottomSummary = bottom5.map((v, i) =>
+            `${i + 1}. [${v.platform}] "${v.title}" — ${v.views} צפיות, ${v.likes} לייקים, אורך ${v.duration}s`
+        ).join('\n');
+
+        const ratioSummary = byRatio.map((v, i) =>
+            `${i + 1}. [${v.platform}] "${v.title}" — ${((v.likes / v.views) * 100).toFixed(2)}% יחס`
+        ).join('\n');
+
+        const prompt = `אתה אנליסט תוכן בכיר. קיבלת נתוני ביצועים של ${totals.count} סרטונים מ-${Object.keys(totals.platforms).length} פלטפורמות שונות.
+
+## סיכום כללי
+- סה"כ צפיות: ${totals.views.toLocaleString()}
+- סה"כ לייקים: ${totals.likes.toLocaleString()}
+- סה"כ תגובות: ${totals.comments.toLocaleString()}
+- יחס לייק/צפייה: ${ratio}%
+- יחס תגובה/צפייה: ${commentRatio}%
+
+## פילוח לפי פלטפורמה
+${platformSummary}
+
+## 5 הסרטונים המצליחים ביותר (לפי צפיות)
+${topSummary}
+
+## 5 הסרטונים החלשים ביותר (לפי צפיות)
+${bottomSummary}
+
+## הסרטונים עם יחס הלייקים הגבוה ביותר
+${ratioSummary}
+
+---
+
+## המשימה שלך
+תן לי ניתוח אנליטי חד, ישיר וביקורתי בעברית. **אסור לך לחמיא. אסור להגיד "כל הכבוד".**
+
+החזר את הניתוח במבנה הזה בדיוק:
+
+### 🎯 מה עובד
+(2-3 תובנות מבוססות מספרים — מה עבד ולמה)
+
+### 🔴 מה לא עובד
+(2-3 בעיות אמיתיות — ביקורת ישירה עם מספרים)
+
+### 📊 השוואת פלטפורמות
+(איזו פלטפורמה הכי טובה לך, איזו פחות, ולמה — עם מספרים)
+
+### 🚀 3 המלצות קונקרטיות לסרטונים הבאים
+(3 פעולות ספציפיות שאני יכול ליישם מיד)
+
+### ⚠️ אזהרה אחת
+(משהו שאני עושה לא נכון ואני לא שם לב אליו)
+
+סגנון: ישיר, ביקורתי, מבוסס מספרים. בלי הקדמות מיותרות.`;
+
+        // === שליחה ל-Gemini ===
+        const { reply, coreLatencyMs, attempts } = await callGeminiWithRetry(prompt, '', []);
+        const totalRoundTripMs = Date.now() - requestStart;
+
+        metrics.totalSuccess += 1;
+        recordLatency(coreLatencyMs);
+
+        log('info', `Analyze OK`, { videos: videos.length, coreLatencyMs, totalRoundTripMs });
+
+        return res.json({
+            reply,
+            latencyMs: coreLatencyMs,
+            roundTripMs: totalRoundTripMs,
+            attempts,
+            videoCount: videos.length,
+            timestamp: new Date().toISOString(),
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post('/api/vision', visionRateLimiter, async (req, res, next) => {
     const requestStart = Date.now();
     metrics.totalRequests += 1;

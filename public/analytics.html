@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="description" content="J.A.R.V.I.S — Analytics Dashboard">
+    <meta name="theme-color" content="#04070d">
+    <title>J.A.R.V.I.S // ANALYTICS</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="/css/analytics.css">
+    <link rel="stylesheet" href="/css/mobile.css" media="(max-width: 1024px)">
+</head>
+<body class="analytics-page">
+
+    <div class="analytics-container">
+
+        <!-- === Header === -->
+        <header class="analytics-header">
+            <div class="brand">
+                <a href="/" class="back-btn" aria-label="חזור">←</a>
+                <h1>J.A.R.V.I.S // ANALYTICS</h1>
+            </div>
+
+            <div class="analytics-actions">
+                <button type="button" id="btn-add" class="action-btn primary">➕ הוסף סרטון</button>
+                <button type="button" id="btn-paste" class="action-btn">📋 הדבק נתונים</button>
+                <button type="button" id="btn-ai" class="action-btn gold">🤖 נתח AI</button>
+                <button type="button" id="btn-export" class="action-btn">📥 ייצוא</button>
+                <button type="button" id="btn-import" class="action-btn">📤 ייבוא</button>
+                <input type="file" id="import-file" accept=".json" hidden>
+            </div>
+        </header>
+
+        <!-- === Summary Cards === -->
+        <section class="summary-section">
+            <h2 class="section-title">📊 סיכום כללי</h2>
+            <div class="summary-cards">
+                <div class="sum-card" data-platform="all">
+                    <span class="sum-label">סה"כ צפיות</span>
+                    <span class="sum-value" id="sum-views">0</span>
+                </div>
+                <div class="sum-card" data-platform="all">
+                    <span class="sum-label">סה"כ לייקים</span>
+                    <span class="sum-value" id="sum-likes">0</span>
+                </div>
+                <div class="sum-card" data-platform="all">
+                    <span class="sum-label">סה"כ תגובות</span>
+                    <span class="sum-value" id="sum-comments">0</span>
+                </div>
+                <div class="sum-card" data-platform="all">
+                    <span class="sum-label">סה"כ סרטונים</span>
+                    <span class="sum-value" id="sum-videos">0</span>
+                </div>
+                <div class="sum-card" data-platform="all">
+                    <span class="sum-label">יחס לייק/צפייה</span>
+                    <span class="sum-value" id="sum-ratio">0%</span>
+                </div>
+                <div class="sum-card" data-platform="all">
+                    <span class="sum-label">יחס תגובה/צפייה</span>
+                    <span class="sum-value" id="sum-comment-ratio">0%</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- === Platform Comparison === -->
+        <section class="platforms-section">
+            <h2 class="section-title">🎯 השוואת פלטפורמות</h2>
+            <div class="platforms-grid">
+                <div class="platform-card" data-platform="youtube">
+                    <div class="platform-header">
+                        <span class="platform-icon">🎬</span>
+                        <span class="platform-name">YouTube</span>
+                    </div>
+                    <div class="platform-stats">
+                        <div class="pstat"><span>צפיות</span><span id="yt-views">0</span></div>
+                        <div class="pstat"><span>לייקים</span><span id="yt-likes">0</span></div>
+                        <div class="pstat"><span>תגובות</span><span id="yt-comments">0</span></div>
+                        <div class="pstat"><span>סרטונים</span><span id="yt-count">0</span></div>
+                    </div>
+                    <div class="platform-bar">
+                        <div class="bar-fill" id="yt-bar"></div>
+                    </div>
+                </div>
+
+                <div class="platform-card" data-platform="tiktok">
+                    <div class="platform-header">
+                        <span class="platform-icon">📱</span>
+                        <span class="platform-name">TikTok</span>
+                    </div>
+                    <div class="platform-stats">
+                        <div class="pstat"><span>צפיות</span><span id="tt-views">0</span></div>
+                        <div class="pstat"><span>לייקים</span><span id="tt-likes">0</span></div>
+                        <div class="pstat"><span>תגובות</span><span id="tt-comments">0</span></div>
+                        <div class="pstat"><span>סרטונים</span><span id="tt-count">0</span></div>
+                    </div>
+                    <div class="platform-bar">
+                        <div class="bar-fill" id="tt-bar"></div>
+                    </div>
+                </div>
+
+                <div class="platform-card" data-platform="instagram">
+                    <div class="platform-header">
+                        <span class="platform-icon">📸</span>
+                        <span class="platform-name">Instagram</span>
+                    </div>
+                    <div class="platform-stats">
+                        <div class="pstat"><span>צפיות</span><span id="ig-views">0</span></div>
+                        <div class="pstat"><span>לייקים</span><span id="ig-likes">0</span></div>
+                        <div class="pstat"><span>תגובות</span><span id="ig-comments">0</span></div>
+                        <div class="pstat"><span>סרטונים</span><span id="ig-count">0</span></div>
+                    </div>
+                    <div class="platform-bar">
+                        <div class="bar-fill" id="ig-bar"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- === Filter === -->
+        <section class="filter-section">
+            <div class="filter-row">
+                <label>פלטפורמה:
+                    <select id="filter-platform">
+                        <option value="all">הכל</option>
+                        <option value="youtube">🎬 YouTube</option>
+                        <option value="tiktok">📱 TikTok</option>
+                        <option value="instagram">📸 Instagram</option>
+                    </select>
+                </label>
+                <label>מיון:
+                    <select id="sort-by">
+                        <option value="date-desc">תאריך (חדש→ישן)</option>
+                        <option value="date-asc">תאריך (ישן→חדש)</option>
+                        <option value="views-desc">צפיות (גבוה→נמוך)</option>
+                        <option value="likes-desc">לייקים (גבוה→נמוך)</option>
+                        <option value="ratio-desc">יחס לייקים (גבוה→נמוך)</option>
+                    </select>
+                </label>
+                <input type="text" id="search-input" placeholder="🔍 חפש בכותרת...">
+            </div>
+        </section>
+
+        <!-- === Top / Bottom === -->
+        <section class="topbottom-section">
+            <div class="tb-column">
+                <h2 class="section-title">🏆 Top 5 — הצפיות הגבוהות</h2>
+                <div id="top-views" class="tb-list"></div>
+            </div>
+            <div class="tb-column">
+                <h2 class="section-title">❤️ Top 5 — יחס לייקים</h2>
+                <div id="top-likes" class="tb-list"></div>
+            </div>
+            <div class="tb-column">
+                <h2 class="section-title">📉 Bottom 5 — הצפיות הנמוכות</h2>
+                <div id="bottom-views" class="tb-list"></div>
+            </div>
+        </section>
+
+        <!-- === Table === -->
+        <section class="table-section">
+            <h2 class="section-title">📋 כל הסרטונים <span id="table-count">(0)</span></h2>
+            <div class="table-wrapper">
+                <table class="videos-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>פלטפורמה</th>
+                            <th>תאריך</th>
+                            <th>כותרת</th>
+                            <th>אורך</th>
+                            <th>צפיות</th>
+                            <th>לייקים</th>
+                            <th>תגובות</th>
+                            <th>יחס</th>
+                            <th>פעולות</th>
+                        </tr>
+                    </thead>
+                    <tbody id="videos-tbody">
+                        <!-- filled by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- === AI Insights === -->
+        <section class="ai-section">
+            <h2 class="section-title">🤖 תובנות AI</h2>
+            <div id="ai-insights" class="ai-insights">
+                <div class="ai-placeholder">
+                    לחץ על "נתח AI" כדי לקבל תובנות מג'רוויס
+                </div>
+            </div>
+        </section>
+
+        <!-- === Footer === -->
+        <footer class="analytics-footer">
+            <span>J.A.R.V.I.S // Analytics v1.0</span>
+            <span id="footer-updated">—</span>
+        </footer>
+
+    </div>
+
+    <!-- === Add Video Modal === -->
+    <div id="add-modal" class="modal" hidden>
+        <div class="modal-backdrop" data-close="add-modal"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>➕ הוסף סרטון</h2>
+                <button type="button" class="modal-icon-btn" data-close="add-modal">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="add-form" class="add-form">
+                    <label>פלטפורמה:
+                        <select id="f-platform" required>
+                            <option value="youtube">🎬 YouTube</option>
+                            <option value="tiktok">📱 TikTok</option>
+                            <option value="instagram">📸 Instagram</option>
+                        </select>
+                    </label>
+                    <label>תאריך:
+                        <input type="date" id="f-date" required>
+                    </label>
+                    <label>כותרת:
+                        <input type="text" id="f-title" required placeholder="לדוגמה: Day 7 — Full Planche">
+                    </label>
+                    <label>אורך (שניות):
+                        <input type="number" id="f-duration" min="0" step="0.1">
+                    </label>
+                    <label>צפיות:
+                        <input type="number" id="f-views" min="0" required>
+                    </label>
+                    <label>לייקים:
+                        <input type="number" id="f-likes" min="0" value="0">
+                    </label>
+                    <label>תגובות:
+                        <input type="number" id="f-comments" min="0" value="0">
+                    </label>
+                    <label>שיתופים:
+                        <input type="number" id="f-shares" min="0" value="0">
+                    </label>
+                    <label>מזהה (אופציונלי):
+                        <input type="text" id="f-id" placeholder="shortCode / ID">
+                    </label>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="modal-icon-btn" data-close="add-modal">ביטול</button>
+                <button type="button" id="add-submit" class="modal-primary-btn">שמור</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- === Paste Modal === -->
+    <div id="paste-modal" class="modal" hidden>
+        <div class="modal-backdrop" data-close="paste-modal"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📋 הדבק נתונים גולמיים</h2>
+                <button type="button" class="modal-icon-btn" data-close="paste-modal">✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="paste-hint">
+                    הדבק כאן טקסט מופרד בטאבים (כמו מ-YouTube Studio, TikTok, Instagram).
+                    כל שורה = סרטון אחד. סדר העמודות:
+                    <strong>פלטפורמה | תאריך | כותרת | אורך | צפיות | לייקים | תגובות</strong>
+                </p>
+                <textarea id="paste-input" class="paste-input" rows="12" placeholder="youtube	2026-09-22	Day 7 — Full Planche	10	1200	25	3
+tiktok	2026-09-22	Day 7 — Full Planche	9	850	30	5
+instagram	2026-09-22	Day 7 — Full Planche	10	700	45	8"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="modal-icon-btn" data-close="paste-modal">ביטול</button>
+                <button type="button" id="paste-submit" class="modal-primary-btn">נתח והוסף</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- === Edit Modal === -->
+    <div id="edit-modal" class="modal" hidden>
+        <div class="modal-backdrop" data-close="edit-modal"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>✏️ ערוך סרטון</h2>
+                <button type="button" class="modal-icon-btn" data-close="edit-modal">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="edit-form" class="add-form">
+                    <input type="hidden" id="e-id">
+                    <label>פלטפורמה:
+                        <select id="e-platform">
+                            <option value="youtube">🎬 YouTube</option>
+                            <option value="tiktok">📱 TikTok</option>
+                            <option value="instagram">📸 Instagram</option>
+                        </select>
+                    </label>
+                    <label>תאריך:
+                        <input type="date" id="e-date">
+                    </label>
+                    <label>כותרת:
+                        <input type="text" id="e-title">
+                    </label>
+                    <label>אורך (שניות):
+                        <input type="number" id="e-duration" min="0" step="0.1">
+                    </label>
+                    <label>צפיות:
+                        <input type="number" id="e-views" min="0">
+                    </label>
+                    <label>לייקים:
+                        <input type="number" id="e-likes" min="0">
+                    </label>
+                    <label>תגובות:
+                        <input type="number" id="e-comments" min="0">
+                    </label>
+                    <label>שיתופים:
+                        <input type="number" id="e-shares" min="0">
+                    </label>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="modal-icon-btn" data-close="edit-modal">ביטול</button>
+                <button type="button" id="edit-submit" class="modal-primary-btn">עדכן</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/analytics.js" defer></script>
+</body>
+</html>
