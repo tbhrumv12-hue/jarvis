@@ -4,16 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="description" content="J.A.R.V.I.S — Analytics Dashboard">
-    <meta name="theme-color" content="#04070d">
+    <meta name="theme-color" content="#fafafa">
     <title>J.A.R.V.I.S // ANALYTICS</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 
-    <link rel="stylesheet" href="/css/main.css">
     <link rel="stylesheet" href="/css/analytics.css">
-    <link rel="stylesheet" href="/css/mobile.css" media="(max-width: 1024px)">
 </head>
 <body class="analytics-page">
 
@@ -29,6 +27,7 @@
             <div class="analytics-actions">
                 <button type="button" id="btn-add" class="action-btn primary">➕ הוסף סרטון</button>
                 <button type="button" id="btn-paste" class="action-btn">📋 הדבק נתונים</button>
+                <button type="button" id="btn-mega" class="action-btn gold">📋 מגה-פרומפט</button>
                 <button type="button" id="btn-ai" class="action-btn gold">🤖 נתח AI</button>
                 <button type="button" id="btn-export" class="action-btn">📥 ייצוא</button>
                 <button type="button" id="btn-import" class="action-btn">📤 ייבוא</button>
@@ -40,27 +39,27 @@
         <section class="summary-section">
             <h2 class="section-title">📊 סיכום כללי</h2>
             <div class="summary-cards">
-                <div class="sum-card" data-platform="all">
+                <div class="sum-card">
                     <span class="sum-label">סה"כ צפיות</span>
                     <span class="sum-value" id="sum-views">0</span>
                 </div>
-                <div class="sum-card" data-platform="all">
+                <div class="sum-card">
                     <span class="sum-label">סה"כ לייקים</span>
                     <span class="sum-value" id="sum-likes">0</span>
                 </div>
-                <div class="sum-card" data-platform="all">
+                <div class="sum-card">
                     <span class="sum-label">סה"כ תגובות</span>
                     <span class="sum-value" id="sum-comments">0</span>
                 </div>
-                <div class="sum-card" data-platform="all">
+                <div class="sum-card">
                     <span class="sum-label">סה"כ סרטונים</span>
                     <span class="sum-value" id="sum-videos">0</span>
                 </div>
-                <div class="sum-card" data-platform="all">
+                <div class="sum-card">
                     <span class="sum-label">יחס לייק/צפייה</span>
                     <span class="sum-value" id="sum-ratio">0%</span>
                 </div>
-                <div class="sum-card" data-platform="all">
+                <div class="sum-card">
                     <span class="sum-label">יחס תגובה/צפייה</span>
                     <span class="sum-value" id="sum-comment-ratio">0%</span>
                 </div>
@@ -181,25 +180,39 @@
                         </tr>
                     </thead>
                     <tbody id="videos-tbody">
-                        <!-- filled by JS -->
                     </tbody>
                 </table>
             </div>
         </section>
 
-        <!-- === AI Insights === -->
+        <!-- === AI Chat === -->
         <section class="ai-section">
-            <h2 class="section-title">🤖 תובנות AI</h2>
-            <div id="ai-insights" class="ai-insights">
-                <div class="ai-placeholder">
-                    לחץ על "נתח AI" כדי לקבל תובנות מג'רוויס
+            <h2 class="section-title">🤖 צ'אט AI — שאל שאלות על הנתונים</h2>
+
+            <div id="ai-chat" class="ai-chat">
+                <div class="chat-message ai">
+                    <div class="chat-avatar">🤖</div>
+                    <div class="chat-bubble">שלום! אני כאן כדי לנתח את הנתונים שלך.<br><br>נסה לשאול:<br>• מה הסרטון הכי מצליח שלי?<br>• תן לי 3 רעיונות לסרטונים הבאים<br>• תשווה בין הפלטפורמות<br>• איך אני משיג יותר תגובות?</div>
                 </div>
             </div>
+
+            <div class="chat-suggestions">
+                <button type="button" class="suggestion-chip" data-q="מה הסרטון הכי מצליח שלי?">🏆 הסרטון המצליח</button>
+                <button type="button" class="suggestion-chip" data-q="תן לי 3 רעיונות לסרטונים הבאים על סמך מה שעבד">💡 3 רעיונות</button>
+                <button type="button" class="suggestion-chip" data-q="תשווה בין TikTok ל-YouTube ותגיד לי איפה להתמקד">📊 השוואה</button>
+                <button type="button" class="suggestion-chip" data-q="איך אני משיג יותר תגובות ומעורבות?">💬 יותר תגובות</button>
+                <button type="button" class="suggestion-chip" data-q="מה הטרנד הכי חזק שלי ולמה?">🔥 הטרנד החזק</button>
+            </div>
+
+            <form class="chat-form" id="chat-form">
+                <textarea class="chat-input" id="chat-input" placeholder="שאל שאלה על הנתונים..." rows="1"></textarea>
+                <button type="submit" class="chat-send">שלח ←</button>
+            </form>
         </section>
 
         <!-- === Footer === -->
         <footer class="analytics-footer">
-            <span>J.A.R.V.I.S // Analytics v1.0</span>
+            <span>J.A.R.V.I.S // Analytics v1.1</span>
             <span id="footer-updated">—</span>
         </footer>
 
@@ -324,6 +337,31 @@ instagram	2026-09-22	Day 7 — Full Planche	10	700	45	8"></textarea>
             <div class="modal-footer">
                 <button type="button" class="modal-icon-btn" data-close="edit-modal">ביטול</button>
                 <button type="button" id="edit-submit" class="modal-primary-btn">עדכן</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- === Mega Prompt Modal === -->
+    <div id="mega-modal" class="modal" hidden>
+        <div class="modal-backdrop" data-close="mega-modal"></div>
+        <div class="modal-content modal-content-wide">
+            <div class="modal-header">
+                <h2>📋 מגה-פרומפט — מוכן להעתקה</h2>
+                <button type="button" class="modal-icon-btn" data-close="mega-modal">✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="paste-hint">
+                    העתק את הטקסט הזה ושלח אותו ל-AI חדש (DeepSeek/Claude/ChatGPT) כדי להמשיך את הפרויקט.
+                    הוא כולל את כל הסטטיסטיקות, הידע האישי, והמשימות הבאות.
+                </p>
+                <textarea id="mega-output" class="mega-output" readonly></textarea>
+            </div>
+            <div class="modal-footer">
+                <span class="modal-info" id="mega-info">—</span>
+                <div class="modal-actions">
+                    <button type="button" class="modal-icon-btn" data-close="mega-modal">סגור</button>
+                    <button type="button" id="mega-copy" class="modal-primary-btn">📋 העתק הכל</button>
+                </div>
             </div>
         </div>
     </div>

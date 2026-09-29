@@ -1,5 +1,5 @@
 /**
- * ⚡ J.A.R.V.I.S Server — Neural Kernel V3.2
+ * ⚡ J.A.R.V.I.S Server — Neural Kernel V3.3
  * Express + Gemini + Vision + Knowledge Base (BM25) + Conversation Memory
  */
 
@@ -216,9 +216,8 @@ const knowledge = {
     files: new Map(),
     loadedAt: null,
     totalChars: 0,
-    // BM25 state
     avgDocLength: 0,
-    docFreq: new Map(), // token → count of docs containing it
+    docFreq: new Map(),
 };
 
 const STOP_WORDS_HE = new Set([
@@ -375,7 +374,6 @@ function loadKnowledgeBase() {
     }
 }
 
-// === BM25 scoring ===
 const BM25_K1 = 1.5;
 const BM25_B = 0.75;
 
@@ -433,7 +431,6 @@ function sanitizeHistory(history) {
     const cleaned = [];
     let totalChars = 0;
 
-    // הולכים מהסוף להתחלה — שומרים את האחרונות
     for (let i = history.length - 1; i >= 0; i--) {
         const m = history[i];
         if (!m || typeof m !== 'object') continue;
@@ -474,7 +471,6 @@ function buildConversationContents(history, newUserQuery) {
 async function callGeminiWithRetry(userQuery, knowledgeContext = '', history = [], retries = 2) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.geminiModel}:generateContent?key=${CONFIG.geminiApiKey}`;
 
-    // בניית ה-system instruction לפי הצורך
     let systemText;
     if (knowledgeContext) {
         systemText = `${KNOWLEDGE_SYSTEM_PROMPT}\n\n${knowledgeContext}`;
@@ -489,7 +485,7 @@ async function callGeminiWithRetry(userQuery, knowledgeContext = '', history = [
             parts: [{ text: systemText }],
         },
         contents,
-        generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
     });
 
     let lastError;
@@ -801,11 +797,9 @@ app.post('/api/ask', apiRateLimiter, async (req, res, next) => {
             return res.status(413).json({ reply: `אדון, השאלה ארוכה מדי (מקסימום ${CONFIG.maxPromptLength} תווים).` });
         }
 
-        // === היסטוריה ===
         const history = sanitizeHistory(rawHistory);
         metrics.totalHistoryMessagesSent += history.length;
 
-        // === חיפוש ידע ===
         metrics.totalKnowledgeLookups += 1;
         const matchedChunks = searchKnowledge(userQuery);
         const knowledgeContext = buildKnowledgeContext(matchedChunks);
@@ -837,7 +831,7 @@ app.post('/api/ask', apiRateLimiter, async (req, res, next) => {
     }
 });
 
-// === VISION === // === Analytics AI Analysis ===
+// === ANALYZE (Analytics AI Analysis) ===
 app.post('/api/analyze', apiRateLimiter, async (req, res, next) => {
     const requestStart = Date.now();
     metrics.totalRequests += 1;
@@ -848,7 +842,7 @@ app.post('/api/analyze', apiRateLimiter, async (req, res, next) => {
             return res.status(400).json({ reply: 'אין נתונים לניתוח' });
         }
 
-        // === סיכום כללי ===
+        // === חישוב סיכום כללי ===
         const totals = videos.reduce((acc, v) => {
             acc.views += Number(v.views) || 0;
             acc.likes += Number(v.likes) || 0;
@@ -868,87 +862,179 @@ app.post('/api/analyze', apiRateLimiter, async (req, res, next) => {
         const ratio = totals.views ? ((totals.likes / totals.views) * 100).toFixed(2) : 0;
         const commentRatio = totals.views ? ((totals.comments / totals.views) * 100).toFixed(2) : 0;
 
-        // === Top/Bottom ===
+        // === מיון סרטונים ===
         const sorted = [...videos].sort((a, b) => (b.views || 0) - (a.views || 0));
         const top5 = sorted.slice(0, 5);
         const bottom5 = sorted.slice(-5).reverse();
+        const medianViews = sorted[Math.floor(sorted.length / 2)]?.views || 0;
 
-        const byRatio = [...videos]
-            .filter((v) => (v.views || 0) > 100)
-            .sort((a, b) => ((b.likes || 0) / b.views) - ((a.likes || 0) / a.views))
+        // === סרטונים עם יחס לייקים גבוה ===
+        const engagementChamps = [...videos]
+            .filter(v => (v.views || 0) >= 100)
+            .sort((a, b) => {
+                const ra = (a.likes || 0) / (a.views || 1);
+                const rb = (b.likes || 0) / (b.views || 1);
+                return rb - ra;
+            })
             .slice(0, 3);
 
-        // === בניית הפרומפט ===
-        const platformSummary = Object.entries(totals.platforms).map(([name, data]) => {
-            const pRatio = data.views ? ((data.likes / data.views) * 100).toFixed(2) : 0;
-            return `- ${name}: ${data.count} סרטונים, ${data.views.toLocaleString()} צפיות, ${data.likes} לייקים, ${data.comments} תגובות, יחס לייק/צפייה ${pRatio}%`;
+        // === סרטונים עם הכי הרבה תגובות ===
+        const commentChamps = [...videos]
+            .filter(v => (v.comments || 0) > 0)
+            .sort((a, b) => (b.comments || 0) - (a.comments || 0))
+            .slice(0, 3);
+
+        // === פילוח פלטפורמות ===
+        const platformStats = {};
+        for (const v of videos) {
+            const p = v.platform || 'youtube';
+            if (!platformStats[p]) platformStats[p] = { count: 0, views: 0, likes: 0, comments: 0 };
+            platformStats[p].count++;
+            platformStats[p].views += Number(v.views) || 0;
+            platformStats[p].likes += Number(v.likes) || 0;
+            platformStats[p].comments += Number(v.comments) || 0;
+        }
+
+        // === פילוח אורכים ===
+        const durationBuckets = { short: [], medium: [], long: [] };
+        for (const v of videos) {
+            const d = Number(v.duration) || 0;
+            if (d <= 10) durationBuckets.short.push(v);
+            else if (d <= 20) durationBuckets.medium.push(v);
+            else durationBuckets.long.push(v);
+        }
+
+        // === טבלת כל הסרטונים ===
+        const detailedTable = sorted.map((v, i) => {
+            const vr = v.views ? ((v.likes || 0) / v.views * 100).toFixed(2) : '0';
+            const cr = v.views ? ((v.comments || 0) / v.views * 100).toFixed(3) : '0';
+            return `${i + 1}. [${v.platform || 'youtube'}] "${v.title}" | ${v.date || '—'} | ${v.duration || 0}s | ${(v.views || 0).toLocaleString()} צפיות | ${v.likes || 0} לייקים (${vr}%) | ${v.comments || 0} תגובות (${cr}%)`;
         }).join('\n');
 
-        const topSummary = top5.map((v, i) =>
-            `${i + 1}. [${v.platform}] "${v.title}" — ${v.views} צפיות, ${v.likes} לייקים, ${v.comments} תגובות, אורך ${v.duration}s`
-        ).join('\n');
+        // === בלוק פלטפורמות ===
+        const platformBlock = Object.entries(platformStats)
+            .map(([name, s]) => {
+                const avgViews = Math.round(s.views / s.count);
+                const pr = s.views ? (s.likes / s.views * 100).toFixed(2) : 0;
+                const cr = s.views ? (s.comments / s.views * 100).toFixed(3) : 0;
+                return `**${name}**: ${s.count} סרטונים | ${s.views.toLocaleString()} צפיות | ממוצע ${avgViews} צפיות/סרטון | יחס לייקים ${pr}% | יחס תגובות ${cr}%`;
+            })
+            .join('\n');
 
-        const bottomSummary = bottom5.map((v, i) =>
-            `${i + 1}. [${v.platform}] "${v.title}" — ${v.views} צפיות, ${v.likes} לייקים, אורך ${v.duration}s`
-        ).join('\n');
+        // === בלוק אורכים ===
+        const durationBlock = `
+- **קצרים (עד 10s)**: ${durationBuckets.short.length} סרטונים, סה"כ ${durationBuckets.short.reduce((s, v) => s + (Number(v.views) || 0), 0).toLocaleString()} צפיות, ממוצע ${durationBuckets.short.length ? Math.round(durationBuckets.short.reduce((s, v) => s + (Number(v.views) || 0), 0) / durationBuckets.short.length) : 0} צפיות/סרטון
+- **בינוניים (11-20s)**: ${durationBuckets.medium.length} סרטונים, סה"כ ${durationBuckets.medium.reduce((s, v) => s + (Number(v.views) || 0), 0).toLocaleString()} צפיות, ממוצע ${durationBuckets.medium.length ? Math.round(durationBuckets.medium.reduce((s, v) => s + (Number(v.views) || 0), 0) / durationBuckets.medium.length) : 0} צפיות/סרטון
+- **ארוכים (21s+)**: ${durationBuckets.long.length} סרטונים, סה"כ ${durationBuckets.long.reduce((s, v) => s + (Number(v.views) || 0), 0).toLocaleString()} צפיות, ממוצע ${durationBuckets.long.length ? Math.round(durationBuckets.long.reduce((s, v) => s + (Number(v.views) || 0), 0) / durationBuckets.long.length) : 0} צפיות/סרטון`;
 
-        const ratioSummary = byRatio.map((v, i) =>
-            `${i + 1}. [${v.platform}] "${v.title}" — ${((v.likes / v.views) * 100).toFixed(2)}% יחס`
-        ).join('\n');
+        // === Top 5 ===
+        const topBlock = top5.map((v, i) => {
+            const vr = v.views ? ((v.likes || 0) / v.views * 100).toFixed(2) : '0';
+            return `${i + 1}. [${v.platform || 'youtube'}] "${v.title}" — ${(v.views || 0).toLocaleString()} צפיות | ${v.likes || 0} לייקים (${vr}%) | ${v.comments || 0} תגובות | ${v.duration || 0}s`;
+        }).join('\n');
 
-        const prompt = `אתה אנליסט תוכן בכיר. קיבלת נתוני ביצועים של ${totals.count} סרטונים מ-${Object.keys(totals.platforms).length} פלטפורמות שונות.
+        // === Bottom 5 ===
+        const bottomBlock = bottom5.map((v, i) => {
+            const vr = v.views ? ((v.likes || 0) / v.views * 100).toFixed(2) : '0';
+            return `${i + 1}. [${v.platform || 'youtube'}] "${v.title}" — ${(v.views || 0).toLocaleString()} צפיות | ${v.likes || 0} לייקים (${vr}%) | ${v.duration || 0}s`;
+        }).join('\n');
 
-## סיכום כללי
+        // === מעורבות ===
+        const engagementBlock = engagementChamps.map((v, i) => {
+            const vr = ((v.likes || 0) / (v.views || 1) * 100).toFixed(2);
+            return `${i + 1}. [${v.platform || 'youtube'}] "${v.title}" — ${vr}% יחס לייקים (${v.likes}/${v.views})`;
+        }).join('\n');
+
+        // === תגובות ===
+        const commentBlock = commentChamps.length
+            ? commentChamps.map((v, i) => `${i + 1}. "${v.title}" — ${v.comments} תגובות (${((v.comments / v.views) * 100).toFixed(3)}% מ-${v.views} צפיות)`).join('\n')
+            : 'אין סרטונים עם תגובות.';
+
+        // === הפרומפט ===
+        const prompt = `אתה אנליסט תוכן אגרסיבי ומדויק. אתה מנתח נתוני ביצועים של יוצר תוכן קליסטניקס.
+המטרה שלך: **לתת לו תובנות שיעזרו לו לייצר תוכן ויראלי יותר — לא ללטף אגו.**
+
+## 📊 הנתונים המלאים
+
+### טבלת כל הסרטונים (ממוין לפי צפיות)
+${detailedTable}
+
+### סיכום כללי
+- סה"כ סרטונים: ${totals.count}
 - סה"כ צפיות: ${totals.views.toLocaleString()}
-- סה"כ לייקים: ${totals.likes.toLocaleString()}
-- סה"כ תגובות: ${totals.comments.toLocaleString()}
-- יחס לייק/צפייה: ${ratio}%
-- יחס תגובה/צפייה: ${commentRatio}%
+- סה"כ לייקים: ${totals.likes.toLocaleString()} (יחס: ${ratio}%)
+- סה"כ תגובות: ${totals.comments} (יחס: ${commentRatio}%)
+- **חציון צפיות**: ${medianViews.toLocaleString()}
 
-## פילוח לפי פלטפורמה
-${platformSummary}
+### פילוח לפי פלטפורמה
+${platformBlock}
 
-## 5 הסרטונים המצליחים ביותר (לפי צפיות)
-${topSummary}
+### פילוח לפי אורך סרטון
+${durationBlock}
 
-## 5 הסרטונים החלשים ביותר (לפי צפיות)
-${bottomSummary}
+### 5 הסרטונים המצליחים ביותר (Top 5)
+${topBlock}
 
-## הסרטונים עם יחס הלייקים הגבוה ביותר
-${ratioSummary}
+### 5 הסרטונים החלשים ביותר (Bottom 5)
+${bottomBlock}
+
+### הסרטונים עם יחס המעורבות הגבוה ביותר
+${engagementBlock}
+
+### הסרטונים עם הכי הרבה תגובות
+${commentBlock}
 
 ---
 
-## המשימה שלך
-תן לי ניתוח אנליטי חד, ישיר וביקורתי בעברית. **אסור לך לחמיא. אסור להגיד "כל הכבוד".**
+## 🎯 המשימה שלך
 
-החזר את הניתוח במבנה הזה בדיוק:
+תן ניתוח **אמיתי, חד, וביקורתי**. 
 
-### 🎯 מה עובד
-(2-3 תובנות מבוססות מספרים — מה עבד ולמה)
+**אסור לך:**
+- ❌ לחמיא ("כל הכבוד!", "מעולה!", "אתה עושה עבודה נהדרת!")
+- ❌ לחזור על הנתונים בלי לפרש אותם
+- ❌ לתת עצות גנריות ("תעשה תוכן טוב יותר", "תשפר את ה-hook")
+- ❌ לחזור על מה שהמשתמש כבר יודע
 
-### 🔴 מה לא עובד
-(2-3 בעיות אמיתיות — ביקורת ישירה עם מספרים)
+**אסור לך לחזור על הנתונים — הפרשן אותם!**
 
-### 📊 השוואת פלטפורמות
-(איזו פלטפורמה הכי טובה לך, איזו פחות, ולמה — עם מספרים)
+## 📐 הפורמט המדויק
 
-### 🚀 3 המלצות קונקרטיות לסרטונים הבאים
-(3 פעולות ספציפיות שאני יכול ליישם מיד)
+### 🎯 מה עובד **באמת** (ולמה)
+תן 3 תובנות **ספציפיות ומבוססות מספרים**. לא "סרטונים קצרים עובדים" — **למה בדיוק**.
+דוגמה טובה: "הסרטון עם 13.46% CTR הוא היחיד עם שאלה בכותרת. שאר הסרטונים — הצהרות. שאלות מייצרות סקרנות."
 
-### ⚠️ אזהרה אחת
-(משהו שאני עושה לא נכון ואני לא שם לב אליו)
+### 🔴 הבעיות האמיתיות
+3 בעיות **קונקרטיות**. תגיד את האמת — אם התוכן בינוני, תגיד.
 
-סגנון: ישיר, ביקורתי, מבוסס מספרים. בלי הקדמות מיותרות.`;
+### 🎬 ניתוח ה-hook (2 השניות הראשונות)
+נתח את 2 השניות הראשונות של הסרטון הטוב ביותר מול הגרוע ביותר. מה עבד? מה לא? איך ליישם?
 
-        // === שליחה ל-Gemini ===
-        const { reply, coreLatencyMs, attempts } = await callGeminiWithRetry(prompt, '', []);
+### 📊 הפלטפורמות — אמת קשה
+איזו פלטפורמה **בזבז זמן**? איזו שווה פי 2 מאמץ? למה? עם מספרים ספציפיים.
+
+### 🔬 ניתוח כותרות
+נתח את הכותרות: מה עבד ומה לא? איזה מילים ספציפיות מופיעות ב-Top 5? מה ההבדל בין Top 3 ל-Bottom 3?
+
+### 🚀 5 כותרות מדויקות לסרטון הבא
+תן 5 כותרות **ספציפיות שאפשר להשתמש בהן מחר בבוקר**. כל כותרת צריכה להיות מבוססת על דפוס שעבד אצלו.
+
+### ⚠️ האמת שאתה לא רוצה לשמוע
+משהו אחד שאתה עושה לא נכון ואתה לא שם לב אליו. ביקורת ישירה. **בלי לרכך.**
+
+### 🎯 תוכנית פעולה לשבוע הבא
+3 פעולות **קונקרטיות** לעשות בשבוע הקרוב. לא "תעשה סרטונים טובים יותר" — אלא **מה בדיוק**.
+
+סגנון: ישיר, ביקרטי, מבוסס מספרים. עברית. בלי הקדמות. בלי "כל הכבוד".`;
+
+        // === שליחה ל-Gemini (3 retries) ===
+        const { reply, coreLatencyMs, attempts } = await callGeminiWithRetry(prompt, '', [], 3);
         const totalRoundTripMs = Date.now() - requestStart;
 
         metrics.totalSuccess += 1;
         recordLatency(coreLatencyMs);
 
-        log('info', `Analyze OK`, { videos: videos.length, coreLatencyMs, totalRoundTripMs });
+        log('info', `Analyze OK`, { videos: videos.length, coreLatencyMs, totalRoundTripMs, attempts });
 
         return res.json({
             reply,
@@ -963,6 +1049,7 @@ ${ratioSummary}
     }
 });
 
+// === VISION ===
 app.post('/api/vision', visionRateLimiter, async (req, res, next) => {
     const requestStart = Date.now();
     metrics.totalRequests += 1;
@@ -989,10 +1076,217 @@ app.post('/api/vision', visionRateLimiter, async (req, res, next) => {
     }
 });
 
+// ============================================================
+// 🆕 /api/mega-prompt — מייצר מגה-פרומפט בזמן אמת
+// ============================================================
+app.get('/api/mega-prompt', async (req, res, next) => {
+    try {
+        const uptimeSeconds = Math.floor((Date.now() - metrics.startedAt) / 1000);
+        const mem = process.memoryUsage();
+        const now = new Date().toISOString();
+
+        const knowledgeFilesList = Array.from(knowledge.files.values())
+            .map(f => `- \`knowledge/${f.name}\` — ${f.chunks} chunks, ${f.chars} תווים`)
+            .join('\n');
+
+        const megaPrompt = `# 🎯 J.A.R.V.I.S — PROJECT MEGA-PROMPT
+# נוצר אוטומטית: ${now}
+# Uptime: ${formatUptime(uptimeSeconds)} | Memory: ${(mem.rss / 1024 / 1024).toFixed(1)} MB
+
+## 🎯 הקשר כללי
+
+אני עובד על פרויקט בשם J.A.R.V.I.S — עוזר AI אישי בעברית, בנוי על Node.js/Express + Gemini API.
+הפרויקט עובד במחשב המקומי שלי (localhost:3000) וגם ב-Render (https://jarvis-ype5.onrender.com).
+המטרה: עוזר AI חכם עם זיכרון, ראייה, שמיעה, ידע אישי, וניתוח תוכן.
+
+**סטאק טכנולוגי:**
+- Backend: Node.js + Express
+- AI: Google Gemini API (מודל: ${CONFIG.geminiModel})
+- Frontend: Vanilla JS + HTML + CSS (בלי frameworks)
+- אחסון: GitHub + Render (Free tier)
+- PWA: מותקן על טלפון (Galaxy S21 Ultra 5G)
+
+---
+
+## ✅ מה שכבר נבנה ועובד
+
+### 1. Backend (server.js)
+- Express server עם endpoints:
+  - \`/api/ask\` — צ'אט עם Gemini + היסטוריה + BM25
+  - \`/api/vision\` — ניתוח תמונות
+  - \`/api/analyze\` — ניתוח אנליטי מעמיק של סרטונים
+  - \`/api/health\` — מטריקות מורחבות
+  - \`/api/metrics\` — מטריקות לקוח
+  - \`/api/knowledge\` — רשימת קבצי ידע
+  - \`/api/knowledge/upload\` — העלאת קבצים
+  - \`/api/knowledge/delete/:name\` — מחיקה
+  - \`/api/knowledge/reload\` — טעינה מחדש
+  - \`/api/mega-prompt\` — מייצר את המגה-פרומפט הזה
+  - \`/api/analytics-chat\` — צ'אט חכם על נתוני אנליטיקס
+- Rate limiting (2 חלונות: API ${CONFIG.rateLimitMax}/דקה + Vision ${CONFIG.visionRateLimitMax}/דקה)
+- Retry אוטומטי על 429 (חילוץ זמן retry מההודעה + השהיה)
+- Helmet + CORS + compression
+- מטריקות חיות: latency, requests, errors, knowledge hits, rate limits
+- Knowledge Base עם BM25 (K1=${BM25_K1}, B=${BM25_B})
+- היסטוריית שיחות (עד ${CONFIG.maxHistoryMessages} הודעות, ${CONFIG.maxTotalHistoryChars} תווים)
+
+### 2. Frontend (public/)
+- \`index.html\` — HUD עם Reticle, HUD stats, Particle Brain
+- \`main.css\` — עיצוב Cinematic HUD (זהב + טורקיז)
+- \`mobile.css\` — התאמה מלאה לטלפון
+- \`app.js\` — לוגיקת לקוח מלאה
+- \`neural.js\` — Particle Brain תלת-ממדי (550 חלקיקים)
+- \`analytics.html\` + \`analytics.js\` + \`analytics.css\` — Dashboard
+
+### 3. PWA
+- \`manifest.json\` + \`sw.js\`
+- מותקן על הטלפון (Chrome אנדרואיד)
+- עובד HTTPS ב-Render
+
+### 4. Knowledge Base אישי
+${knowledgeFilesList || '- ⚠️ אין קבצי ידע טעונים כרגע'}
+
+סה"כ: ${knowledge.files.size} קבצים, ${knowledge.chunks.length} chunks, ${knowledge.totalChars} תווים
+
+### 5. Deployment
+- Git + GitHub: \`github.com/tbhrumv12-hue/jarvis\`
+- Render: \`https://jarvis-ype5.onrender.com\`
+- Auto-Deploy על כל commit
+
+---
+
+## 📊 מטריקות חיות
+
+\`\`\`json
+${JSON.stringify({
+    uptime: uptimeSeconds,
+    model: CONFIG.geminiModel,
+    latencyMs: metrics.lastLatencyMs,
+    avgLatencyMs: metrics.avgLatencyMs,
+    totalRequests: metrics.totalRequests,
+    totalSuccess: metrics.totalSuccess,
+    totalErrors: metrics.totalErrors,
+    totalVisionRequests: metrics.totalVisionRequests,
+    totalKnowledgeLookups: metrics.totalKnowledgeLookups,
+    totalKnowledgeHits: metrics.totalKnowledgeHits,
+    totalRateLimitHits: metrics.totalRateLimitHits,
+    knowledgeFiles: knowledge.files.size,
+    knowledgeChunks: knowledge.chunks.length,
+}, null, 2)}
+\`\`\`
+
+---
+
+*מגה-פרומפט זה נוצר אוטומטית על ידי \`GET /api/mega-prompt\`.*`;
+
+        res.type('text/plain; charset=utf-8').send(megaPrompt);
+    } catch (err) {
+        next(err);
+    }
+});
+
+// ============================================================
+// 🆕 /api/analytics-chat — צ'אט חכם על נתוני אנליטיקס
+// ============================================================
+app.post('/api/analytics-chat', apiRateLimiter, async (req, res, next) => {
+    const requestStart = Date.now();
+    metrics.totalRequests += 1;
+
+    try {
+        const { message, history: rawHistory, analytics } = req.body || {};
+
+        if (!message || typeof message !== 'string' || !message.trim()) {
+            metrics.totalErrors += 1;
+            recordError('Empty analytics chat message');
+            return res.status(400).json({ reply: 'אדון, לא התקבלה הודעה.' });
+        }
+
+        const userMessage = message.trim();
+        if (userMessage.length > CONFIG.maxPromptLength) {
+            metrics.totalErrors += 1;
+            recordError('Analytics message too long');
+            return res.status(413).json({ reply: `אדון, ההודעה ארוכה מדי (מקסימום ${CONFIG.maxPromptLength} תווים).` });
+        }
+
+        const videos = Array.isArray(analytics?.videos) ? analytics.videos : [];
+        const summary = analytics?.summary || computeAnalyticsSummary(videos);
+
+        const analyticsBlock = videos.length
+            ? `
+### סיכום כללי
+- סה"כ סרטונים: ${summary.totalVideos}
+- סה"כ צפיות: ${(summary.totalViews || 0).toLocaleString('he-IL')}
+- סה"כ לייקים: ${summary.totalLikes || 0}
+- סה"כ תגובות: ${summary.totalComments || 0}
+
+### פירוט הסרטונים (${videos.length})
+${videos.slice(0, 30).map(v => `**${v.title}** [${v.platform || 'youtube'}] — ${v.views || 0} צפיות, ${v.likes || 0} לייקים, ${v.comments || 0} תגובות, ${v.duration || 0}s`).join('\n')}
+`
+            : '\n### אין נתוני אנליטיקס זמינים כרגע.\n';
+
+        metrics.totalKnowledgeLookups += 1;
+        const personalChunks = searchKnowledge(userMessage);
+        let personalContext = '';
+        if (personalChunks.length > 0) {
+            metrics.totalKnowledgeHits += 1;
+            personalContext = `\n\n### ידע אישי רלוונטי:\n${personalChunks.map(c => `- ${c.text}`).join('\n')}`;
+        }
+
+        const analyticsSystemPrompt = `אתה J.A.R.V.I.S — אנליסט תוכן אישי בעברית. אתה עוזר ליוצר תוכן קליסטניקס.
+
+## כללי התנהגות:
+1. ענה תמיד בעברית, בטון ישיר, חד, ומקצועי.
+2. היה ספציפי ומספרי — צטט נתונים אמיתיים.
+3. תן 2-3 פעולות קונקרטיות, לא קלישאות.
+4. אל תמציא נתונים שלא קיימים.
+5. השתמש ב-Markdown.
+
+## נתוני האנליטיקס:
+${analyticsBlock}
+${personalContext}`;
+
+        const normalizedHistory = Array.isArray(rawHistory)
+            ? rawHistory.map(h => ({
+                role: h?.role === 'assistant' ? 'jarvis' : 'user',
+                text: h?.content || h?.text || '',
+            }))
+            : [];
+
+        const history = sanitizeHistory(normalizedHistory);
+        metrics.totalHistoryMessagesSent += history.length;
+
+        const combinedKnowledgeContext = `${analyticsSystemPrompt}\n\n---\n(הפעל את ההנחיות של אנליטיקס בלבד.)`;
+
+        const { reply, coreLatencyMs, attempts } = await callGeminiWithRetry(
+            userMessage,
+            combinedKnowledgeContext,
+            history
+        );
+
+        const totalRoundTripMs = Date.now() - requestStart;
+        metrics.totalSuccess += 1;
+        recordLatency(coreLatencyMs);
+
+        return res.json({
+            reply,
+            latencyMs: coreLatencyMs,
+            roundTripMs: totalRoundTripMs,
+            attempts,
+            historyUsed: history.length,
+            knowledgeUsed: personalChunks.length > 0,
+            timestamp: new Date().toISOString(),
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// === 404 ===
 app.use((req, res) => {
     res.status(404).json({ reply: 'אדון, הנתיב המבוקש אינו קיים.' });
 });
 
+// === Error Handler ===
 app.use((err, req, res, next) => {
     if (err instanceof GeminiError) {
         log('error', `Gemini ${err.statusCode}: ${err.message}`);
@@ -1010,6 +1304,43 @@ app.use((err, req, res, next) => {
     recordError(err.message || 'Unknown error');
     return res.status(500).json({ reply: 'אדון, אירעה תקלה בלתי צפויה במערכת.' });
 });
+
+// ==============================
+// 🛠️ פונקציות עזר
+// ==============================
+
+function formatUptime(seconds) {
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h ${m}m`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+}
+
+function computeAnalyticsSummary(videos) {
+    if (!Array.isArray(videos) || videos.length === 0) {
+        return {
+            totalVideos: 0, totalViews: 0, totalLikes: 0, totalComments: 0,
+            totalShares: 0, totalSubscribers: 0, totalWatchTimeHours: 0,
+            avgViewPercent: 0, stayToWatch: 0,
+        };
+    }
+
+    const sum = (key) => videos.reduce((s, v) => s + (Number(v[key]) || 0), 0);
+
+    return {
+        totalVideos: videos.length,
+        totalViews: sum('views'),
+        totalLikes: sum('likes'),
+        totalComments: sum('comments'),
+        totalShares: sum('shares'),
+        totalSubscribers: sum('subscribers'),
+        totalWatchTimeHours: +(sum('watchTimeHours')).toFixed(2),
+        avgViewPercent: +(sum('avgViewPercent') / videos.length).toFixed(2),
+        stayToWatch: +(videos.reduce((s, v) => s + (Number(v?.retention?.completionRate) || 0), 0) / videos.length).toFixed(2),
+    };
+}
 
 // ==============================
 // 10. הפעלה
