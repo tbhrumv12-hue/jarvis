@@ -1,6 +1,5 @@
 /**
  * ⚡ J.A.R.V.I.S Server — Neural Kernel V3.3
- * Express + Gemini + Vision + Knowledge Base (BM25) + Conversation Memory
  */
 
 const express = require('express');
@@ -11,10 +10,6 @@ const cors = require('cors');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
-
-// ==============================
-// 1. קונפיגורציה
-// ==============================
 
 const REQUIRED_ENV_VARS = ['GEMINI_API_KEY'];
 const missingEnvVars = REQUIRED_ENV_VARS.filter((key) => !process.env[key]);
@@ -37,24 +32,16 @@ const CONFIG = {
     visionRateLimitMax: Number(process.env.VISION_RATE_LIMIT_MAX) || 15,
     metricsPollIntervalMs: Number(process.env.METRICS_POLL_INTERVAL_MS) || 3000,
     retryOn429DelayMs: Number(process.env.RETRY_ON_429_DELAY_MS) || 55000,
-
-    // Knowledge
     knowledgeDir: path.join(__dirname, 'knowledge'),
     knowledgeMaxFileSizeBytes: 1024 * 1024,
     knowledgeMaxFiles: 100,
     knowledgeChunkSize: 1200,
     knowledgeTopChunks: 5,
     knowledgeMinScore: 0.4,
-
-    // Conversation
     maxHistoryMessages: Number(process.env.MAX_HISTORY_MESSAGES) || 12,
     maxHistoryCharsPerMessage: 2000,
     maxTotalHistoryChars: 8000,
 };
-
-// ==============================
-// 2. פרומפטים
-// ==============================
 
 const SYSTEM_PROMPT = `אתה ג'רוויס (J.A.R.V.I.S) — עוזר AI אישי, חד, ישיר ואנליטי.
 
@@ -63,53 +50,40 @@ const SYSTEM_PROMPT = `אתה ג'רוויס (J.A.R.V.I.S) — עוזר AI איש
 ### 1. אפס "יאס-מן"
 - אל תסכים אוטומטית. אל תלטף אגו. אל תחמיא סתם.
 - אם יש רעיון גרוע, לא ריאלי או לא הגיוני — אמור זאת ישירות, עם נימוקים.
-- ביקורת חריפה ואנליטית היא כלי עזר, לא פגיעה.
 
 ### 2. בחר צד חד-משמעית
 - כשנשאלת שאלה עם דילמה — אסור להתחמק עם "יש לכאן ולכאן".
 - תגיד בבירור מה אתה היית בוחר, עם נימוקים מוצקים.
-- אם אתה לא בטוח — תגיד "אני לא בטוח", אבל עדיין תן את דעתך.
 
 ### 3. התבסס רק על עובדות
 - אל תמציא נתונים, תאריכים, שמות או מספרים.
 - אם אין לך מידע — תגיד "אין לי מידע על זה".
-- אל תניח הנחות על המשתמש בלי שהוא אמר.
 
 ### 4. תשובות פרקטיות וקצרות
-- בלי הקדמות מיותרות ("שאלה טובה!", "בוודאי!", "בשמחה!").
-- ישר לעניין. אם אפשר לענות במשפט — ענה במשפט.
-- בגובה העיניים, בלי מילים גבוהות מידי.
-- אם נדרשת תשובה ארוכה — חלק אותה לסעיפים.
+- בלי הקדמות מיותרות.
+- ישר לעניין.
 
 ### 5. התאמה אישית
-- התבסס על ההעדפות, המטרות והמידע האישי השמור בידע (אם רלוונטי).
-- זכור שאתה מדבר עם מתבגר, לא עם מנהל בכיר.
-- שפה טבעית, לא רשמית מדי ולא ילדותית.
+- התבסס על ההעדפות והמידע האישי השמור בידע.
 
 ### 6. סגנון ג'רוויס
-- פנה למשתמש כ"אדוני" (או בלי תואר — לפי ההקשר).
-- טון רגוע, מדויק, ביטחוני, כמו מערכת הפעלה מתקדמת.
-- הומור יבש זה בסדר כשמתאים.
+- פנה למשתמש כ"אדוני".
+- טון רגוע, מדויק, ביטחוני.
 
 ## שפה: עברית בלבד. תמיד.`;
 
-const VISION_SYSTEM_PROMPT = `אתה ג'רוויס (J.A.R.V.I.S), מערכת בינה מלאכותית עם חיישנים אופטיים. אתה מקבל תמונה מהמצלמה של המשתמש ומנתח אותה. תאר בקצרה, בצורה עניינית, בגוף ראשון, בעברית בלבד, מה אתה רואה. היה ספציפי לגבי אנשים, חפצים, צבעים, ותנועות שאתה מזהה. אם יש בן אדם — תאר מה הוא עושה ומצב רוח כללי (אם ניתן להסיק). אם אין — תאר את הסביבה. אל תמציא דברים שלא רואים בתמונה.`;
+const VISION_SYSTEM_PROMPT = `אתה ג'רוויס (J.A.R.V.I.S), מערכת בינה מלאכותית עם חיישנים אופטיים. תאר בקצרה, בצורה עניינית, בגוף ראשון, בעברית בלבד, מה אתה רואה. היה ספציפי לגבי אנשים, חפצים, צבעים, ותנועות. אל תמציא דברים שלא רואים בתמונה.`;
 
 const KNOWLEDGE_SYSTEM_PROMPT = `אתה ג'רוויס (J.A.R.V.I.S) — עוזר אישי עם גישה למאגר ידע אישי של המשתמש.
 
 ## כללים לשימוש בידע:
 1. השתמש במידע מהידע רק אם הוא רלוונטי לשאלה.
-2. אם הידע סותר את מה שאתה יודע — תן עדיפות לידע (זה מה שהמשתמש אמר על עצמו).
-3. אם אין בידע מידע רלוונטי — ענה כרגיל בלי להזכיר את הידע.
+2. אם הידע סותר את מה שאתה יודע — תן עדיפות לידע.
+3. אם אין בידע מידע רלוונטי — ענה כרגיל.
 4. אל תמציא מידע שלא כתוב במפורש בידע.
-5. אל תחשוף את המקורות (שמות קבצים) — פשוט ענה.
-6. אם השאלה דורשת מידע שאין לך — תגיד "אין לי מידע על זה במאגר".
+5. אל תחשוף את המקורות.
 
 ## שפה: עברית בלבד.`;
-
-// ==============================
-// 3. מטריקות
-// ==============================
 
 const metrics = {
     startedAt: Date.now(),
@@ -142,20 +116,12 @@ function recordError(message) {
     metrics.lastErrorMessage = message;
 }
 
-// ==============================
-// 4. לוגר
-// ==============================
-
 function log(level, message, meta = null) {
     const timestamp = new Date().toISOString();
     const prefix = `[${timestamp}] [${level.toUpperCase()}]`;
     if (meta) console.log(`${prefix} ${message}`, meta);
     else console.log(`${prefix} ${message}`);
 }
-
-// ==============================
-// 5. שגיאות
-// ==============================
 
 class GeminiError extends Error {
     constructor(message, statusCode = 500, details = null, isRateLimit = false) {
@@ -207,10 +173,6 @@ function extractRetryDelay(data) {
     return null;
 }
 
-// ==============================
-// 6. Knowledge Base — BM25
-// ==============================
-
 const knowledge = {
     chunks: [],
     files: new Map(),
@@ -220,33 +182,12 @@ const knowledge = {
     docFreq: new Map(),
 };
 
-const STOP_WORDS_HE = new Set([
-    'של', 'את', 'על', 'עם', 'כל', 'זה', 'זו', 'הוא', 'היא', 'הם', 'הן',
-    'אני', 'אתה', 'אנחנו', 'אתם', 'אתן', 'לי', 'לך', 'לו', 'לה', 'לנו',
-    'יש', 'אין', 'היה', 'היתה', 'יהיה', 'להיות', 'גם', 'רק', 'או', 'אבל',
-    'אם', 'כי', 'מה', 'מי', 'איך', 'למה', 'מתי', 'איפה', 'איזה', 'כמה',
-    'כן', 'לא', 'אפשר', 'צריך', 'רוצה', 'יכול', 'הולך', 'עושה', 'הופך',
-]);
-
-const STOP_WORDS_EN = new Set([
-    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-    'of', 'to', 'in', 'on', 'at', 'by', 'for', 'with', 'about', 'as',
-    'and', 'or', 'but', 'if', 'then', 'than', 'so', 'that', 'this',
-    'it', 'its', 'i', 'you', 'he', 'she', 'we', 'they', 'me', 'him',
-    'her', 'us', 'them', 'my', 'your', 'his', 'our', 'their',
-    'what', 'which', 'who', 'when', 'where', 'why', 'how',
-    'can', 'could', 'should', 'would', 'may', 'might', 'will',
-    'do', 'does', 'did', 'have', 'has', 'had',
-]);
+const STOP_WORDS_HE = new Set(['של', 'את', 'על', 'עם', 'כל', 'זה', 'זו', 'הוא', 'היא', 'הם', 'הן', 'אני', 'אתה', 'אנחנו', 'אתם', 'אתן', 'לי', 'לך', 'לו', 'לה', 'לנו', 'יש', 'אין', 'היה', 'היתה', 'יהיה', 'להיות', 'גם', 'רק', 'או', 'אבל', 'אם', 'כי', 'מה', 'מי', 'איך', 'למה', 'מתי', 'איפה', 'איזה', 'כמה', 'כן', 'לא', 'אפשר', 'צריך', 'רוצה', 'יכול', 'הולך', 'עושה', 'הופך']);
+const STOP_WORDS_EN = new Set(['the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'of', 'to', 'in', 'on', 'at', 'by', 'for', 'with', 'about', 'as', 'and', 'or', 'but', 'if', 'then', 'than', 'so', 'that', 'this', 'it', 'its', 'i', 'you', 'he', 'she', 'we', 'they', 'me', 'him', 'her', 'us', 'them', 'my', 'your', 'his', 'our', 'their', 'what', 'which', 'who', 'when', 'where', 'why', 'how', 'can', 'could', 'should', 'would', 'may', 'might', 'will', 'do', 'does', 'did', 'have', 'has', 'had']);
 
 function tokenize(text) {
     if (!text) return [];
-    return text
-        .toLowerCase()
-        .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-        .split(/\s+/)
-        .filter((w) => w.length >= 2)
-        .filter((w) => !STOP_WORDS_HE.has(w) && !STOP_WORDS_EN.has(w));
+    return text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter((w) => w.length >= 2).filter((w) => !STOP_WORDS_HE.has(w) && !STOP_WORDS_EN.has(w));
 }
 
 function chunkText(text, maxSize) {
@@ -255,7 +196,6 @@ function chunkText(text, maxSize) {
     const normalized = text.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
     const paragraphs = normalized.split(/\n\n+/);
     let current = '';
-
     for (const para of paragraphs) {
         if ((current + '\n\n' + para).length <= maxSize) {
             current = current ? current + '\n\n' + para : para;
@@ -282,93 +222,152 @@ function chunkText(text, maxSize) {
     if (current) chunks.push(current.trim());
     return chunks.filter((c) => c.length > 0);
 }
+// ==============================
+// Knowledge from Environment Variables (Render)
+// ==============================
 
+function getEnvKnowledgeFiles() {
+    const envMap = {
+        'personal.txt': process.env.KNOWLEDGE_PERSONAL,
+        'fitness.txt': process.env.KNOWLEDGE_FITNESS,
+        'interests.txt': process.env.KNOWLEDGE_INTERESTS,
+        'business.txt': process.env.KNOWLEDGE_BUSINESS,
+        'preferences.txt': process.env.KNOWLEDGE_PREFERENCES,
+        'content.txt': process.env.KNOWLEDGE_CONTENT,
+    };
+    const result = [];
+    for (const [filename, content] of Object.entries(envMap)) {
+        if (content && typeof content === 'string' && content.trim().length > 0) {
+            result.push({ filename, content: content.trim() });
+        }
+    }
+    return result;
+}
+
+function loadFromEnvironment() {
+    const envFiles = getEnvKnowledgeFiles();
+    if (envFiles.length === 0) return false;
+
+    let totalDocLength = 0;
+
+    for (const { filename, content } of envFiles) {
+        try {
+            const chunks = chunkText(content, CONFIG.knowledgeChunkSize);
+            let chunkCount = 0;
+
+            for (const chunk of chunks) {
+                const tokens = tokenize(chunk);
+                if (tokens.length === 0) continue;
+
+                const tokenFreq = new Map();
+                const uniqueTokens = new Set();
+                for (const t of tokens) {
+                    tokenFreq.set(t, (tokenFreq.get(t) || 0) + 1);
+                    uniqueTokens.add(t);
+                }
+
+                knowledge.chunks.push({
+                    source: filename,
+                    text: chunk,
+                    tokens,
+                    length: tokens.length,
+                    tokenFreq,
+                    uniqueTokens,
+                });
+
+                for (const t of uniqueTokens) {
+                    knowledge.docFreq.set(t, (knowledge.docFreq.get(t) || 0) + 1);
+                }
+
+                totalDocLength += tokens.length;
+                chunkCount++;
+            }
+
+            knowledge.files.set(filename, {
+                name: filename,
+                size: content.length,
+                chunks: chunkCount,
+                chars: content.length,
+                modifiedAt: Date.now(),
+                fromEnv: true,
+            });
+
+            knowledge.totalChars += content.length;
+        } catch (err) {
+            log('warn', `Failed to load from ENV: ${filename}`, err.message);
+        }
+    }
+
+    if (knowledge.chunks.length > 0) {
+        knowledge.avgDocLength = totalDocLength / knowledge.chunks.length;
+    }
+
+    log('info', `Knowledge base loaded from ENV`, {
+        files: knowledge.files.size,
+        chunks: knowledge.chunks.length,
+    });
+
+    return true;
+}
 function loadKnowledgeBase() {
     knowledge.chunks = [];
     knowledge.files = new Map();
     knowledge.totalChars = 0;
     knowledge.docFreq = new Map();
     knowledge.avgDocLength = 0;
+        // === נסה לטעון מ-Environment Variables קודם ===
+    const loadedFromEnv = loadFromEnvironment();
+    if (loadedFromEnv) {
+        knowledge.loadedAt = Date.now();
+        log('info', `Knowledge base loaded (from ENV)`, {
+            files: knowledge.files.size,
+            chunks: knowledge.chunks.length,
+            vocab: knowledge.docFreq.size,
+            avgDocLength: Math.round(knowledge.avgDocLength),
+        });
+        return; // אין צורך לקרוא מהתיקייה
+    }
 
+    // === אחרת — קרא מהתיקייה (fallback) ===
     try {
-        if (!fs.existsSync(CONFIG.knowledgeDir)) {
-            fs.mkdirSync(CONFIG.knowledgeDir, { recursive: true });
-        }
-
+        if (!fs.existsSync(CONFIG.knowledgeDir)) fs.mkdirSync(CONFIG.knowledgeDir, { recursive: true });
         const files = fs.readdirSync(CONFIG.knowledgeDir).filter((f) => {
             const ext = path.extname(f).toLowerCase();
             return ext === '.txt' || ext === '.md';
         });
-
         let totalDocLength = 0;
-
         for (const filename of files) {
             try {
                 const fullPath = path.join(CONFIG.knowledgeDir, filename);
                 const stat = fs.statSync(fullPath);
                 if (!stat.isFile()) continue;
-                if (stat.size > CONFIG.knowledgeMaxFileSizeBytes) {
-                    log('warn', `Knowledge file too large, skipped: ${filename}`);
-                    continue;
-                }
-
+                if (stat.size > CONFIG.knowledgeMaxFileSizeBytes) continue;
                 const content = fs.readFileSync(fullPath, 'utf8');
                 const chunks = chunkText(content, CONFIG.knowledgeChunkSize);
-
                 let chunkCount = 0;
                 for (const chunk of chunks) {
                     const tokens = tokenize(chunk);
                     if (tokens.length === 0) continue;
-
                     const tokenFreq = new Map();
                     const uniqueTokens = new Set();
                     for (const t of tokens) {
                         tokenFreq.set(t, (tokenFreq.get(t) || 0) + 1);
                         uniqueTokens.add(t);
                     }
-
-                    knowledge.chunks.push({
-                        source: filename,
-                        text: chunk,
-                        tokens,
-                        length: tokens.length,
-                        tokenFreq,
-                        uniqueTokens,
-                    });
-
-                    for (const t of uniqueTokens) {
-                        knowledge.docFreq.set(t, (knowledge.docFreq.get(t) || 0) + 1);
-                    }
-
+                    knowledge.chunks.push({ source: filename, text: chunk, tokens, length: tokens.length, tokenFreq, uniqueTokens });
+                    for (const t of uniqueTokens) knowledge.docFreq.set(t, (knowledge.docFreq.get(t) || 0) + 1);
                     totalDocLength += tokens.length;
                     chunkCount++;
                 }
-
-                knowledge.files.set(filename, {
-                    name: filename,
-                    size: stat.size,
-                    chunks: chunkCount,
-                    chars: content.length,
-                    modifiedAt: stat.mtimeMs,
-                });
-
+                knowledge.files.set(filename, { name: filename, size: stat.size, chunks: chunkCount, chars: content.length, modifiedAt: stat.mtimeMs });
                 knowledge.totalChars += content.length;
             } catch (err) {
                 log('warn', `Failed to load knowledge file: ${filename}`, err.message);
             }
         }
-
-        if (knowledge.chunks.length > 0) {
-            knowledge.avgDocLength = totalDocLength / knowledge.chunks.length;
-        }
-
+        if (knowledge.chunks.length > 0) knowledge.avgDocLength = totalDocLength / knowledge.chunks.length;
         knowledge.loadedAt = Date.now();
-        log('info', `Knowledge base loaded (BM25)`, {
-            files: knowledge.files.size,
-            chunks: knowledge.chunks.length,
-            vocab: knowledge.docFreq.size,
-            avgDocLength: Math.round(knowledge.avgDocLength),
-        });
+        log('info', `Knowledge base loaded (BM25)`, { files: knowledge.files.size, chunks: knowledge.chunks.length, vocab: knowledge.docFreq.size, avgDocLength: Math.round(knowledge.avgDocLength) });
     } catch (err) {
         log('error', 'Failed to load knowledge base', err.message);
     }
@@ -381,16 +380,13 @@ function bm25Score(queryTokens, chunk, N, avgdl) {
     if (!queryTokens.length || !chunk.tokenFreq) return 0;
     let score = 0;
     const docLen = chunk.length || 1;
-
     for (const qt of queryTokens) {
         const f = chunk.tokenFreq.get(qt) || 0;
         if (f === 0) continue;
-
         const df = knowledge.docFreq.get(qt) || 1;
         const idf = Math.log(1 + (N - df + 0.5) / (df + 0.5));
         const numerator = f * (BM25_K1 + 1);
         const denominator = f + BM25_K1 * (1 - BM25_B + BM25_B * (docLen / avgdl));
-
         score += idf * (numerator / denominator);
     }
     return score;
@@ -400,18 +396,13 @@ function searchKnowledge(query) {
     if (!knowledge.chunks.length) return [];
     const queryTokens = tokenize(query);
     if (!queryTokens.length) return [];
-
     const N = knowledge.chunks.length;
     const avgdl = knowledge.avgDocLength || 1;
-
     const scored = [];
     for (const chunk of knowledge.chunks) {
         const score = bm25Score(queryTokens, chunk, N, avgdl);
-        if (score >= CONFIG.knowledgeMinScore) {
-            scored.push({ chunk, score });
-        }
+        if (score >= CONFIG.knowledgeMinScore) scored.push({ chunk, score });
     }
-
     scored.sort((a, b) => b.score - a.score);
     return scored.slice(0, CONFIG.knowledgeTopChunks).map((s) => s.chunk);
 }
@@ -422,15 +413,10 @@ function buildKnowledgeContext(chunks) {
     return `=== מאגר ידע רלוונטי ===\n${parts.join('\n\n---\n\n')}\n=== סוף מאגר ידע ===`;
 }
 
-// ==============================
-// 7. Conversation Memory
-// ==============================
-
 function sanitizeHistory(history) {
     if (!Array.isArray(history)) return [];
     const cleaned = [];
     let totalChars = 0;
-
     for (let i = history.length - 1; i >= 0; i--) {
         const m = history[i];
         if (!m || typeof m !== 'object') continue;
@@ -438,9 +424,7 @@ function sanitizeHistory(history) {
         if (!role) continue;
         let text = typeof m.text === 'string' ? m.text.trim() : '';
         if (!text) continue;
-        if (text.length > CONFIG.maxHistoryCharsPerMessage) {
-            text = text.substring(0, CONFIG.maxHistoryCharsPerMessage) + '...';
-        }
+        if (text.length > CONFIG.maxHistoryCharsPerMessage) text = text.substring(0, CONFIG.maxHistoryCharsPerMessage) + '...';
         if (totalChars + text.length > CONFIG.maxTotalHistoryChars) break;
         cleaned.unshift({ role, text });
         totalChars += text.length;
@@ -451,55 +435,28 @@ function sanitizeHistory(history) {
 
 function buildConversationContents(history, newUserQuery) {
     const contents = [];
-    for (const m of history) {
-        contents.push({
-            role: m.role,
-            parts: [{ text: m.text }],
-        });
-    }
-    contents.push({
-        role: 'user',
-        parts: [{ text: newUserQuery }],
-    });
+    for (const m of history) contents.push({ role: m.role, parts: [{ text: m.text }] });
+    contents.push({ role: 'user', parts: [{ text: newUserQuery }] });
     return contents;
 }
 
-// ==============================
-// 8. Gemini calls
-// ==============================
-
 async function callGeminiWithRetry(userQuery, knowledgeContext = '', history = [], retries = 2) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.geminiModel}:generateContent?key=${CONFIG.geminiApiKey}`;
-
     let systemText;
-    if (knowledgeContext) {
-        systemText = `${KNOWLEDGE_SYSTEM_PROMPT}\n\n${knowledgeContext}`;
-    } else {
-        systemText = SYSTEM_PROMPT;
-    }
-
+    if (knowledgeContext) systemText = `${KNOWLEDGE_SYSTEM_PROMPT}\n\n${knowledgeContext}`;
+    else systemText = SYSTEM_PROMPT;
     const contents = buildConversationContents(history, userQuery);
-
     const body = JSON.stringify({
-        systemInstruction: {
-            parts: [{ text: systemText }],
-        },
+        systemInstruction: { parts: [{ text: systemText }] },
         contents,
         generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
     });
-
     let lastError;
     const coreStart = Date.now();
-
     for (let attempt = 0; attempt <= retries; attempt++) {
         try {
-            const response = await fetchWithTimeout(
-                url,
-                { method: 'POST', headers: { 'Content-Type': 'application/json' }, body },
-                CONFIG.geminiTimeoutMs
-            );
+            const response = await fetchWithTimeout(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }, CONFIG.geminiTimeoutMs);
             const data = await response.json();
-
             if (data.error) {
                 const rateLimited = isRateLimitError(data, response.status);
                 if (rateLimited && attempt < retries) {
@@ -511,31 +468,19 @@ async function callGeminiWithRetry(userQuery, knowledgeContext = '', history = [
                 }
                 const isRetryable = response.status >= 500;
                 if (!isRetryable || attempt === retries) {
-                    throw new GeminiError(
-                        data.error.message || 'שגיאה לא ידועה ממערכת הליבה',
-                        response.status >= 400 ? response.status : 502,
-                        data.error,
-                        rateLimited
-                    );
+                    throw new GeminiError(data.error.message || 'שגיאה לא ידועה ממערכת הליבה', response.status >= 400 ? response.status : 502, data.error, rateLimited);
                 }
                 lastError = new GeminiError(data.error.message, response.status, null, rateLimited);
                 await sleep(backoffDelay(attempt));
                 continue;
             }
-
             const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
             if (!reply) throw new GeminiError('מבנה הנתונים אינו תקין', 502, data);
-
-            return {
-                reply: reply.trim(),
-                coreLatencyMs: Date.now() - coreStart,
-                attempts: attempt + 1,
-            };
+            return { reply: reply.trim(), coreLatencyMs: Date.now() - coreStart, attempts: attempt + 1 };
         } catch (error) {
             if (error instanceof GeminiError) lastError = error;
             else if (error.name === 'AbortError') lastError = new GeminiError('תם הזמן הקצוב', 504);
             else lastError = new GeminiError('תקלת תקשורת זמנית', 502, error.message);
-
             if (attempt === retries) throw lastError;
             await sleep(backoffDelay(attempt));
         }
@@ -545,33 +490,17 @@ async function callGeminiWithRetry(userQuery, knowledgeContext = '', history = [
 
 async function callGeminiVision(imageBase64, mimeType, userPrompt, retries = 1) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.geminiModel}:generateContent?key=${CONFIG.geminiApiKey}`;
-
-    const promptText = userPrompt && userPrompt.trim()
-        ? `${VISION_SYSTEM_PROMPT}\n\nהמשתמש שואל: ${userPrompt.trim()}`
-        : `${VISION_SYSTEM_PROMPT}\n\nתאר מה אתה רואה בתמונה.`;
-
+    const promptText = userPrompt && userPrompt.trim() ? `${VISION_SYSTEM_PROMPT}\n\nהמשתמש שואל: ${userPrompt.trim()}` : `${VISION_SYSTEM_PROMPT}\n\nתאר מה אתה רואה בתמונה.`;
     const body = JSON.stringify({
-        contents: [{
-            parts: [
-                { text: promptText },
-                { inline_data: { mime_type: mimeType, data: imageBase64 } },
-            ],
-        }],
+        contents: [{ parts: [{ text: promptText }, { inline_data: { mime_type: mimeType, data: imageBase64 } }] }],
         generationConfig: { temperature: 0.5, maxOutputTokens: 512 },
     });
-
     let lastError;
     const coreStart = Date.now();
-
     for (let attempt = 0; attempt <= retries; attempt++) {
         try {
-            const response = await fetchWithTimeout(
-                url,
-                { method: 'POST', headers: { 'Content-Type': 'application/json' }, body },
-                CONFIG.geminiVisionTimeoutMs
-            );
+            const response = await fetchWithTimeout(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }, CONFIG.geminiVisionTimeoutMs);
             const data = await response.json();
-
             if (data.error) {
                 const rateLimited = isRateLimitError(data, response.status);
                 if (rateLimited && attempt < retries) {
@@ -582,27 +511,19 @@ async function callGeminiVision(imageBase64, mimeType, userPrompt, retries = 1) 
                 }
                 const isRetryable = response.status >= 500;
                 if (!isRetryable || attempt === retries) {
-                    throw new GeminiError(
-                        data.error.message || 'שגיאה בניתוח התמונה',
-                        response.status >= 400 ? response.status : 502,
-                        data.error,
-                        rateLimited
-                    );
+                    throw new GeminiError(data.error.message || 'שגיאה בניתוח התמונה', response.status >= 400 ? response.status : 502, data.error, rateLimited);
                 }
                 lastError = new GeminiError(data.error.message, response.status, null, rateLimited);
                 await sleep(backoffDelay(attempt));
                 continue;
             }
-
             const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
             if (!reply) throw new GeminiError('מבנה הנתונים אינו תקין', 502, data);
-
             return { reply: reply.trim(), coreLatencyMs: Date.now() - coreStart, attempts: attempt + 1 };
         } catch (error) {
             if (error instanceof GeminiError) lastError = error;
             else if (error.name === 'AbortError') lastError = new GeminiError('תם הזמן הקצוב', 504);
             else lastError = new GeminiError('תקלת תקשורת זמנית', 502, error.message);
-
             if (attempt === retries) throw lastError;
             await sleep(backoffDelay(attempt));
         }
@@ -610,12 +531,34 @@ async function callGeminiVision(imageBase64, mimeType, userPrompt, retries = 1) 
     throw lastError;
 }
 
-// ==============================
-// 9. Express
-// ==============================
+function formatUptime(seconds) {
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h ${m}m`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+}
+
+function computeAnalyticsSummary(videos) {
+    if (!Array.isArray(videos) || videos.length === 0) {
+        return { totalVideos: 0, totalViews: 0, totalLikes: 0, totalComments: 0, totalShares: 0, totalSubscribers: 0, totalWatchTimeHours: 0, avgViewPercent: 0, stayToWatch: 0 };
+    }
+    const sum = (key) => videos.reduce((s, v) => s + (Number(v[key]) || 0), 0);
+    return {
+        totalVideos: videos.length,
+        totalViews: sum('views'),
+        totalLikes: sum('likes'),
+        totalComments: sum('comments'),
+        totalShares: sum('shares'),
+        totalSubscribers: sum('subscribers'),
+        totalWatchTimeHours: +(sum('watchTimeHours')).toFixed(2),
+        avgViewPercent: +(sum('avgViewPercent') / videos.length).toFixed(2),
+        stayToWatch: +(videos.reduce((s, v) => s + (Number(v?.retention?.completionRate) || 0), 0) / videos.length).toFixed(2),
+    };
+}
 
 const app = express();
-
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
 app.use(cors());
@@ -626,101 +569,35 @@ app.use((req, res, next) => {
     const start = Date.now();
     res.on('finish', () => {
         const duration = Date.now() - start;
-        if (req.path.startsWith('/api/')) {
-            log('info', `${req.method} ${req.path} → ${res.statusCode} (${duration}ms)`);
-        }
+        if (req.path.startsWith('/api/')) log('info', `${req.method} ${req.path} → ${res.statusCode} (${duration}ms)`);
     });
     next();
 });
 
-const apiRateLimiter = rateLimit({
-    windowMs: CONFIG.rateLimitWindowMs,
-    max: CONFIG.rateLimitMax,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { reply: 'אדון, יותר מדי בקשות בזמן קצר.' },
-});
+const apiRateLimiter = rateLimit({ windowMs: CONFIG.rateLimitWindowMs, max: CONFIG.rateLimitMax, standardHeaders: true, legacyHeaders: false, message: { reply: 'אדון, יותר מדי בקשות בזמן קצר.' } });
+const visionRateLimiter = rateLimit({ windowMs: 60 * 1000, max: CONFIG.visionRateLimitMax, standardHeaders: true, legacyHeaders: false, message: { reply: 'אדון, יותר מדי בקשות ניתוח תמונה.' } });
 
-const visionRateLimiter = rateLimit({
-    windowMs: 60 * 1000,
-    max: CONFIG.visionRateLimitMax,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { reply: 'אדון, יותר מדי בקשות ניתוח תמונה.' },
-});
-
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 app.get('/api/health', (req, res) => {
     try {
         const uptimeSeconds = Math.floor((Date.now() - metrics.startedAt) / 1000);
-        res.json({
-            status: 'ok',
-            uptime: uptimeSeconds,
-            model: CONFIG.geminiModel,
-            latencyMs: metrics.lastLatencyMs,
-            avgLatencyMs: metrics.avgLatencyMs,
-            totalRequests: metrics.totalRequests,
-            totalSuccess: metrics.totalSuccess,
-            totalErrors: metrics.totalErrors,
-            totalVisionRequests: metrics.totalVisionRequests,
-            totalKnowledgeLookups: metrics.totalKnowledgeLookups,
-            totalKnowledgeHits: metrics.totalKnowledgeHits,
-            totalRateLimitHits: metrics.totalRateLimitHits,
-            totalHistoryMessagesSent: metrics.totalHistoryMessagesSent,
-            knowledgeFiles: knowledge.files.size,
-            knowledgeChunks: knowledge.chunks.length,
-            timestamp: new Date().toISOString(),
-        });
-    } catch (err) {
-        res.status(500).json({ status: 'error' });
-    }
+        res.json({ status: 'ok', uptime: uptimeSeconds, model: CONFIG.geminiModel, latencyMs: metrics.lastLatencyMs, avgLatencyMs: metrics.avgLatencyMs, totalRequests: metrics.totalRequests, totalSuccess: metrics.totalSuccess, totalErrors: metrics.totalErrors, knowledgeFiles: knowledge.files.size, knowledgeChunks: knowledge.chunks.length, timestamp: new Date().toISOString() });
+    } catch (err) { res.status(500).json({ status: 'error' }); }
 });
 
 app.get('/api/metrics', (req, res) => {
     try {
         const uptimeSeconds = Math.floor((Date.now() - metrics.startedAt) / 1000);
-        res.json({
-            uptime: uptimeSeconds,
-            model: CONFIG.geminiModel,
-            latencyMs: metrics.lastLatencyMs,
-            avgLatencyMs: metrics.avgLatencyMs,
-            totalRequests: metrics.totalRequests,
-            totalErrors: metrics.totalErrors,
-            totalVisionRequests: metrics.totalVisionRequests,
-            totalKnowledgeLookups: metrics.totalKnowledgeLookups,
-            totalKnowledgeHits: metrics.totalKnowledgeHits,
-            totalRateLimitHits: metrics.totalRateLimitHits,
-            totalHistoryMessagesSent: metrics.totalHistoryMessagesSent,
-            knowledgeFiles: knowledge.files.size,
-            knowledgeChunks: knowledge.chunks.length,
-            pollIntervalMs: CONFIG.metricsPollIntervalMs,
-            timestamp: new Date().toISOString(),
-        });
-    } catch (err) {
-        res.status(500).json({ error: 'Metrics unavailable' });
-    }
+        res.json({ uptime: uptimeSeconds, model: CONFIG.geminiModel, latencyMs: metrics.lastLatencyMs, avgLatencyMs: metrics.avgLatencyMs, totalRequests: metrics.totalRequests, totalErrors: metrics.totalErrors, knowledgeFiles: knowledge.files.size, knowledgeChunks: knowledge.chunks.length, timestamp: new Date().toISOString() });
+    } catch (err) { res.status(500).json({ error: 'Metrics unavailable' }); }
 });
 
-// === Knowledge ===
 app.get('/api/knowledge', (req, res) => {
     try {
-        const files = Array.from(knowledge.files.values()).map((f) => ({
-            name: f.name, size: f.size, chunks: f.chunks, chars: f.chars, modifiedAt: f.modifiedAt,
-        })).sort((a, b) => b.modifiedAt - a.modifiedAt);
-
-        res.json({
-            files,
-            totalFiles: files.length,
-            totalChunks: knowledge.chunks.length,
-            totalChars: knowledge.totalChars,
-            loadedAt: knowledge.loadedAt,
-        });
-    } catch (err) {
-        res.status(500).json({ error: 'Failed to list knowledge' });
-    }
+        const files = Array.from(knowledge.files.values()).map((f) => ({ name: f.name, size: f.size, chunks: f.chunks, chars: f.chars, modifiedAt: f.modifiedAt })).sort((a, b) => b.modifiedAt - a.modifiedAt);
+        res.json({ files, totalFiles: files.length, totalChunks: knowledge.chunks.length, totalChars: knowledge.totalChars, loadedAt: knowledge.loadedAt });
+    } catch (err) { res.status(500).json({ error: 'Failed to list knowledge' }); }
 });
 
 app.post('/api/knowledge/upload', (req, res) => {
@@ -728,121 +605,75 @@ app.post('/api/knowledge/upload', (req, res) => {
         const { name, content } = req.body || {};
         if (!name || typeof name !== 'string') return res.status(400).json({ error: 'חסר שם קובץ' });
         if (!content || typeof content !== 'string') return res.status(400).json({ error: 'חסר תוכן לקובץ' });
-
         const safeName = path.basename(name).replace(/[^\p{L}\p{N}\-_. ]/gu, '_');
         if (!/\.(txt|md)$/i.test(safeName)) return res.status(400).json({ error: 'רק קבצי .txt או .md נתמכים' });
-        if (knowledge.files.size >= CONFIG.knowledgeMaxFiles) return res.status(413).json({ error: `מקסימום ${CONFIG.knowledgeMaxFiles} קבצים` });
-        if (Buffer.byteLength(content, 'utf8') > CONFIG.knowledgeMaxFileSizeBytes) return res.status(413).json({ error: 'הקובץ גדול מדי' });
-
         const fullPath = path.join(CONFIG.knowledgeDir, safeName);
         fs.writeFileSync(fullPath, content, 'utf8');
         loadKnowledgeBase();
-
-        log('info', `Knowledge uploaded: ${safeName}`);
         res.json({ success: true, name: safeName, totalFiles: knowledge.files.size, totalChunks: knowledge.chunks.length });
-    } catch (err) {
-        res.status(500).json({ error: 'העלאה נכשלה: ' + err.message });
-    }
+    } catch (err) { res.status(500).json({ error: 'העלאה נכשלה: ' + err.message }); }
 });
 
 app.delete('/api/knowledge/:name', (req, res) => {
     try {
         const safeName = path.basename(req.params.name || '');
         if (!safeName || !/\.(txt|md)$/i.test(safeName)) return res.status(400).json({ error: 'שם קובץ לא תקין' });
-
         const fullPath = path.join(CONFIG.knowledgeDir, safeName);
         if (!fs.existsSync(fullPath)) return res.status(404).json({ error: 'הקובץ לא נמצא' });
-
-        const resolved = path.resolve(fullPath);
-        const baseDir = path.resolve(CONFIG.knowledgeDir);
-        if (!resolved.startsWith(baseDir + path.sep)) return res.status(400).json({ error: 'נתיב לא חוקי' });
-
         fs.unlinkSync(fullPath);
         loadKnowledgeBase();
-
         res.json({ success: true, name: safeName, totalFiles: knowledge.files.size, totalChunks: knowledge.chunks.length });
-    } catch (err) {
-        res.status(500).json({ error: 'מחיקה נכשלה: ' + err.message });
-    }
+    } catch (err) { res.status(500).json({ error: 'מחיקה נכשלה: ' + err.message }); }
 });
 
 app.post('/api/knowledge/reload', (req, res) => {
-    try {
-        loadKnowledgeBase();
-        res.json({ success: true, totalFiles: knowledge.files.size, totalChunks: knowledge.chunks.length });
-    } catch (err) {
-        res.status(500).json({ error: 'טעינה מחדש נכשלה' });
-    }
+    try { loadKnowledgeBase(); res.json({ success: true, totalFiles: knowledge.files.size, totalChunks: knowledge.chunks.length }); }
+    catch (err) { res.status(500).json({ error: 'טעינה מחדש נכשלה' }); }
 });
 
-// === ASK ===
 app.post('/api/ask', apiRateLimiter, async (req, res, next) => {
     const requestStart = Date.now();
     metrics.totalRequests += 1;
-
     try {
         const rawQuery = req.body?.prompt;
         const rawHistory = req.body?.history;
-
         if (!rawQuery || typeof rawQuery !== 'string' || rawQuery.trim() === '') {
             metrics.totalErrors += 1;
             recordError('Empty prompt');
             return res.status(400).json({ reply: 'אדון, לא התקבלה שאלה תקינה לעיבוד.' });
         }
-
         const userQuery = rawQuery.trim();
         if (userQuery.length > CONFIG.maxPromptLength) {
             metrics.totalErrors += 1;
             recordError('Prompt too long');
             return res.status(413).json({ reply: `אדון, השאלה ארוכה מדי (מקסימום ${CONFIG.maxPromptLength} תווים).` });
         }
-
         const history = sanitizeHistory(rawHistory);
         metrics.totalHistoryMessagesSent += history.length;
-
         metrics.totalKnowledgeLookups += 1;
         const matchedChunks = searchKnowledge(userQuery);
         const knowledgeContext = buildKnowledgeContext(matchedChunks);
-
         if (matchedChunks.length > 0) {
             metrics.totalKnowledgeHits += 1;
             log('info', `Knowledge hit — ${matchedChunks.length} chunks`);
         }
-
         const { reply, coreLatencyMs, attempts } = await callGeminiWithRetry(userQuery, knowledgeContext, history);
         const totalRoundTripMs = Date.now() - requestStart;
-
         metrics.totalSuccess += 1;
         recordLatency(coreLatencyMs);
-
-        return res.json({
-            reply,
-            latencyMs: coreLatencyMs,
-            roundTripMs: totalRoundTripMs,
-            attempts,
-            historyUsed: history.length,
-            knowledgeUsed: matchedChunks.length > 0,
-            knowledgeChunks: matchedChunks.length,
-            knowledgeSources: [...new Set(matchedChunks.map(c => c.source))],
-            timestamp: new Date().toISOString(),
-        });
-    } catch (error) {
-        next(error);
-    }
+        return res.json({ reply, latencyMs: coreLatencyMs, roundTripMs: totalRoundTripMs, attempts, historyUsed: history.length, knowledgeUsed: matchedChunks.length > 0, knowledgeChunks: matchedChunks.length, timestamp: new Date().toISOString() });
+    } catch (error) { next(error); }
 });
 
-// === ANALYZE (Analytics AI Analysis) ===
 app.post('/api/analyze', apiRateLimiter, async (req, res, next) => {
     const requestStart = Date.now();
     metrics.totalRequests += 1;
-
     try {
         const videos = req.body?.videos;
         if (!Array.isArray(videos) || videos.length === 0) {
             return res.status(400).json({ reply: 'אין נתונים לניתוח' });
         }
 
-        // === חישוב סיכום כללי ===
         const totals = videos.reduce((acc, v) => {
             acc.views += Number(v.views) || 0;
             acc.likes += Number(v.likes) || 0;
@@ -862,29 +693,14 @@ app.post('/api/analyze', apiRateLimiter, async (req, res, next) => {
         const ratio = totals.views ? ((totals.likes / totals.views) * 100).toFixed(2) : 0;
         const commentRatio = totals.views ? ((totals.comments / totals.views) * 100).toFixed(2) : 0;
 
-        // === מיון סרטונים ===
         const sorted = [...videos].sort((a, b) => (b.views || 0) - (a.views || 0));
         const top5 = sorted.slice(0, 5);
         const bottom5 = sorted.slice(-5).reverse();
         const medianViews = sorted[Math.floor(sorted.length / 2)]?.views || 0;
 
-        // === סרטונים עם יחס לייקים גבוה ===
-        const engagementChamps = [...videos]
-            .filter(v => (v.views || 0) >= 100)
-            .sort((a, b) => {
-                const ra = (a.likes || 0) / (a.views || 1);
-                const rb = (b.likes || 0) / (b.views || 1);
-                return rb - ra;
-            })
-            .slice(0, 3);
+        const engagementChamps = [...videos].filter(v => (v.views || 0) >= 100).sort((a, b) => ((b.likes || 0) / (b.views || 1)) - ((a.likes || 0) / (a.views || 1))).slice(0, 3);
+        const commentChamps = [...videos].filter(v => (v.comments || 0) > 0).sort((a, b) => (b.comments || 0) - (a.comments || 0)).slice(0, 3);
 
-        // === סרטונים עם הכי הרבה תגובות ===
-        const commentChamps = [...videos]
-            .filter(v => (v.comments || 0) > 0)
-            .sort((a, b) => (b.comments || 0) - (a.comments || 0))
-            .slice(0, 3);
-
-        // === פילוח פלטפורמות ===
         const platformStats = {};
         for (const v of videos) {
             const p = v.platform || 'youtube';
@@ -895,7 +711,6 @@ app.post('/api/analyze', apiRateLimiter, async (req, res, next) => {
             platformStats[p].comments += Number(v.comments) || 0;
         }
 
-        // === פילוח אורכים ===
         const durationBuckets = { short: [], medium: [], long: [] };
         for (const v of videos) {
             const d = Number(v.duration) || 0;
@@ -904,53 +719,42 @@ app.post('/api/analyze', apiRateLimiter, async (req, res, next) => {
             else durationBuckets.long.push(v);
         }
 
-        // === טבלת כל הסרטונים ===
         const detailedTable = sorted.map((v, i) => {
             const vr = v.views ? ((v.likes || 0) / v.views * 100).toFixed(2) : '0';
             const cr = v.views ? ((v.comments || 0) / v.views * 100).toFixed(3) : '0';
             return `${i + 1}. [${v.platform || 'youtube'}] "${v.title}" | ${v.date || '—'} | ${v.duration || 0}s | ${(v.views || 0).toLocaleString()} צפיות | ${v.likes || 0} לייקים (${vr}%) | ${v.comments || 0} תגובות (${cr}%)`;
         }).join('\n');
 
-        // === בלוק פלטפורמות ===
-        const platformBlock = Object.entries(platformStats)
-            .map(([name, s]) => {
-                const avgViews = Math.round(s.views / s.count);
-                const pr = s.views ? (s.likes / s.views * 100).toFixed(2) : 0;
-                const cr = s.views ? (s.comments / s.views * 100).toFixed(3) : 0;
-                return `**${name}**: ${s.count} סרטונים | ${s.views.toLocaleString()} צפיות | ממוצע ${avgViews} צפיות/סרטון | יחס לייקים ${pr}% | יחס תגובות ${cr}%`;
-            })
-            .join('\n');
+        const platformBlock = Object.entries(platformStats).map(([name, s]) => {
+            const avgViews = Math.round(s.views / s.count);
+            const pr = s.views ? (s.likes / s.views * 100).toFixed(2) : 0;
+            const cr = s.views ? (s.comments / s.views * 100).toFixed(3) : 0;
+            return `**${name}**: ${s.count} סרטונים | ${s.views.toLocaleString()} צפיות | ממוצע ${avgViews} צפיות/סרטון | יחס לייקים ${pr}% | יחס תגובות ${cr}%`;
+        }).join('\n');
 
-        // === בלוק אורכים ===
-        const durationBlock = `
-- **קצרים (עד 10s)**: ${durationBuckets.short.length} סרטונים, סה"כ ${durationBuckets.short.reduce((s, v) => s + (Number(v.views) || 0), 0).toLocaleString()} צפיות, ממוצע ${durationBuckets.short.length ? Math.round(durationBuckets.short.reduce((s, v) => s + (Number(v.views) || 0), 0) / durationBuckets.short.length) : 0} צפיות/סרטון
-- **בינוניים (11-20s)**: ${durationBuckets.medium.length} סרטונים, סה"כ ${durationBuckets.medium.reduce((s, v) => s + (Number(v.views) || 0), 0).toLocaleString()} צפיות, ממוצע ${durationBuckets.medium.length ? Math.round(durationBuckets.medium.reduce((s, v) => s + (Number(v.views) || 0), 0) / durationBuckets.medium.length) : 0} צפיות/סרטון
-- **ארוכים (21s+)**: ${durationBuckets.long.length} סרטונים, סה"כ ${durationBuckets.long.reduce((s, v) => s + (Number(v.views) || 0), 0).toLocaleString()} צפיות, ממוצע ${durationBuckets.long.length ? Math.round(durationBuckets.long.reduce((s, v) => s + (Number(v.views) || 0), 0) / durationBuckets.long.length) : 0} צפיות/סרטון`;
+        const durationBlock = `- **קצרים (עד 10s)**: ${durationBuckets.short.length} סרטונים, ממוצע ${durationBuckets.short.length ? Math.round(durationBuckets.short.reduce((s, v) => s + (Number(v.views) || 0), 0) / durationBuckets.short.length) : 0} צפיות/סרטון
+- **בינוניים (11-20s)**: ${durationBuckets.medium.length} סרטונים, ממוצע ${durationBuckets.medium.length ? Math.round(durationBuckets.medium.reduce((s, v) => s + (Number(v.views) || 0), 0) / durationBuckets.medium.length) : 0} צפיות/סרטון
+- **ארוכים (21s+)**: ${durationBuckets.long.length} סרטונים, ממוצע ${durationBuckets.long.length ? Math.round(durationBuckets.long.reduce((s, v) => s + (Number(v.views) || 0), 0) / durationBuckets.long.length) : 0} צפיות/סרטון`;
 
-        // === Top 5 ===
         const topBlock = top5.map((v, i) => {
             const vr = v.views ? ((v.likes || 0) / v.views * 100).toFixed(2) : '0';
             return `${i + 1}. [${v.platform || 'youtube'}] "${v.title}" — ${(v.views || 0).toLocaleString()} צפיות | ${v.likes || 0} לייקים (${vr}%) | ${v.comments || 0} תגובות | ${v.duration || 0}s`;
         }).join('\n');
 
-        // === Bottom 5 ===
         const bottomBlock = bottom5.map((v, i) => {
             const vr = v.views ? ((v.likes || 0) / v.views * 100).toFixed(2) : '0';
             return `${i + 1}. [${v.platform || 'youtube'}] "${v.title}" — ${(v.views || 0).toLocaleString()} צפיות | ${v.likes || 0} לייקים (${vr}%) | ${v.duration || 0}s`;
         }).join('\n');
 
-        // === מעורבות ===
         const engagementBlock = engagementChamps.map((v, i) => {
             const vr = ((v.likes || 0) / (v.views || 1) * 100).toFixed(2);
             return `${i + 1}. [${v.platform || 'youtube'}] "${v.title}" — ${vr}% יחס לייקים (${v.likes}/${v.views})`;
         }).join('\n');
 
-        // === תגובות ===
         const commentBlock = commentChamps.length
             ? commentChamps.map((v, i) => `${i + 1}. "${v.title}" — ${v.comments} תגובות (${((v.comments / v.views) * 100).toFixed(3)}% מ-${v.views} צפיות)`).join('\n')
             : 'אין סרטונים עם תגובות.';
 
-        // === הפרומפט ===
         const prompt = `אתה אנליסט תוכן אגרסיבי ומדויק. אתה מנתח נתוני ביצועים של יוצר תוכן קליסטניקס.
 המטרה שלך: **לתת לו תובנות שיעזרו לו לייצר תוכן ויראלי יותר — לא ללטף אגו.**
 
@@ -991,104 +795,75 @@ ${commentBlock}
 תן ניתוח **אמיתי, חד, וביקורתי**. 
 
 **אסור לך:**
-- ❌ לחמיא ("כל הכבוד!", "מעולה!", "אתה עושה עבודה נהדרת!")
-- ❌ לחזור על הנתונים בלי לפרש אותם
-- ❌ לתת עצות גנריות ("תעשה תוכן טוב יותר", "תשפר את ה-hook")
+- ❌ לחמיא ("כל הכבוד!", "מעולה!")
+- ❌ לחזור על הנתונים בלי לפרש
+- ❌ לתת עצות גנריות
 - ❌ לחזור על מה שהמשתמש כבר יודע
-
-**אסור לך לחזור על הנתונים — הפרשן אותם!**
 
 ## 📐 הפורמט המדויק
 
 ### 🎯 מה עובד **באמת** (ולמה)
-תן 3 תובנות **ספציפיות ומבוססות מספרים**. לא "סרטונים קצרים עובדים" — **למה בדיוק**.
-דוגמה טובה: "הסרטון עם 13.46% CTR הוא היחיד עם שאלה בכותרת. שאר הסרטונים — הצהרות. שאלות מייצרות סקרנות."
+3 תובנות ספציפיות ומבוססות מספרים.
 
 ### 🔴 הבעיות האמיתיות
-3 בעיות **קונקרטיות**. תגיד את האמת — אם התוכן בינוני, תגיד.
+3 בעיות קונקרטיות. תגיד את האמת.
 
 ### 🎬 ניתוח ה-hook (2 השניות הראשונות)
-נתח את 2 השניות הראשונות של הסרטון הטוב ביותר מול הגרוע ביותר. מה עבד? מה לא? איך ליישם?
+נתח את הסרטון הטוב ביותר מול הגרוע ביותר.
 
 ### 📊 הפלטפורמות — אמת קשה
-איזו פלטפורמה **בזבז זמן**? איזו שווה פי 2 מאמץ? למה? עם מספרים ספציפיים.
+איזו פלטפורמה בזבז זמן? עם מספרים ספציפיים.
 
 ### 🔬 ניתוח כותרות
-נתח את הכותרות: מה עבד ומה לא? איזה מילים ספציפיות מופיעות ב-Top 5? מה ההבדל בין Top 3 ל-Bottom 3?
+מה עבד ומה לא? מה ההבדל בין Top 3 ל-Bottom 3?
 
 ### 🚀 5 כותרות מדויקות לסרטון הבא
-תן 5 כותרות **ספציפיות שאפשר להשתמש בהן מחר בבוקר**. כל כותרת צריכה להיות מבוססת על דפוס שעבד אצלו.
+5 כותרות ספציפיות שאפשר להשתמש בהן מחר בבוקר.
 
 ### ⚠️ האמת שאתה לא רוצה לשמוע
-משהו אחד שאתה עושה לא נכון ואתה לא שם לב אליו. ביקורת ישירה. **בלי לרכך.**
+משהו אחד שאתה עושה לא נכון ואתה לא שם לב. בלי לרכך.
 
 ### 🎯 תוכנית פעולה לשבוע הבא
-3 פעולות **קונקרטיות** לעשות בשבוע הקרוב. לא "תעשה סרטונים טובים יותר" — אלא **מה בדיוק**.
+3 פעולות קונקרטיות לעשות בשבוע הקרוב.
 
-סגנון: ישיר, ביקרטי, מבוסס מספרים. עברית. בלי הקדמות. בלי "כל הכבוד".`;
+סגנון: ישיר, ביקורתי, מבוסס מספרים. עברית. בלי הקדמות.`;
 
-        // === שליחה ל-Gemini (3 retries) ===
         const { reply, coreLatencyMs, attempts } = await callGeminiWithRetry(prompt, '', [], 3);
         const totalRoundTripMs = Date.now() - requestStart;
 
         metrics.totalSuccess += 1;
         recordLatency(coreLatencyMs);
-
         log('info', `Analyze OK`, { videos: videos.length, coreLatencyMs, totalRoundTripMs, attempts });
 
-        return res.json({
-            reply,
-            latencyMs: coreLatencyMs,
-            roundTripMs: totalRoundTripMs,
-            attempts,
-            videoCount: videos.length,
-            timestamp: new Date().toISOString(),
-        });
-    } catch (error) {
-        next(error);
-    }
+        return res.json({ reply, latencyMs: coreLatencyMs, roundTripMs: totalRoundTripMs, attempts, videoCount: videos.length, timestamp: new Date().toISOString() });
+    } catch (error) { next(error); }
 });
 
-// === VISION ===
 app.post('/api/vision', visionRateLimiter, async (req, res, next) => {
     const requestStart = Date.now();
     metrics.totalRequests += 1;
     metrics.totalVisionRequests += 1;
-
     try {
         const { image, mimeType, prompt } = req.body || {};
         if (!image || typeof image !== 'string') return res.status(400).json({ reply: 'אדון, לא התקבלה תמונה.' });
-
         const safeMime = (typeof mimeType === 'string' && /^image\/(jpeg|png|webp)$/i.test(mimeType)) ? mimeType : 'image/jpeg';
         const estimatedBytes = Math.floor((image.length * 3) / 4);
         if (estimatedBytes > CONFIG.maxImageSizeBytes) return res.status(413).json({ reply: 'אדון, התמונה גדולה מדי.' });
-
         const userPrompt = typeof prompt === 'string' ? prompt : '';
         const { reply, coreLatencyMs, attempts } = await callGeminiVision(image, safeMime, userPrompt);
         const totalRoundTripMs = Date.now() - requestStart;
-
         metrics.totalSuccess += 1;
         recordLatency(coreLatencyMs);
-
         return res.json({ reply, latencyMs: coreLatencyMs, roundTripMs: totalRoundTripMs, attempts, timestamp: new Date().toISOString() });
-    } catch (error) {
-        next(error);
-    }
+    } catch (error) { next(error); }
 });
 
-// ============================================================
-// 🆕 /api/mega-prompt — מייצר מגה-פרומפט בזמן אמת
-// ============================================================
 app.get('/api/mega-prompt', async (req, res, next) => {
     try {
         const uptimeSeconds = Math.floor((Date.now() - metrics.startedAt) / 1000);
         const mem = process.memoryUsage();
         const now = new Date().toISOString();
-
-        const knowledgeFilesList = Array.from(knowledge.files.values())
-            .map(f => `- \`knowledge/${f.name}\` — ${f.chunks} chunks, ${f.chars} תווים`)
-            .join('\n');
-
+        const knowledgeFilesList = Array.from(knowledge.files.values()).map(f => `- \`knowledge/${f.name}\` — ${f.chunks} chunks, ${f.chars} תווים`).join('\n');
         const megaPrompt = `# 🎯 J.A.R.V.I.S — PROJECT MEGA-PROMPT
 # נוצר אוטומטית: ${now}
 # Uptime: ${formatUptime(uptimeSeconds)} | Memory: ${(mem.rss / 1024 / 1024).toFixed(1)} MB
@@ -1096,206 +871,91 @@ app.get('/api/mega-prompt', async (req, res, next) => {
 ## 🎯 הקשר כללי
 
 אני עובד על פרויקט בשם J.A.R.V.I.S — עוזר AI אישי בעברית, בנוי על Node.js/Express + Gemini API.
-הפרויקט עובד במחשב המקומי שלי (localhost:3000) וגם ב-Render (https://jarvis-ype5.onrender.com).
-המטרה: עוזר AI חכם עם זיכרון, ראייה, שמיעה, ידע אישי, וניתוח תוכן.
 
 **סטאק טכנולוגי:**
 - Backend: Node.js + Express
 - AI: Google Gemini API (מודל: ${CONFIG.geminiModel})
-- Frontend: Vanilla JS + HTML + CSS (בלי frameworks)
-- אחסון: GitHub + Render (Free tier)
-- PWA: מותקן על טלפון (Galaxy S21 Ultra 5G)
+- Frontend: Vanilla JS + HTML + CSS
+- אחסון: GitHub + Render
 
----
+## Endpoints
+- /api/ask, /api/vision, /api/analyze, /api/health, /api/metrics
+- /api/knowledge, /api/mega-prompt, /api/analytics-chat
 
-## ✅ מה שכבר נבנה ועובד
+## Knowledge Base
+${knowledgeFilesList || '- ⚠️ אין קבצי ידע'}
 
-### 1. Backend (server.js)
-- Express server עם endpoints:
-  - \`/api/ask\` — צ'אט עם Gemini + היסטוריה + BM25
-  - \`/api/vision\` — ניתוח תמונות
-  - \`/api/analyze\` — ניתוח אנליטי מעמיק של סרטונים
-  - \`/api/health\` — מטריקות מורחבות
-  - \`/api/metrics\` — מטריקות לקוח
-  - \`/api/knowledge\` — רשימת קבצי ידע
-  - \`/api/knowledge/upload\` — העלאת קבצים
-  - \`/api/knowledge/delete/:name\` — מחיקה
-  - \`/api/knowledge/reload\` — טעינה מחדש
-  - \`/api/mega-prompt\` — מייצר את המגה-פרומפט הזה
-  - \`/api/analytics-chat\` — צ'אט חכם על נתוני אנליטיקס
-- Rate limiting (2 חלונות: API ${CONFIG.rateLimitMax}/דקה + Vision ${CONFIG.visionRateLimitMax}/דקה)
-- Retry אוטומטי על 429 (חילוץ זמן retry מההודעה + השהיה)
-- Helmet + CORS + compression
-- מטריקות חיות: latency, requests, errors, knowledge hits, rate limits
-- Knowledge Base עם BM25 (K1=${BM25_K1}, B=${BM25_B})
-- היסטוריית שיחות (עד ${CONFIG.maxHistoryMessages} הודעות, ${CONFIG.maxTotalHistoryChars} תווים)
+סה"כ: ${knowledge.files.size} קבצים, ${knowledge.chunks.length} chunks
 
-### 2. Frontend (public/)
-- \`index.html\` — HUD עם Reticle, HUD stats, Particle Brain
-- \`main.css\` — עיצוב Cinematic HUD (זהב + טורקיז)
-- \`mobile.css\` — התאמה מלאה לטלפון
-- \`app.js\` — לוגיקת לקוח מלאה
-- \`neural.js\` — Particle Brain תלת-ממדי (550 חלקיקים)
-- \`analytics.html\` + \`analytics.js\` + \`analytics.css\` — Dashboard
-
-### 3. PWA
-- \`manifest.json\` + \`sw.js\`
-- מותקן על הטלפון (Chrome אנדרואיד)
-- עובד HTTPS ב-Render
-
-### 4. Knowledge Base אישי
-${knowledgeFilesList || '- ⚠️ אין קבצי ידע טעונים כרגע'}
-
-סה"כ: ${knowledge.files.size} קבצים, ${knowledge.chunks.length} chunks, ${knowledge.totalChars} תווים
-
-### 5. Deployment
-- Git + GitHub: \`github.com/tbhrumv12-hue/jarvis\`
-- Render: \`https://jarvis-ype5.onrender.com\`
-- Auto-Deploy על כל commit
-
----
-
-## 📊 מטריקות חיות
-
+## מטריקות
 \`\`\`json
-${JSON.stringify({
-    uptime: uptimeSeconds,
-    model: CONFIG.geminiModel,
-    latencyMs: metrics.lastLatencyMs,
-    avgLatencyMs: metrics.avgLatencyMs,
-    totalRequests: metrics.totalRequests,
-    totalSuccess: metrics.totalSuccess,
-    totalErrors: metrics.totalErrors,
-    totalVisionRequests: metrics.totalVisionRequests,
-    totalKnowledgeLookups: metrics.totalKnowledgeLookups,
-    totalKnowledgeHits: metrics.totalKnowledgeHits,
-    totalRateLimitHits: metrics.totalRateLimitHits,
-    knowledgeFiles: knowledge.files.size,
-    knowledgeChunks: knowledge.chunks.length,
-}, null, 2)}
+${JSON.stringify({ uptime: uptimeSeconds, model: CONFIG.geminiModel, totalRequests: metrics.totalRequests, totalSuccess: metrics.totalSuccess, totalErrors: metrics.totalErrors, knowledgeFiles: knowledge.files.size, knowledgeChunks: knowledge.chunks.length }, null, 2)}
 \`\`\`
 
----
-
-*מגה-פרומפט זה נוצר אוטומטית על ידי \`GET /api/mega-prompt\`.*`;
-
+*נוצר אוטומטית על ידי GET /api/mega-prompt.*`;
         res.type('text/plain; charset=utf-8').send(megaPrompt);
-    } catch (err) {
-        next(err);
-    }
+    } catch (err) { next(err); }
 });
 
-// ============================================================
-// 🆕 /api/analytics-chat — צ'אט חכם על נתוני אנליטיקס
-// ============================================================
 app.post('/api/analytics-chat', apiRateLimiter, async (req, res, next) => {
     const requestStart = Date.now();
     metrics.totalRequests += 1;
-
     try {
         const { message, history: rawHistory, analytics } = req.body || {};
-
         if (!message || typeof message !== 'string' || !message.trim()) {
             metrics.totalErrors += 1;
             recordError('Empty analytics chat message');
             return res.status(400).json({ reply: 'אדון, לא התקבלה הודעה.' });
         }
-
         const userMessage = message.trim();
-        if (userMessage.length > CONFIG.maxPromptLength) {
-            metrics.totalErrors += 1;
-            recordError('Analytics message too long');
-            return res.status(413).json({ reply: `אדון, ההודעה ארוכה מדי (מקסימום ${CONFIG.maxPromptLength} תווים).` });
-        }
-
         const videos = Array.isArray(analytics?.videos) ? analytics.videos : [];
         const summary = analytics?.summary || computeAnalyticsSummary(videos);
 
-        const analyticsBlock = videos.length
-            ? `
-### סיכום כללי
-- סה"כ סרטונים: ${summary.totalVideos}
-- סה"כ צפיות: ${(summary.totalViews || 0).toLocaleString('he-IL')}
-- סה"כ לייקים: ${summary.totalLikes || 0}
-- סה"כ תגובות: ${summary.totalComments || 0}
+        const analyticsBlock = videos.length ? `
+### סיכום
+- סרטונים: ${summary.totalVideos}, צפיות: ${(summary.totalViews || 0).toLocaleString('he-IL')}, לייקים: ${summary.totalLikes || 0}, תגובות: ${summary.totalComments || 0}
 
-### פירוט הסרטונים (${videos.length})
-${videos.slice(0, 30).map(v => `**${v.title}** [${v.platform || 'youtube'}] — ${v.views || 0} צפיות, ${v.likes || 0} לייקים, ${v.comments || 0} תגובות, ${v.duration || 0}s`).join('\n')}
-`
-            : '\n### אין נתוני אנליטיקס זמינים כרגע.\n';
+### פירוט (${videos.length})
+${videos.slice(0, 30).map(v => `**${v.title}** [${v.platform || 'youtube'}] — ${v.views || 0} צפיות, ${v.likes || 0} לייקים, ${v.comments || 0} תגובות, ${v.duration || 0}s`).join('\n')}` : '\n### אין נתונים.\n';
 
-        metrics.totalKnowledgeLookups += 1;
         const personalChunks = searchKnowledge(userMessage);
         let personalContext = '';
-        if (personalChunks.length > 0) {
-            metrics.totalKnowledgeHits += 1;
-            personalContext = `\n\n### ידע אישי רלוונטי:\n${personalChunks.map(c => `- ${c.text}`).join('\n')}`;
-        }
+        if (personalChunks.length > 0) personalContext = `\n\n### ידע אישי:\n${personalChunks.map(c => `- ${c.text}`).join('\n')}`;
 
-        const analyticsSystemPrompt = `אתה J.A.R.V.I.S — אנליסט תוכן אישי בעברית. אתה עוזר ליוצר תוכן קליסטניקס.
+        const analyticsSystemPrompt = `אתה J.A.R.V.I.S — אנליסט תוכן אישי בעברית.
 
-## כללי התנהגות:
-1. ענה תמיד בעברית, בטון ישיר, חד, ומקצועי.
-2. היה ספציפי ומספרי — צטט נתונים אמיתיים.
-3. תן 2-3 פעולות קונקרטיות, לא קלישאות.
-4. אל תמציא נתונים שלא קיימים.
+## כללים:
+1. ענה בעברית, בטון ישיר וחד.
+2. היה ספציפי ומספרי.
+3. תן פעולות קונקרטיות, לא קלישאות.
+4. אל תמציא נתונים.
 5. השתמש ב-Markdown.
 
-## נתוני האנליטיקס:
+## נתונים:
 ${analyticsBlock}
 ${personalContext}`;
 
-        const normalizedHistory = Array.isArray(rawHistory)
-            ? rawHistory.map(h => ({
-                role: h?.role === 'assistant' ? 'jarvis' : 'user',
-                text: h?.content || h?.text || '',
-            }))
-            : [];
-
+        const normalizedHistory = Array.isArray(rawHistory) ? rawHistory.map(h => ({ role: h?.role === 'assistant' ? 'jarvis' : 'user', text: h?.content || h?.text || '' })) : [];
         const history = sanitizeHistory(normalizedHistory);
-        metrics.totalHistoryMessagesSent += history.length;
+        const combinedContext = `${analyticsSystemPrompt}\n\n---\n(הפעל את ההנחיות של אנליטיקס בלבד.)`;
 
-        const combinedKnowledgeContext = `${analyticsSystemPrompt}\n\n---\n(הפעל את ההנחיות של אנליטיקס בלבד.)`;
+        const { reply, coreLatencyMs, attempts } = await callGeminiWithRetry(userMessage, combinedContext, history);
 
-        const { reply, coreLatencyMs, attempts } = await callGeminiWithRetry(
-            userMessage,
-            combinedKnowledgeContext,
-            history
-        );
-
-        const totalRoundTripMs = Date.now() - requestStart;
         metrics.totalSuccess += 1;
         recordLatency(coreLatencyMs);
 
-        return res.json({
-            reply,
-            latencyMs: coreLatencyMs,
-            roundTripMs: totalRoundTripMs,
-            attempts,
-            historyUsed: history.length,
-            knowledgeUsed: personalChunks.length > 0,
-            timestamp: new Date().toISOString(),
-        });
-    } catch (error) {
-        next(error);
-    }
+        return res.json({ reply, latencyMs: coreLatencyMs, roundTripMs: Date.now() - requestStart, attempts, historyUsed: history.length, timestamp: new Date().toISOString() });
+    } catch (error) { next(error); }
 });
 
-// === 404 ===
-app.use((req, res) => {
-    res.status(404).json({ reply: 'אדון, הנתיב המבוקש אינו קיים.' });
-});
+app.use((req, res) => { res.status(404).json({ reply: 'אדון, הנתיב המבוקש אינו קיים.' }); });
 
-// === Error Handler ===
 app.use((err, req, res, next) => {
     if (err instanceof GeminiError) {
         log('error', `Gemini ${err.statusCode}: ${err.message}`);
         recordError(err.message);
         if (err.isRateLimit) {
-            return res.status(429).json({
-                reply: 'אדון, מערכות הליבה שלי הגיעו למכסת השימוש החינמית לרגע זה. אנא המתן כחצי דקה ונסה שוב.',
-                rateLimited: true,
-            });
+            return res.status(429).json({ reply: 'אדון, מערכות הליבה שלי הגיעו למכסת השימוש החינמית לרגע זה. אנא המתן כחצי דקה ונסה שוב.', rateLimited: true });
         }
         const status = err.statusCode >= 400 && err.statusCode < 600 ? err.statusCode : 500;
         return res.status(status).json({ reply: `אדון, ${err.message}` });
@@ -1304,47 +964,6 @@ app.use((err, req, res, next) => {
     recordError(err.message || 'Unknown error');
     return res.status(500).json({ reply: 'אדון, אירעה תקלה בלתי צפויה במערכת.' });
 });
-
-// ==============================
-// 🛠️ פונקציות עזר
-// ==============================
-
-function formatUptime(seconds) {
-    const d = Math.floor(seconds / 86400);
-    const h = Math.floor((seconds % 86400) / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    if (d > 0) return `${d}d ${h}h ${m}m`;
-    if (h > 0) return `${h}h ${m}m`;
-    return `${m}m`;
-}
-
-function computeAnalyticsSummary(videos) {
-    if (!Array.isArray(videos) || videos.length === 0) {
-        return {
-            totalVideos: 0, totalViews: 0, totalLikes: 0, totalComments: 0,
-            totalShares: 0, totalSubscribers: 0, totalWatchTimeHours: 0,
-            avgViewPercent: 0, stayToWatch: 0,
-        };
-    }
-
-    const sum = (key) => videos.reduce((s, v) => s + (Number(v[key]) || 0), 0);
-
-    return {
-        totalVideos: videos.length,
-        totalViews: sum('views'),
-        totalLikes: sum('likes'),
-        totalComments: sum('comments'),
-        totalShares: sum('shares'),
-        totalSubscribers: sum('subscribers'),
-        totalWatchTimeHours: +(sum('watchTimeHours')).toFixed(2),
-        avgViewPercent: +(sum('avgViewPercent') / videos.length).toFixed(2),
-        stayToWatch: +(videos.reduce((s, v) => s + (Number(v?.retention?.completionRate) || 0), 0) / videos.length).toFixed(2),
-    };
-}
-
-// ==============================
-// 10. הפעלה
-// ==============================
 
 loadKnowledgeBase();
 
@@ -1356,11 +975,8 @@ const server = app.listen(CONFIG.port, () => {
 });
 
 function shutdown(signal) {
-    console.log(`\n${signal} התקבל, סוגר את השרת בצורה מסודרת...`);
-    server.close(() => {
-        console.log('השרת נסגר בהצלחה.');
-        process.exit(0);
-    });
+    console.log(`\n${signal} התקבל, סוגר את השרת...`);
+    server.close(() => { console.log('השרת נסגר בהצלחה.'); process.exit(0); });
     setTimeout(() => process.exit(1), 10000).unref();
 }
 
