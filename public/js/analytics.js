@@ -1,6 +1,6 @@
 /**
  * ⚡ J.A.R.V.I.S // ANALYTICS v1.3
- * Dashboard + AI Chat + Mega Prompt + AI Analyze
+ * Dashboard + AI Chat + Mega Prompt + YouTube Import + TikTok Import
  */
 
 (function () {
@@ -36,6 +36,14 @@
             history: [],
             isSending: false,
         },
+        youtube: {
+            pendingVideo: null,
+            isLoading: false,
+        },
+        tiktok: {
+            pendingVideo: null,
+            isLoading: false,
+        },
     };
 
     // ==============================
@@ -43,6 +51,7 @@
     // ==============================
 
     function $(sel) { return document.querySelector(sel); }
+    function $$(sel) { return document.querySelectorAll(sel); }
 
     function formatNumber(n) {
         if (n === null || n === undefined) return '0';
@@ -290,7 +299,7 @@
         if (!tbody) return;
 
         if (!videos.length) {
-            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:30px;color:var(--an-text-tertiary);">אין נתונים להצגה</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:30px;color:#999;">אין נתונים להצגה</td></tr>';
             return;
         }
 
@@ -507,6 +516,325 @@
         const d = new Date(dateStr);
         if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
         return new Date().toISOString().split('T')[0];
+    }
+
+    // ==============================
+    // 8.5. 🆕 YOUTUBE IMPORT
+    // ==============================
+
+    function openYouTubeModal() {
+        const modal = document.getElementById('youtube-modal');
+        if (!modal) {
+            alert('מודאל YouTube לא נמצא ב-HTML');
+            return;
+        }
+
+        const urlInput = document.getElementById('yt-url');
+        const errEl = document.getElementById('yt-error');
+        const loadingEl = document.getElementById('yt-loading');
+        const previewEl = document.getElementById('yt-preview');
+        const fetchBtn = document.getElementById('yt-fetch');
+        const confirmBtn = document.getElementById('yt-confirm');
+
+        if (urlInput) urlInput.value = '';
+        if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
+        if (loadingEl) loadingEl.hidden = true;
+        if (previewEl) previewEl.hidden = true;
+        if (fetchBtn) { fetchBtn.hidden = false; fetchBtn.disabled = false; }
+        if (confirmBtn) confirmBtn.hidden = true;
+
+        state.youtube.pendingVideo = null;
+        state.youtube.isLoading = false;
+
+        openModal('youtube-modal');
+
+        setTimeout(() => { if (urlInput) urlInput.focus(); }, 100);
+    }
+
+    function showYouTubeError(msg) {
+        const errEl = document.getElementById('yt-error');
+        if (errEl) {
+            errEl.textContent = '❌ ' + msg;
+            errEl.hidden = false;
+        }
+    }
+
+    function clearYouTubeError() {
+        const errEl = document.getElementById('yt-error');
+        if (errEl) {
+            errEl.hidden = true;
+            errEl.textContent = '';
+        }
+    }
+
+    async function fetchYouTubeData() {
+        if (state.youtube.isLoading) return;
+
+        const urlInput = document.getElementById('yt-url');
+        const fetchBtn = document.getElementById('yt-fetch');
+        const loadingEl = document.getElementById('yt-loading');
+        const previewEl = document.getElementById('yt-preview');
+        const confirmBtn = document.getElementById('yt-confirm');
+
+        const input = urlInput ? urlInput.value.trim() : '';
+        if (!input) {
+            showYouTubeError('הדבק קישור או מזהה סרטון');
+            return;
+        }
+
+        clearYouTubeError();
+        state.youtube.isLoading = true;
+
+        if (fetchBtn) fetchBtn.disabled = true;
+        if (loadingEl) loadingEl.hidden = false;
+        if (previewEl) previewEl.hidden = true;
+        if (confirmBtn) confirmBtn.hidden = true;
+
+        try {
+            const res = await fetch('/api/youtube/fetch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: input }),
+            });
+
+            const data = await res.json().catch(() => ({}));
+
+            if (!res.ok) {
+                showYouTubeError(data.error || `שגיאה ${res.status}`);
+                state.youtube.pendingVideo = null;
+                return;
+            }
+
+            state.youtube.pendingVideo = data;
+
+            const setText = (id, val) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = val;
+            };
+
+            setText('yt-preview-title', data.title || '—');
+            setText('yt-preview-date', formatDate(data.publishedAt));
+            setText('yt-preview-duration', formatDuration(data.duration));
+            setText('yt-preview-views', formatNumber(data.views) + ' 👁️');
+            setText('yt-preview-likes', formatNumber(data.likes) + ' ❤️');
+            setText('yt-preview-comments', formatNumber(data.comments) + ' 💬');
+
+            if (previewEl) previewEl.hidden = false;
+            if (confirmBtn) confirmBtn.hidden = false;
+
+        } catch (err) {
+            showYouTubeError('שגיאה בחיבור לשרת: ' + err.message);
+            state.youtube.pendingVideo = null;
+        } finally {
+            state.youtube.isLoading = false;
+            if (fetchBtn) fetchBtn.disabled = false;
+            if (loadingEl) loadingEl.hidden = true;
+        }
+    }
+
+    function confirmYouTubeAdd() {
+        const video = state.youtube.pendingVideo;
+        if (!video) {
+            showYouTubeError('אין נתונים להוסיף — קודם שלף נתונים');
+            return;
+        }
+
+        const exists = state.videos.some((v) => v.id === video.id);
+        if (exists) {
+            showYouTubeError(`הסרטון "${video.title}" כבר קיים בטבלה`);
+            return;
+        }
+
+        addVideo({
+            id: video.id,
+            platform: 'youtube',
+            date: video.publishedAt || new Date().toISOString().split('T')[0],
+            title: video.title,
+            duration: video.duration,
+            views: video.views,
+            likes: video.likes,
+            comments: video.comments,
+            shares: 0,
+        });
+
+        state.youtube.pendingVideo = null;
+        closeModal('youtube-modal');
+    }
+
+    // ==============================
+    // 8.6. 🆕 TIKTOK IMPORT
+    // ==============================
+
+    function openTikTokModal() {
+        const modal = document.getElementById('tiktok-modal');
+        if (!modal) {
+            alert('מודאל TikTok לא נמצא ב-HTML');
+            return;
+        }
+
+        const urlInput = document.getElementById('tt-url');
+        const errEl = document.getElementById('tt-error');
+        const loadingEl = document.getElementById('tt-loading');
+        const previewEl = document.getElementById('tt-preview');
+        const fetchBtn = document.getElementById('tt-fetch');
+        const confirmBtn = document.getElementById('tt-confirm');
+
+        if (urlInput) urlInput.value = '';
+        if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
+        if (loadingEl) loadingEl.hidden = true;
+        if (previewEl) previewEl.hidden = true;
+        if (fetchBtn) { fetchBtn.hidden = false; fetchBtn.disabled = false; }
+        if (confirmBtn) confirmBtn.hidden = true;
+
+        // איפוס שדות ידניים
+        const manualDate = document.getElementById('tt-manual-date');
+        const manualDuration = document.getElementById('tt-manual-duration');
+        const manualViews = document.getElementById('tt-manual-views');
+        const manualLikes = document.getElementById('tt-manual-likes');
+        const manualComments = document.getElementById('tt-manual-comments');
+
+        if (manualDate) manualDate.value = new Date().toISOString().split('T')[0];
+        if (manualDuration) manualDuration.value = '';
+        if (manualViews) manualViews.value = '';
+        if (manualLikes) manualLikes.value = '0';
+        if (manualComments) manualComments.value = '0';
+
+        state.tiktok.pendingVideo = null;
+        state.tiktok.isLoading = false;
+
+        openModal('tiktok-modal');
+
+        setTimeout(() => { if (urlInput) urlInput.focus(); }, 100);
+    }
+
+    function showTikTokError(msg) {
+        const errEl = document.getElementById('tt-error');
+        if (errEl) {
+            errEl.textContent = '❌ ' + msg;
+            errEl.hidden = false;
+        }
+    }
+
+    function clearTikTokError() {
+        const errEl = document.getElementById('tt-error');
+        if (errEl) {
+            errEl.hidden = true;
+            errEl.textContent = '';
+        }
+    }
+
+    async function fetchTikTokData() {
+        if (state.tiktok.isLoading) return;
+
+        const urlInput = document.getElementById('tt-url');
+        const fetchBtn = document.getElementById('tt-fetch');
+        const loadingEl = document.getElementById('tt-loading');
+        const previewEl = document.getElementById('tt-preview');
+        const confirmBtn = document.getElementById('tt-confirm');
+
+        const input = urlInput ? urlInput.value.trim() : '';
+        if (!input) {
+            showTikTokError('הדבק קישור TikTok');
+            return;
+        }
+
+        clearTikTokError();
+        state.tiktok.isLoading = true;
+
+        if (fetchBtn) fetchBtn.disabled = true;
+        if (loadingEl) loadingEl.hidden = false;
+        if (previewEl) previewEl.hidden = true;
+        if (confirmBtn) confirmBtn.hidden = true;
+
+        try {
+            const res = await fetch('/api/tiktok/fetch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: input }),
+            });
+
+            const data = await res.json().catch(() => ({}));
+
+            if (!res.ok) {
+                showTikTokError(data.error || `שגיאה ${res.status}`);
+                state.tiktok.pendingVideo = null;
+                return;
+            }
+
+            state.tiktok.pendingVideo = data;
+
+            const setText = (id, val) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = val;
+            };
+
+            setText('tt-preview-title', data.title || '—');
+            setText('tt-preview-author', '@' + (data.author || '—'));
+
+            if (previewEl) previewEl.hidden = false;
+            if (confirmBtn) confirmBtn.hidden = false;
+
+            // פוקוס על שדה הצפיות (החשוב ביותר)
+            const viewsInput = document.getElementById('tt-manual-views');
+            if (viewsInput) setTimeout(() => viewsInput.focus(), 150);
+
+        } catch (err) {
+            showTikTokError('שגיאה בחיבור לשרת: ' + err.message);
+            state.tiktok.pendingVideo = null;
+        } finally {
+            state.tiktok.isLoading = false;
+            if (fetchBtn) fetchBtn.disabled = false;
+            if (loadingEl) loadingEl.hidden = true;
+        }
+    }
+
+    function confirmTikTokAdd() {
+        const video = state.tiktok.pendingVideo;
+        if (!video) {
+            showTikTokError('אין נתונים להוסיף — קודם שלף נתונים');
+            return;
+        }
+
+        // קריאת השדות הידניים
+        const getVal = (id) => {
+            const el = document.getElementById(id);
+            return el ? el.value : '';
+        };
+
+        const manualViews = parseInt(getVal('tt-manual-views'), 10);
+        if (isNaN(manualViews) || manualViews < 0) {
+            showTikTokError('חובה למלא צפיות (מספר חיובי)');
+            const viewsInput = document.getElementById('tt-manual-views');
+            if (viewsInput) viewsInput.focus();
+            return;
+        }
+
+        const manualDate = getVal('tt-manual-date') || new Date().toISOString().split('T')[0];
+        const manualDuration = parseFloat(getVal('tt-manual-duration')) || 0;
+        const manualLikes = parseInt(getVal('tt-manual-likes'), 10) || 0;
+        const manualComments = parseInt(getVal('tt-manual-comments'), 10) || 0;
+
+        // בדיקה שהסרטון לא קיים
+        const exists = state.videos.some((v) => v.id === video.id);
+        if (exists) {
+            showTikTokError(`הסרטון "${video.title}" כבר קיים בטבלה`);
+            return;
+        }
+
+        addVideo({
+            id: video.id,
+            platform: 'tiktok',
+            date: manualDate,
+            title: video.title,
+            duration: manualDuration,
+            views: manualViews,
+            likes: manualLikes,
+            comments: manualComments,
+            shares: 0,
+        });
+
+        state.tiktok.pendingVideo = null;
+        closeModal('tiktok-modal');
     }
 
     // ==============================
@@ -811,9 +1139,7 @@
             const res = await fetch('/api/analyze', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    videos: state.videos,
-                }),
+                body: JSON.stringify({ videos: state.videos }),
             });
 
             const data = await res.json().catch(() => ({}));
@@ -835,95 +1161,179 @@
     }
 
     function showAnalysisResult(text) {
-        // === אם יש מודאל ייעודי — נשתמש בו ===
-        const modal = document.getElementById('ai-modal');
-        const output = document.getElementById('ai-output');
+        injectAnalysisModal(text);
+    }
 
-        if (modal && output) {
-            output.innerHTML = formatAnalysisHtml(text);
-            modal.hidden = false;
-            return;
-        }
+    function injectAnalysisModal(text) {
+        const existing = document.getElementById('dynamic-ai-modal');
+        if (existing) existing.remove();
 
-        // === אחרת — פותחים חלון חדש ===
-        const win = window.open('', '_blank', 'width=900,height=750');
-        if (!win) {
-            alert(text);
-            return;
-        }
+        const existingStyle = document.getElementById('analysis-modal-styles');
+        if (existingStyle) existingStyle.remove();
 
-        const html = `
-            <!DOCTYPE html>
-            <html lang="he" dir="rtl">
-            <head>
-                <meta charset="UTF-8">
-                <title>J.A.R.V.I.S — ניתוח AI</title>
-                <style>
-                    body {
-                        font-family: 'Segoe UI', Arial, sans-serif;
-                        background: #0a0e1a;
-                        color: #e6ecf5;
-                        padding: 24px;
-                        line-height: 1.7;
-                        max-width: 800px;
-                        margin: 0 auto;
-                    }
-                    h1 { color: #ffd966; border-bottom: 2px solid #d4af37; padding-bottom: 8px; margin-top: 0; }
-                    h2 { color: #40e0d0; margin-top: 24px; }
-                    h3 { color: #ffd966; margin-top: 20px; }
-                    strong { color: #ffd966; }
-                    ul, ol { padding-right: 24px; }
-                    li { margin: 6px 0; }
-                    code {
-                        background: rgba(212,175,55,0.15);
-                        padding: 2px 6px;
-                        border-radius: 3px;
-                        color: #ffd966;
-                        font-family: Consolas, monospace;
-                    }
-                    .copy-btn {
-                        background: linear-gradient(135deg, #d4af37, #40e0d0);
-                        border: none;
-                        color: #0a0e1a;
-                        padding: 10px 20px;
-                        border-radius: 6px;
-                        cursor: pointer;
-                        font-weight: bold;
-                        margin-bottom: 20px;
-                        font-size: 14px;
-                    }
-                    .copy-btn:hover { opacity: 0.85; }
-                </style>
-            </head>
-            <body>
-                <h1>🤖 ניתוח AI של ג'רוויס</h1>
-                <button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('content').innerText).then(()=>{this.textContent='✓ הועתק!';setTimeout(()=>this.textContent='📋 העתק הכל',1500)})">📋 העתק הכל</button>
-                <div id="content">${formatAnalysisHtml(text)}</div>
-            </body>
-            </html>
+        const modal = document.createElement('div');
+        modal.id = 'dynamic-ai-modal';
+        modal.style.cssText = `
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 14, 26, 0.92);
+            backdrop-filter: blur(8px);
+            z-index: 99999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            direction: rtl;
+            animation: fadeIn 0.2s ease;
         `;
-        win.document.write(html);
-        win.document.close();
+
+        modal.innerHTML = `
+            <div style="
+                background: #ffffff;
+                border: 1px solid rgba(212, 175, 55, 0.4);
+                border-radius: 12px;
+                max-width: 900px;
+                width: 100%;
+                max-height: 90vh;
+                display: flex;
+                flex-direction: column;
+                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+                overflow: hidden;
+            ">
+                <div style="
+                    padding: 20px 24px;
+                    border-bottom: 1px solid #eee;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    background: #fafafa;
+                    flex-shrink: 0;
+                ">
+                    <h2 style="
+                        margin: 0;
+                        color: #333;
+                        font-size: 1.3rem;
+                        font-family: 'Rajdhani', sans-serif;
+                    ">🤖 ניתוח AI של ג'רוויס</h2>
+                    <div style="display: flex; gap: 10px;">
+                        <button id="copy-analysis-btn" style="
+                            background: linear-gradient(135deg, #d4af37, #40e0d0);
+                            border: none;
+                            color: #0a0e1a;
+                            padding: 8px 16px;
+                            border-radius: 6px;
+                            cursor: pointer;
+                            font-weight: bold;
+                            font-size: 0.9rem;
+                        ">📋 העתק</button>
+                        <button id="close-analysis-btn" style="
+                            background: rgba(255, 85, 102, 0.1);
+                            border: 1px solid rgba(255, 85, 102, 0.4);
+                            color: #ff5566;
+                            padding: 8px 14px;
+                            border-radius: 6px;
+                            cursor: pointer;
+                            font-weight: bold;
+                            font-size: 1rem;
+                        ">✕</button>
+                    </div>
+                </div>
+                <div id="analysis-content" style="
+                    padding: 24px;
+                    overflow-y: auto;
+                    flex: 1;
+                    color: #333;
+                    line-height: 1.75;
+                    font-family: 'Rajdhani', sans-serif;
+                    font-size: 1rem;
+                ">
+                    ${formatAnalysisHtml(text)}
+                </div>
+            </div>
+        `;
+
+        const styleTag = document.createElement('style');
+        styleTag.id = 'analysis-modal-styles';
+        styleTag.textContent = `
+            #analysis-content h1 { color: #d4af37; border-bottom: 2px solid #d4af37; padding-bottom: 8px; margin-top: 0; }
+            #analysis-content h2 { color: #2a9d8f; margin-top: 24px; margin-bottom: 12px; font-size: 1.15rem; }
+            #analysis-content h3 { color: #d4af37; margin-top: 20px; margin-bottom: 10px; font-size: 1.05rem; }
+            #analysis-content strong { color: #b8941f; }
+            #analysis-content ul, #analysis-content ol { padding-right: 24px; margin: 12px 0; }
+            #analysis-content li { margin: 6px 0; }
+            #analysis-content code {
+                background: rgba(212, 175, 55, 0.15);
+                padding: 2px 6px;
+                border-radius: 3px;
+                color: #b8941f;
+                font-family: monospace;
+                font-size: 0.9em;
+            }
+            #analysis-content p { margin: 10px 0; }
+            @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        `;
+        document.head.appendChild(styleTag);
+        document.body.appendChild(modal);
+
+        const closeFn = () => {
+            modal.remove();
+            const st = document.getElementById('analysis-modal-styles');
+            if (st) st.remove();
+        };
+
+        modal.querySelector('#close-analysis-btn').addEventListener('click', closeFn);
+
+        modal.querySelector('#copy-analysis-btn').addEventListener('click', async (e) => {
+            const btn = e.target;
+            const plainText = modal.querySelector('#analysis-content').innerText;
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(plainText);
+                } else {
+                    const ta = document.createElement('textarea');
+                    ta.value = plainText;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                }
+                const orig = btn.textContent;
+                btn.textContent = '✓ הועתק!';
+                btn.style.background = '#10b981';
+                setTimeout(() => {
+                    btn.textContent = orig;
+                    btn.style.background = 'linear-gradient(135deg, #d4af37, #40e0d0)';
+                }, 1500);
+            } catch (err) {
+                alert('שגיאה בהעתקה: ' + err.message);
+            }
+        });
+
+        const escHandler = (e) => {
+            if (e.key === 'Escape') {
+                closeFn();
+                document.removeEventListener('keydown', escHandler);
+            }
+        };
+        document.addEventListener('keydown', escHandler);
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeFn();
+        });
     }
 
     function formatAnalysisHtml(text) {
         if (!text) return '';
         let html = escapeHtml(text);
 
-        // כותרות
         html = html.replace(/^### (.*)$/gm, '<h3>$1</h3>');
         html = html.replace(/^## (.*)$/gm, '<h2>$1</h2>');
         html = html.replace(/^# (.*)$/gm, '<h1>$1</h1>');
-
-        // מודגש ו-code
         html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
         html = html.replace(/`(.+?)`/g, '<code>$1</code>');
-
-        // רשימות
         html = html.replace(/^[\*\-] (.+)$/gm, '<li>$1</li>');
         html = html.replace(/(<li>.*<\/li>\n?)+/g, (match) => '<ul>' + match + '</ul>');
 
-        // פסקאות
         html = html.split('\n\n').map(p => {
             const trimmed = p.trim();
             if (!trimmed) return '';
@@ -939,35 +1349,27 @@
     // ==============================
 
     function attachEvents() {
-        // === Add ===
         const btnAdd = document.getElementById('btn-add');
         if (btnAdd) btnAdd.addEventListener('click', openAddModal);
-        const addSubmit = document.getElementById('add-submit');
-        if (addSubmit) addSubmit.addEventListener('click', submitAdd);
 
-        // === Paste ===
+        const btnYouTube = document.getElementById('btn-youtube');
+        if (btnYouTube) btnYouTube.addEventListener('click', openYouTubeModal);
+
+        const btnTikTok = document.getElementById('btn-tiktok');
+        if (btnTikTok) btnTikTok.addEventListener('click', openTikTokModal);
+
         const btnPaste = document.getElementById('btn-paste');
         if (btnPaste) btnPaste.addEventListener('click', () => openModal('paste-modal'));
-        const pasteSubmit = document.getElementById('paste-submit');
-        if (pasteSubmit) pasteSubmit.addEventListener('click', submitPaste);
 
-        // === Edit ===
-        const editSubmit = document.getElementById('edit-submit');
-        if (editSubmit) editSubmit.addEventListener('click', submitEdit);
-
-        // === Mega Prompt ===
         const btnMega = document.getElementById('btn-mega');
         if (btnMega) btnMega.addEventListener('click', openMegaPrompt);
-        const megaCopy = document.getElementById('mega-copy');
-        if (megaCopy) megaCopy.addEventListener('click', copyMegaPrompt);
 
-        // === AI Analyze ===
         const btnAi = document.getElementById('btn-ai');
         if (btnAi) btnAi.addEventListener('click', analyzeWithAI);
 
-        // === Export / Import ===
         const btnExport = document.getElementById('btn-export');
         if (btnExport) btnExport.addEventListener('click', exportData);
+
         const btnImport = document.getElementById('btn-import');
         if (btnImport) {
             btnImport.addEventListener('click', () => {
@@ -975,12 +1377,60 @@
                 if (imp) imp.click();
             });
         }
+
         const importFile = document.getElementById('import-file');
         if (importFile) {
             importFile.addEventListener('change', (e) => {
                 if (e.target.files && e.target.files[0]) {
                     importData(e.target.files[0]);
                     e.target.value = '';
+                }
+            });
+        }
+
+        // === Form Submits ===
+        const addSubmit = document.getElementById('add-submit');
+        if (addSubmit) addSubmit.addEventListener('click', submitAdd);
+
+        const pasteSubmit = document.getElementById('paste-submit');
+        if (pasteSubmit) pasteSubmit.addEventListener('click', submitPaste);
+
+        const editSubmit = document.getElementById('edit-submit');
+        if (editSubmit) editSubmit.addEventListener('click', submitEdit);
+
+        const megaCopy = document.getElementById('mega-copy');
+        if (megaCopy) megaCopy.addEventListener('click', copyMegaPrompt);
+
+        // === YouTube Modal Buttons ===
+        const ytFetch = document.getElementById('yt-fetch');
+        if (ytFetch) ytFetch.addEventListener('click', fetchYouTubeData);
+
+        const ytConfirm = document.getElementById('yt-confirm');
+        if (ytConfirm) ytConfirm.addEventListener('click', confirmYouTubeAdd);
+
+        const ytUrl = document.getElementById('yt-url');
+        if (ytUrl) {
+            ytUrl.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    fetchYouTubeData();
+                }
+            });
+        }
+
+        // === 🆕 TikTok Modal Buttons ===
+        const ttFetch = document.getElementById('tt-fetch');
+        if (ttFetch) ttFetch.addEventListener('click', fetchTikTokData);
+
+        const ttConfirm = document.getElementById('tt-confirm');
+        if (ttConfirm) ttConfirm.addEventListener('click', confirmTikTokAdd);
+
+        const ttUrl = document.getElementById('tt-url');
+        if (ttUrl) {
+            ttUrl.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    fetchTikTokData();
                 }
             });
         }
@@ -1054,10 +1504,6 @@
             });
         });
 
-        // === Clear chat button ===
-        const clearChatBtn = document.getElementById('clear-chat-btn');
-        if (clearChatBtn) clearChatBtn.addEventListener('click', clearChat);
-
         // === Escape key ===
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
@@ -1074,7 +1520,6 @@
         if (state.videos.length > 0) return;
 
         const seed = [
-            // YouTube
             { platform: 'youtube', date: '2026-09-16', title: 'Did gravity just glitch? 🌌', duration: 8, views: 1124, likes: 14, comments: 3 },
             { platform: 'youtube', date: '2026-09-16', title: 'Day 1 of unlocking Full Planche', duration: 14, views: 1124, likes: 10, comments: 0 },
             { platform: 'youtube', date: '2026-09-17', title: 'Road to Full Planche | Day 2', duration: 12, views: 1202, likes: 8, comments: 0 },
@@ -1083,7 +1528,6 @@
             { platform: 'youtube', date: '2026-09-20', title: 'Day 4 — Straddle Planche Unlocked', duration: 9, views: 1280, likes: 8, comments: 0 },
             { platform: 'youtube', date: '2026-09-21', title: 'Day 5 — Full Planche', duration: 10, views: 1300, likes: 7, comments: 0 },
             { platform: 'youtube', date: '2026-09-23', title: 'Day 7 — One Week In 💪', duration: 11, views: 1338, likes: 6, comments: 0 },
-            // TikTok
             { platform: 'tiktok', date: '2026-09-16', title: 'Did gravity just glitch?', duration: 7, views: 487, likes: 14, comments: 2 },
             { platform: 'tiktok', date: '2026-09-16', title: 'Day 1 — Planche Journey', duration: 13, views: 760, likes: 24, comments: 1 },
             { platform: 'tiktok', date: '2026-09-17', title: 'Day 2 — Road to Planche', duration: 11, views: 578, likes: 10, comments: 0 },
@@ -1094,7 +1538,6 @@
             { platform: 'tiktok', date: '2026-09-21', title: 'יום 5 — פול פלאנץ', duration: 9, views: 843, likes: 20, comments: 2 },
             { platform: 'tiktok', date: '2026-09-22', title: 'יום 6 — פול פלאנץ', duration: 9, views: 463, likes: 11, comments: 3 },
             { platform: 'tiktok', date: '2026-09-23', title: 'יום 7 — שבוע בפול פלאנץ', duration: 11, views: 526, likes: 9, comments: 1 },
-            // Instagram
             { platform: 'instagram', date: '2026-09-16', title: 'Instagram Reel 7', duration: 7.3, views: 1243, likes: 48, comments: 15 },
             { platform: 'instagram', date: '2026-09-16', title: 'Instagram Reel 8', duration: 13.2, views: 898, likes: 39, comments: 13 },
             { platform: 'instagram', date: '2026-09-17', title: 'Instagram Reel 4', duration: 27.9, views: 538, likes: 26, comments: 8 },

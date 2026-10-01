@@ -1359,4 +1359,90 @@ canvas#neural-canvas {
         gap: 6px !important;
         font-size: 0.68rem !important;
     }
+}/* === YouTube Import Button === */
+.action-btn.youtube {
+    background: linear-gradient(135deg, #ff0000, #cc0000);
+    color: #ffffff;
+    border-color: #ff0000;
+}
+
+.action-btn.youtube:hover {
+    background: linear-gradient(135deg, #cc0000, #990000);
+    border-color: #cc0000;
+}/* === TikTok Import Button === */
+.action-btn.tiktok {
+    background: linear-gradient(135deg, #000000, #25f4ee);
+    color: #ffffff;
+    border-color: #25f4ee;
+    font-weight: 600;
+}
+
+.action-btn.tiktok:hover {
+    background: linear-gradient(135deg, #1a1a1a, #1ed9d9);
+    border-color: #1ed9d9;
+}/* === TikTok Import Button === */
+.action-btn.tiktok {
+    background: linear-gradient(135deg, #000000, #25f4ee);
+    color: #ffffff;
+    border-color: #25f4ee;
+    font-weight: 600;
+}
+
+.action-btn.tiktok:hover {
+    background: linear-gradient(135deg, #1a1a1a, #1ed9d9);
+    border-color: #1ed9d9;
+}
+
+/* === TikTok Manual Fields Grid === */
+.tt-manual-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+    padding: 16px;
+    background: rgba(37, 244, 238, 0.05);
+    border: 1px solid rgba(37, 244, 238, 0.2);
+    border-radius: 8px;
+}
+
+.tt-manual-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.85rem;
+    color: #555;
+}
+
+.tt-manual-grid input {
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    transition: border-color 0.15s;
+}
+
+.tt-manual-grid input:focus {
+    outline: none;
+    border-color: #25f4ee;
+    box-shadow: 0 0 0 3px rgba(37, 244, 238, 0.15);
+}
+
+/* === TikTok Preview Rows === */
+.tt-preview-row {
+    display: flex;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px dashed #eee;
+}
+
+.tt-preview-label {
+    font-weight: 600;
+    color: #555;
+    min-width: 80px;
+}
+
+.tt-preview-value {
+    color: #222;
+    flex: 1;
+    word-break: break-word;
 }

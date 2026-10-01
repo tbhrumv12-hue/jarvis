@@ -26,6 +26,8 @@
 
             <div class="analytics-actions">
                 <button type="button" id="btn-add" class="action-btn primary">➕ הוסף סרטון</button>
+                <button type="button" id="btn-youtube" class="action-btn youtube">🔗 הוסף מקישור</button>
+                <button type="button" id="btn-tiktok" class="action-btn tiktok">📱 הוסף TikTok</button>
                 <button type="button" id="btn-paste" class="action-btn">📋 הדבק נתונים</button>
                 <button type="button" id="btn-mega" class="action-btn gold">📋 מגה-פרומפט</button>
                 <button type="button" id="btn-ai" class="action-btn gold">🤖 נתח AI</button>
@@ -212,7 +214,7 @@
 
         <!-- === Footer === -->
         <footer class="analytics-footer">
-            <span>J.A.R.V.I.S // Analytics v1.1</span>
+            <span>J.A.R.V.I.S // Analytics v1.3</span>
             <span id="footer-updated">—</span>
         </footer>
 
@@ -362,6 +364,133 @@ instagram	2026-09-22	Day 7 — Full Planche	10	700	45	8"></textarea>
                     <button type="button" class="modal-icon-btn" data-close="mega-modal">סגור</button>
                     <button type="button" id="mega-copy" class="modal-primary-btn">📋 העתק הכל</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- === 🆕 YouTube Import Modal === -->
+    <div id="youtube-modal" class="modal" hidden>
+        <div class="modal-backdrop" data-close="youtube-modal"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🔗 הוסף סרטון מ-YouTube</h2>
+                <button type="button" class="modal-icon-btn" data-close="youtube-modal">✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="paste-hint">
+                    הדבק קישור ליוטיוב — המערכת תשלוף את כל הנתונים אוטומטית.<br>
+                    תומך ב: <code>youtube.com/watch?v=...</code>, <code>youtu.be/...</code>, <code>youtube.com/shorts/...</code>
+                </p>
+                <label class="yt-label">קישור / מזהה סרטון:
+                    <input type="text" id="yt-url" class="yt-input" placeholder="https://www.youtube.com/shorts/Ik6krO9a6Es" autocomplete="off" autofocus>
+                </label>
+
+                <div id="yt-error" class="yt-error" hidden></div>
+
+                <div id="yt-loading" class="yt-loading" hidden>
+                    <div class="yt-spinner"></div>
+                    <span>שולף נתונים מ-YouTube...</span>
+                </div>
+
+                <div id="yt-preview" class="yt-preview" hidden>
+                    <h3>📹 תצוגה מקדימה</h3>
+                    <div class="yt-preview-grid">
+                        <div class="yt-preview-row">
+                            <span class="yt-preview-label">כותרת:</span>
+                            <span class="yt-preview-value" id="yt-preview-title">—</span>
+                        </div>
+                        <div class="yt-preview-row">
+                            <span class="yt-preview-label">תאריך פרסום:</span>
+                            <span class="yt-preview-value" id="yt-preview-date">—</span>
+                        </div>
+                        <div class="yt-preview-row">
+                            <span class="yt-preview-label">אורך:</span>
+                            <span class="yt-preview-value" id="yt-preview-duration">—</span>
+                        </div>
+                        <div class="yt-preview-row">
+                            <span class="yt-preview-label">צפיות:</span>
+                            <span class="yt-preview-value" id="yt-preview-views">—</span>
+                        </div>
+                        <div class="yt-preview-row">
+                            <span class="yt-preview-label">לייקים:</span>
+                            <span class="yt-preview-value" id="yt-preview-likes">—</span>
+                        </div>
+                        <div class="yt-preview-row">
+                            <span class="yt-preview-label">תגובות:</span>
+                            <span class="yt-preview-value" id="yt-preview-comments">—</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="modal-icon-btn" data-close="youtube-modal">ביטול</button>
+                <button type="button" id="yt-fetch" class="modal-primary-btn">🔍 שלף נתונים</button>
+                <button type="button" id="yt-confirm" class="modal-primary-btn" hidden>✅ הוסף לטבלה</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- === 🆕 TikTok Import Modal === -->
+    <div id="tiktok-modal" class="modal" hidden>
+        <div class="modal-backdrop" data-close="tiktok-modal"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📱 הוסף סרטון מ-TikTok</h2>
+                <button type="button" class="modal-icon-btn" data-close="tiktok-modal">✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="paste-hint">
+                    הדבק קישור TikTok. המערכת תשלוף אוטומטית את <strong>הכותרת ושם היוצר</strong>.<br>
+                    שאר הנתונים (צפיות, לייקים, תגובות) — תזין ידנית.
+                </p>
+                <label class="yt-label">קישור TikTok:
+                    <input type="text" id="tt-url" class="yt-input" placeholder="https://www.tiktok.com/@user/video/..." autocomplete="off" autofocus>
+                </label>
+
+                <div id="tt-error" class="yt-error" hidden></div>
+
+                <div id="tt-loading" class="yt-loading" hidden>
+                    <div class="yt-spinner"></div>
+                    <span>שולף נתונים מ-TikTok...</span>
+                </div>
+
+                <div id="tt-preview" class="yt-preview" hidden>
+                    <h3>📹 תצוגה מקדימה</h3>
+                    <div class="yt-preview-grid">
+                        <div class="yt-preview-row">
+                            <span class="yt-preview-label">כותרת:</span>
+                            <span class="yt-preview-value" id="tt-preview-title">—</span>
+                        </div>
+                        <div class="yt-preview-row">
+                            <span class="yt-preview-label">יוצר:</span>
+                            <span class="yt-preview-value" id="tt-preview-author">—</span>
+                        </div>
+                    </div>
+
+                    <h3 style="margin-top:20px;">✏️ השלם ידנית</h3>
+                    <div class="tt-manual-grid">
+                        <label>תאריך:
+                            <input type="date" id="tt-manual-date">
+                        </label>
+                        <label>אורך (שניות):
+                            <input type="number" id="tt-manual-duration" min="0" step="0.1" placeholder="30">
+                        </label>
+                        <label>צפיות *:
+                            <input type="number" id="tt-manual-views" min="0" placeholder="45000">
+                        </label>
+                        <label>לייקים:
+                            <input type="number" id="tt-manual-likes" min="0" placeholder="3200" value="0">
+                        </label>
+                        <label>תגובות:
+                            <input type="number" id="tt-manual-comments" min="0" placeholder="180" value="0">
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="modal-icon-btn" data-close="tiktok-modal">ביטול</button>
+                <button type="button" id="tt-fetch" class="modal-primary-btn">🔍 שלף נתונים</button>
+                <button type="button" id="tt-confirm" class="modal-primary-btn" hidden>✅ הוסף לטבלה</button>
             </div>
         </div>
     </div>

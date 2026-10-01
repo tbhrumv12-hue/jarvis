@@ -1,5 +1,5 @@
 /**
- * ⚡ J.A.R.V.I.S Server — Neural Kernel V3.3
+ * ⚡ J.A.R.V.I.S Server — Neural Kernel V3.4
  */
 
 const express = require('express');
@@ -22,9 +22,12 @@ if (missingEnvVars.length > 0) {
 const CONFIG = {
     port: process.env.PORT || 3000,
     geminiApiKey: process.env.GEMINI_API_KEY.trim(),
-    geminiModel: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+    geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     geminiTimeoutMs: Number(process.env.GEMINI_TIMEOUT_MS) || 20000,
     geminiVisionTimeoutMs: Number(process.env.GEMINI_VISION_TIMEOUT_MS) || 30000,
+    youtubeApiKey: process.env.YOUTUBE_API_KEY || '',
+    youtubeTimeoutMs: Number(process.env.YOUTUBE_TIMEOUT_MS) || 10000,
+        tiktokTimeoutMs: Number(process.env.TIKTOK_TIMEOUT_MS) || 10000,
     maxPromptLength: Number(process.env.MAX_PROMPT_LENGTH) || 2000,
     maxImageSizeBytes: Number(process.env.MAX_IMAGE_SIZE_BYTES) || 4 * 1024 * 1024,
     rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 60 * 1000,
@@ -91,6 +94,8 @@ const metrics = {
     totalErrors: 0,
     totalSuccess: 0,
     totalVisionRequests: 0,
+    totalYoutubeRequests: 0,
+    totalTiktokRequests: 0,
     totalKnowledgeLookups: 0,
     totalKnowledgeHits: 0,
     totalRateLimitHits: 0,
@@ -173,6 +178,43 @@ function extractRetryDelay(data) {
     return null;
 }
 
+// ==============================
+// 🆕 YouTube Helper
+// ==============================
+
+function parseISODuration(iso) {
+    if (!iso || typeof iso !== 'string') return 0;
+    const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+    if (!match) return 0;
+    const [, h, m, s] = match;
+    return (parseInt(h, 10) || 0) * 3600 + (parseInt(m, 10) || 0) * 60 + (parseInt(s, 10) || 0);
+}
+
+function extractYouTubeId(input) {
+    if (!input || typeof input !== 'string') return null;
+    const trimmed = input.trim();
+
+    // אם זה כבר ID (11 תווים)
+    if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
+
+    // נסה לחלץ מ-URL
+    const patterns = [
+        /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+        /[?&]v=([a-zA-Z0-9_-]{11})/,
+    ];
+
+    for (const p of patterns) {
+        const match = trimmed.match(p);
+        if (match && match[1]) return match[1];
+    }
+
+    return null;
+}
+
+// ==============================
+// Knowledge Base
+// ==============================
+
 const knowledge = {
     chunks: [],
     files: new Map(),
@@ -222,9 +264,6 @@ function chunkText(text, maxSize) {
     if (current) chunks.push(current.trim());
     return chunks.filter((c) => c.length > 0);
 }
-// ==============================
-// Knowledge from Environment Variables (Render)
-// ==============================
 
 function getEnvKnowledgeFiles() {
     const envMap = {
@@ -309,13 +348,14 @@ function loadFromEnvironment() {
 
     return true;
 }
+
 function loadKnowledgeBase() {
     knowledge.chunks = [];
     knowledge.files = new Map();
     knowledge.totalChars = 0;
     knowledge.docFreq = new Map();
     knowledge.avgDocLength = 0;
-        // === נסה לטעון מ-Environment Variables קודם ===
+
     const loadedFromEnv = loadFromEnvironment();
     if (loadedFromEnv) {
         knowledge.loadedAt = Date.now();
@@ -325,10 +365,9 @@ function loadKnowledgeBase() {
             vocab: knowledge.docFreq.size,
             avgDocLength: Math.round(knowledge.avgDocLength),
         });
-        return; // אין צורך לקרוא מהתיקייה
+        return;
     }
 
-    // === אחרת — קרא מהתיקייה (fallback) ===
     try {
         if (!fs.existsSync(CONFIG.knowledgeDir)) fs.mkdirSync(CONFIG.knowledgeDir, { recursive: true });
         const files = fs.readdirSync(CONFIG.knowledgeDir).filter((f) => {
@@ -582,20 +621,20 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.ht
 app.get('/api/health', (req, res) => {
     try {
         const uptimeSeconds = Math.floor((Date.now() - metrics.startedAt) / 1000);
-        res.json({ status: 'ok', uptime: uptimeSeconds, model: CONFIG.geminiModel, latencyMs: metrics.lastLatencyMs, avgLatencyMs: metrics.avgLatencyMs, totalRequests: metrics.totalRequests, totalSuccess: metrics.totalSuccess, totalErrors: metrics.totalErrors, knowledgeFiles: knowledge.files.size, knowledgeChunks: knowledge.chunks.length, timestamp: new Date().toISOString() });
+        res.json({ status: 'ok', uptime: uptimeSeconds, model: CONFIG.geminiModel, latencyMs: metrics.lastLatencyMs, avgLatencyMs: metrics.avgLatencyMs, totalRequests: metrics.totalRequests, totalSuccess: metrics.totalSuccess, totalErrors: metrics.totalErrors, totalYoutubeRequests: metrics.totalYoutubeRequests, knowledgeFiles: knowledge.files.size, knowledgeChunks: knowledge.chunks.length, timestamp: new Date().toISOString() });
     } catch (err) { res.status(500).json({ status: 'error' }); }
 });
 
 app.get('/api/metrics', (req, res) => {
     try {
         const uptimeSeconds = Math.floor((Date.now() - metrics.startedAt) / 1000);
-        res.json({ uptime: uptimeSeconds, model: CONFIG.geminiModel, latencyMs: metrics.lastLatencyMs, avgLatencyMs: metrics.avgLatencyMs, totalRequests: metrics.totalRequests, totalErrors: metrics.totalErrors, knowledgeFiles: knowledge.files.size, knowledgeChunks: knowledge.chunks.length, timestamp: new Date().toISOString() });
+        res.json({ uptime: uptimeSeconds, model: CONFIG.geminiModel, latencyMs: metrics.lastLatencyMs, avgLatencyMs: metrics.avgLatencyMs, totalRequests: metrics.totalRequests, totalErrors: metrics.totalErrors, totalYoutubeRequests: metrics.totalYoutubeRequests, knowledgeFiles: knowledge.files.size, knowledgeChunks: knowledge.chunks.length, timestamp: new Date().toISOString() });
     } catch (err) { res.status(500).json({ error: 'Metrics unavailable' }); }
 });
 
 app.get('/api/knowledge', (req, res) => {
     try {
-        const files = Array.from(knowledge.files.values()).map((f) => ({ name: f.name, size: f.size, chunks: f.chunks, chars: f.chars, modifiedAt: f.modifiedAt })).sort((a, b) => b.modifiedAt - a.modifiedAt);
+        const files = Array.from(knowledge.files.values()).map((f) => ({ name: f.name, size: f.size, chunks: f.chunks, chars: f.chars, modifiedAt: f.modifiedAt, fromEnv: !!f.fromEnv })).sort((a, b) => b.modifiedAt - a.modifiedAt);
         res.json({ files, totalFiles: files.length, totalChunks: knowledge.chunks.length, totalChars: knowledge.totalChars, loadedAt: knowledge.loadedAt });
     } catch (err) { res.status(500).json({ error: 'Failed to list knowledge' }); }
 });
@@ -629,9 +668,7 @@ app.delete('/api/knowledge/:name', (req, res) => {
 app.post('/api/knowledge/reload', (req, res) => {
     try { loadKnowledgeBase(); res.json({ success: true, totalFiles: knowledge.files.size, totalChunks: knowledge.chunks.length }); }
     catch (err) { res.status(500).json({ error: 'טעינה מחדש נכשלה' }); }
-});
-
-app.post('/api/ask', apiRateLimiter, async (req, res, next) => {
+});app.post('/api/ask', apiRateLimiter, async (req, res, next) => {
     const requestStart = Date.now();
     metrics.totalRequests += 1;
     try {
@@ -858,6 +895,183 @@ app.post('/api/vision', visionRateLimiter, async (req, res, next) => {
     } catch (error) { next(error); }
 });
 
+// ============================================================
+// 🆕 YouTube API — Fetch video data
+// ============================================================
+app.post('/api/youtube/fetch', apiRateLimiter, async (req, res, next) => {
+    const requestStart = Date.now();
+    metrics.totalRequests += 1;
+    metrics.totalYoutubeRequests += 1;
+
+    try {
+        const { url, videoId: rawVideoId } = req.body || {};
+        const input = rawVideoId || url;
+
+        if (!input || typeof input !== 'string') {
+            metrics.totalErrors += 1;
+            recordError('Missing YouTube URL/ID');
+            return res.status(400).json({ error: 'חסר קישור או מזהה של סרטון' });
+        }
+
+        const videoId = extractYouTubeId(input);
+        if (!videoId) {
+            metrics.totalErrors += 1;
+            recordError('Invalid YouTube URL/ID');
+            return res.status(400).json({ error: 'קישור לא תקין — לא הצלחתי לחלץ מזהה סרטון' });
+        }
+
+        if (!CONFIG.youtubeApiKey) {
+            return res.status(500).json({ error: 'YOUTUBE_API_KEY לא מוגדר בשרת' });
+        }
+
+        const apiUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoId}&key=${CONFIG.youtubeApiKey}`;
+        const response = await fetchWithTimeout(apiUrl, { method: 'GET' }, CONFIG.youtubeTimeoutMs);
+        const data = await response.json();
+
+        if (data.error) {
+            log('error', `YouTube API error: ${data.error.message}`);
+            metrics.totalErrors += 1;
+            recordError('YouTube API: ' + data.error.message);
+            return res.status(400).json({ error: data.error.message });
+        }
+
+        if (!data.items || data.items.length === 0) {
+            return res.status(404).json({ error: 'הסרטון לא נמצא — ייתכן שהוא פרטי או נמחק' });
+        }
+
+        const video = data.items[0];
+        const snippet = video.snippet || {};
+        const stats = video.statistics || {};
+        const contentDetails = video.contentDetails || {};
+
+        const publishedAt = (snippet.publishedAt || '').split('T')[0] || '';
+
+        const result = {
+            id: videoId,
+            title: snippet.title || 'ללא כותרת',
+            publishedAt: publishedAt,
+            duration: parseISODuration(contentDetails.duration),
+            views: parseInt(stats.viewCount, 10) || 0,
+            likes: parseInt(stats.likeCount, 10) || 0,
+            comments: parseInt(stats.commentCount, 10) || 0,
+            platform: 'youtube',
+        };
+
+        metrics.totalSuccess += 1;
+        recordLatency(Date.now() - requestStart);
+
+        log('info', `YouTube fetch OK`, { videoId, title: result.title });
+
+        return res.json(result);
+    } catch (error) {
+        next(error);
+    }
+});
+// ============================================================
+// 🆕 TikTok oEmbed — Fetch video data (Partial)
+// ============================================================
+app.post('/api/tiktok/fetch', apiRateLimiter, async (req, res, next) => {
+    const requestStart = Date.now();
+    metrics.totalRequests += 1;
+    metrics.totalTiktokRequests += 1;
+
+    try {
+        const { url } = req.body || {};
+
+        if (!url || typeof url !== 'string') {
+            metrics.totalErrors += 1;
+            recordError('Missing TikTok URL');
+            return res.status(400).json({ error: 'חסר קישור TikTok' });
+        }
+
+        const videoId = extractTikTokId(url);
+        if (!videoId) {
+            metrics.totalErrors += 1;
+            recordError('Invalid TikTok URL');
+            return res.status(400).json({ error: 'קישור TikTok לא תקין — לא הצלחתי לחלץ מזהה סרטון' });
+        }
+
+        const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url.trim())}`;
+
+        const response = await fetchWithTimeout(
+            oembedUrl,
+            {
+                method: 'GET',
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'application/json',
+                },
+            },
+            CONFIG.tiktokTimeoutMs
+        );
+
+        if (!response.ok) {
+            const errText = await response.text().catch(() => '');
+            log('warn', `TikTok oEmbed failed: ${response.status}`, { errText: errText.slice(0, 200) });
+            metrics.totalErrors += 1;
+            recordError(`TikTok oEmbed ${response.status}`);
+
+            if (response.status === 404) {
+                return res.status(404).json({ error: 'הסרטון לא נמצא — ייתכן שהוא פרטי או נמחק' });
+            }
+            if (response.status === 403 || response.status === 429) {
+                return res.status(429).json({ error: 'TikTok חוסם בקשות כרגע — נסה שוב בעוד דקה' });
+            }
+            return res.status(502).json({ error: 'TikTok לא זמין כרגע — נסה שוב בעוד דקה' });
+        }
+
+        const data = await response.json();
+
+        if (!data || !data.title) {
+            return res.status(404).json({ error: 'לא הצלחתי לחלץ מידע מהסרטון' });
+        }
+
+        const result = {
+            id: videoId,
+            title: data.title || 'ללא כותרת',
+            author: data.author_name || '',
+            authorUrl: data.author_url || '',
+            thumbnailUrl: data.thumbnail_url || '',
+            platform: 'tiktok',
+            publishedAt: '',
+            duration: 0,
+            views: 0,
+            likes: 0,
+            comments: 0,
+            needsManualData: true,
+        };
+
+        metrics.totalSuccess += 1;
+        recordLatency(Date.now() - requestStart);
+
+        log('info', `TikTok fetch OK`, { videoId, title: result.title.substring(0, 50) });
+
+        return res.json(result);
+    } catch (error) {
+        next(error);
+    }
+});
+
+function extractTikTokId(input) {
+    if (!input || typeof input !== 'string') return null;
+    const trimmed = input.trim();
+
+    if (/^\d{18,20}$/.test(trimmed)) return trimmed;
+
+    const patterns = [
+        /tiktok\.com\/@[\w.-]+\/video\/(\d+)/,
+        /tiktok\.com\/v\/(\d+)/,
+        /vm\.tiktok\.com\/([A-Za-z0-9]+)/,
+    ];
+
+    for (const p of patterns) {
+        const match = trimmed.match(p);
+        if (match && match[1]) return match[1];
+    }
+
+    return null;
+}
+
 app.get('/api/mega-prompt', async (req, res, next) => {
     try {
         const uptimeSeconds = Math.floor((Date.now() - metrics.startedAt) / 1000);
@@ -881,6 +1095,7 @@ app.get('/api/mega-prompt', async (req, res, next) => {
 ## Endpoints
 - /api/ask, /api/vision, /api/analyze, /api/health, /api/metrics
 - /api/knowledge, /api/mega-prompt, /api/analytics-chat
+- /api/youtube/fetch 🆕
 
 ## Knowledge Base
 ${knowledgeFilesList || '- ⚠️ אין קבצי ידע'}
@@ -889,7 +1104,7 @@ ${knowledgeFilesList || '- ⚠️ אין קבצי ידע'}
 
 ## מטריקות
 \`\`\`json
-${JSON.stringify({ uptime: uptimeSeconds, model: CONFIG.geminiModel, totalRequests: metrics.totalRequests, totalSuccess: metrics.totalSuccess, totalErrors: metrics.totalErrors, knowledgeFiles: knowledge.files.size, knowledgeChunks: knowledge.chunks.length }, null, 2)}
+${JSON.stringify({ uptime: uptimeSeconds, model: CONFIG.geminiModel, totalRequests: metrics.totalRequests, totalSuccess: metrics.totalSuccess, totalErrors: metrics.totalErrors, totalYoutubeRequests: metrics.totalYoutubeRequests, knowledgeFiles: knowledge.files.size, knowledgeChunks: knowledge.chunks.length }, null, 2)}
 \`\`\`
 
 *נוצר אוטומטית על ידי GET /api/mega-prompt.*`;
@@ -970,7 +1185,8 @@ loadKnowledgeBase();
 const server = app.listen(CONFIG.port, () => {
     log('info', `⚡ J.A.R.V.I.S Server is running securely on: http://localhost:${CONFIG.port}`);
     log('info', `🤖 Active Gemini Model: ${CONFIG.geminiModel}`);
-    log('info', `🧠 Knowledge base: ${knowledge.files.size} files, ${knowledge.chunks.length} chunks (BM25)`);
+    log('info', `🧠 Knowledge base: ${knowledge.files.size} files, ${knowledge.chunks.length} chunks`);
+    log('info', `📺 YouTube API: ${CONFIG.youtubeApiKey ? 'configured' : 'NOT configured'}`);
     log('info', `💬 Conversation memory: up to ${CONFIG.maxHistoryMessages} messages per request`);
 });
 
