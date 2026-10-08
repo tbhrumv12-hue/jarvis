@@ -1,16 +1,125 @@
+# ═══════════════════════════════════════════════════════════
+# J.A.R.V.I.S — .gitignore
+# Updated: 2026-10-08
+# ═══════════════════════════════════════════════════════════
+
+# === Dependencies ===
 node_modules/
-.env
-# === J.A.R.V.I.S — Secret files ===
+jspm_packages/
+bower_components/
+
+# === Environment — NEVER commit ===
 .env
 .env.local
 .env.*.local
+.env.production
+.env.development
+*.env
 
-# === Personal knowledge base ===
+# === Personal knowledge base — NEVER commit ===
 knowledge/*.txt
 knowledge/*.md
 !knowledge/.gitkeep
 
+# === Backups & broken files ===
+*.backup
+*.broken
+*.old
+*.orig
+server.js.backup
+server.js.broken
+*~
+
+# === Logs ===
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# === Build outputs ===
+dist/
+build/
+out/
+.next/
+.nuxt/
+.cache/
+.parcel-cache/
+
+# === Coverage & testing ===
+coverage/
+.nyc_output/
+*.lcov
+
+# === Temporary files ===
+tmp/
+temp/
+*.tmp
+*.temp
+*.pid
+*.seed
+*.pid.lock
+
 # === OS files ===
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
-*.log logs
+Desktop.ini
+
+# === IDE & Editors ===
+.vscode/
+!.vscode/settings.json.example
+.idea/
+*.swp
+*.swo
+*.swn
+*~
+.project
+.classpath
+.settings/
+
+# === Node / NPM ===
+.npm
+.npmrc
+.yarnrc
+.yarn/
+.pnp
+.pnp.js
+node_modules/.cache/
+
+# === Runtime data ===
+pids/
+*.pid
+*.seed
+lib-cov/
+
+# === Secrets & keys ===
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+credentials/
+config/secrets.json
+
+# === Personal data files ===
+body.json
+personal.json
+profile.json
+*.private.json
+*.secret.json
+
+# === TypeScript ===
+*.tsbuildinfo
+.tscache/
+
+# === Optional (uncomment if needed) ===
+# package-lock.json
+# yarn.lock

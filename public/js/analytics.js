@@ -1,6 +1,6 @@
 /**
- * ⚡ J.A.R.V.I.S // ANALYTICS v1.3
- * Dashboard + AI Chat + Mega Prompt + YouTube Import + TikTok Import
+ * ⚡ J.A.R.V.I.S // ANALYTICS v1.4
+ * Dashboard + AI Chat + Mega Prompt + YouTube Import + TikTok Import + Instagram Import
  */
 
 (function () {
@@ -70,11 +70,13 @@
         return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
     }
 
-    function formatDuration(sec) {
+       function formatDuration(sec) {
+        const n = Number(sec);
         if (!sec && sec !== 0) return '—';
-        if (sec < 60) return sec.toFixed(1) + 's';
-        const m = Math.floor(sec / 60);
-        const s = Math.round(sec % 60);
+        if (!isFinite(n)) return '—';
+        if (n < 60) return n.toFixed(1) + 's';
+        const m = Math.floor(n / 60);
+        const s = Math.round(n % 60);
         return `${m}:${String(s).padStart(2, '0')}`;
     }
 
@@ -306,7 +308,7 @@
         tbody.innerHTML = videos.map((v, i) => {
             const p = CONFIG.platforms[v.platform] || { icon: '❓' };
             const ratio = getRatio(v);
-            return `
+                      return `
                 <tr data-id="${v.id}">
                     <td>${i + 1}</td>
                     <td class="col-platform" title="${p.name}">${p.icon}</td>
@@ -316,6 +318,9 @@
                     <td class="col-views">${formatNumber(v.views)}</td>
                     <td class="col-likes">${formatNumber(v.likes)}</td>
                     <td class="col-comments">${formatNumber(v.comments)}</td>
+                    <td class="col-shares">${formatNumber(v.shares || 0)}</td>
+                    <td class="col-saves">${formatNumber(v.saves || 0)}</td>
+                    <td class="col-subscribers">${formatNumber(v.subscribers || 0)}</td>
                     <td class="col-ratio">${formatPercent(ratio)}</td>
                     <td class="col-actions">
                         <button class="row-btn" data-edit="${v.id}" title="ערוך">✏️</button>
@@ -359,6 +364,8 @@
             likes: Number(data.likes) || 0,
             comments: Number(data.comments) || 0,
             shares: Number(data.shares) || 0,
+                        subscribers: Number(data.subscribers) || 0,
+            saves: Number(data.saves) || 0,
         };
         state.videos.push(video);
         saveToStorage();
@@ -422,6 +429,8 @@
             comments: f('f-comments'),
             shares: f('f-shares'),
             id: f('f-id').trim() || undefined,
+                        subscribers: f('f-subscribers'),
+            saves: f('f-saves'),
         };
 
         if (!data.title) { alert('חובה למלא כותרת'); return; }
@@ -444,6 +453,8 @@
         if (f('e-likes')) f('e-likes').value = v.likes;
         if (f('e-comments')) f('e-comments').value = v.comments;
         if (f('e-shares')) f('e-shares').value = v.shares;
+                if (f('e-subscribers')) f('e-subscribers').value = v.subscribers || 0;
+        if (f('e-saves')) f('e-saves').value = v.saves || 0;
         openModal('edit-modal');
     }
 
@@ -459,6 +470,8 @@
             likes: f('e-likes'),
             comments: f('e-comments'),
             shares: f('e-shares'),
+                        subscribers: f('e-subscribers'),
+            saves: f('e-saves'),
         };
         if (!data.title) { alert('חובה למלא כותרת'); return; }
         updateVideo(id, data);
@@ -479,7 +492,7 @@
             if (parts.length < 3) parts = line.split(',').map((p) => p.trim());
             if (parts.length < 3) { errors++; continue; }
 
-            const [platform, date, title, duration, views, likes, comments] = parts;
+                        const [platform, date, title, duration, views, likes, comments, shares, saves, subscribers] = parts;
             const p = (platform || '').toLowerCase();
             const validPlatform = ['youtube', 'tiktok', 'instagram', 'yt', 'tt', 'ig'].includes(p)
                 ? ({ yt: 'youtube', tt: 'tiktok', ig: 'instagram' }[p] || p)
@@ -495,6 +508,9 @@
                 views: parseInt(views) || 0,
                 likes: parseInt(likes) || 0,
                 comments: parseInt(comments) || 0,
+                shares: parseInt(shares) || 0,
+                saves: parseInt(saves) || 0,
+                subscribers: parseInt(subscribers) || 0,
             });
             added++;
         }
@@ -645,6 +661,12 @@
             return;
         }
 
+                // קריאה לשדות אופציונליים
+        const getVal = (id) => {
+            const el = document.getElementById(id);
+            return el ? parseInt(el.value, 10) || 0 : 0;
+        };
+
         addVideo({
             id: video.id,
             platform: 'youtube',
@@ -654,7 +676,9 @@
             views: video.views,
             likes: video.likes,
             comments: video.comments,
-            shares: 0,
+            shares: getVal('yt-manual-shares'),
+            subscribers: getVal('yt-manual-subscribers'),
+            saves: getVal('yt-manual-saves'),
         });
 
         state.youtube.pendingVideo = null;
@@ -686,7 +710,6 @@
         if (fetchBtn) { fetchBtn.hidden = false; fetchBtn.disabled = false; }
         if (confirmBtn) confirmBtn.hidden = true;
 
-        // איפוס שדות ידניים
         const manualDate = document.getElementById('tt-manual-date');
         const manualDuration = document.getElementById('tt-manual-duration');
         const manualViews = document.getElementById('tt-manual-views');
@@ -698,6 +721,12 @@
         if (manualViews) manualViews.value = '';
         if (manualLikes) manualLikes.value = '0';
         if (manualComments) manualComments.value = '0';
+                const manualSubscribers = document.getElementById('tt-manual-subscribers');
+        const manualSaves = document.getElementById('tt-manual-saves');
+        const manualShares = document.getElementById('tt-manual-shares');
+        if (manualSubscribers) manualSubscribers.value = '0';
+        if (manualSaves) manualSaves.value = '0';
+        if (manualShares) manualShares.value = '0';
 
         state.tiktok.pendingVideo = null;
         state.tiktok.isLoading = false;
@@ -774,7 +803,6 @@
             if (previewEl) previewEl.hidden = false;
             if (confirmBtn) confirmBtn.hidden = false;
 
-            // פוקוס על שדה הצפיות (החשוב ביותר)
             const viewsInput = document.getElementById('tt-manual-views');
             if (viewsInput) setTimeout(() => viewsInput.focus(), 150);
 
@@ -795,7 +823,6 @@
             return;
         }
 
-        // קריאת השדות הידניים
         const getVal = (id) => {
             const el = document.getElementById(id);
             return el ? el.value : '';
@@ -813,15 +840,17 @@
         const manualDuration = parseFloat(getVal('tt-manual-duration')) || 0;
         const manualLikes = parseInt(getVal('tt-manual-likes'), 10) || 0;
         const manualComments = parseInt(getVal('tt-manual-comments'), 10) || 0;
+                const manualSubscribers = parseInt(getVal('tt-manual-subscribers'), 10) || 0;
+        const manualSaves = parseInt(getVal('tt-manual-saves'), 10) || 0;
+        const manualShares = parseInt(getVal('tt-manual-shares'), 10) || 0;
 
-        // בדיקה שהסרטון לא קיים
         const exists = state.videos.some((v) => v.id === video.id);
         if (exists) {
             showTikTokError(`הסרטון "${video.title}" כבר קיים בטבלה`);
             return;
         }
 
-        addVideo({
+                addVideo({
             id: video.id,
             platform: 'tiktok',
             date: manualDate,
@@ -830,11 +859,119 @@
             views: manualViews,
             likes: manualLikes,
             comments: manualComments,
-            shares: 0,
+            shares: manualShares,
+            subscribers: manualSubscribers,
+            saves: manualSaves,
         });
-
         state.tiktok.pendingVideo = null;
         closeModal('tiktok-modal');
+    }
+
+    // ==============================
+    // 8.7. 🆕 INSTAGRAM IMPORT (Manual)
+    // ==============================
+
+    function openInstagramModal() {
+        const modal = document.getElementById('instagram-modal');
+        if (!modal) {
+            alert('מודאל Instagram לא נמצא ב-HTML');
+            return;
+        }
+
+        const urlInput = document.getElementById('ig-url');
+        const errEl = document.getElementById('ig-error');
+        const titleInput = document.getElementById('ig-manual-title');
+        const dateInput = document.getElementById('ig-manual-date');
+        const durationInput = document.getElementById('ig-manual-duration');
+        const viewsInput = document.getElementById('ig-manual-views');
+        const likesInput = document.getElementById('ig-manual-likes');
+        const commentsInput = document.getElementById('ig-manual-comments');
+
+        if (urlInput) urlInput.value = '';
+        if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
+        if (titleInput) titleInput.value = '';
+        if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
+        if (durationInput) durationInput.value = '';
+        if (viewsInput) viewsInput.value = '';
+        if (likesInput) likesInput.value = '0';
+        if (commentsInput) commentsInput.value = '0';
+                const subscribersInput = document.getElementById('ig-manual-subscribers');
+        const savesInput = document.getElementById('ig-manual-saves');
+        const sharesInput = document.getElementById('ig-manual-shares');
+        if (subscribersInput) subscribersInput.value = '0';
+        if (savesInput) savesInput.value = '0';
+        if (sharesInput) sharesInput.value = '0';
+
+        openModal('instagram-modal');
+
+        setTimeout(() => { if (urlInput) urlInput.focus(); }, 100);
+    }
+
+    function showInstagramError(msg) {
+        const errEl = document.getElementById('ig-error');
+        if (errEl) {
+            errEl.textContent = '❌ ' + msg;
+            errEl.hidden = false;
+        }
+    }
+
+    function confirmInstagramAdd() {
+        const getVal = (id) => {
+            const el = document.getElementById(id);
+            return el ? el.value : '';
+        };
+
+        const title = getVal('ig-manual-title').trim();
+        if (!title) {
+            showInstagramError('חובה למלא כותרת');
+            const titleInput = document.getElementById('ig-manual-title');
+            if (titleInput) titleInput.focus();
+            return;
+        }
+
+        const views = parseInt(getVal('ig-manual-views'), 10);
+        if (isNaN(views) || views < 0) {
+            showInstagramError('חובה למלא צפיות (מספר חיובי)');
+            const viewsInput = document.getElementById('ig-manual-views');
+            if (viewsInput) viewsInput.focus();
+            return;
+        }
+
+        const url = getVal('ig-url').trim();
+        const date = getVal('ig-manual-date') || new Date().toISOString().split('T')[0];
+        const duration = parseFloat(getVal('ig-manual-duration')) || 0;
+        const likes = parseInt(getVal('ig-manual-likes'), 10) || 0;
+        const comments = parseInt(getVal('ig-manual-comments'), 10) || 0;
+                const subscribers = parseInt(getVal('ig-manual-subscribers'), 10) || 0;
+        const saves = parseInt(getVal('ig-manual-saves'), 10) || 0;
+        const shares = parseInt(getVal('ig-manual-shares'), 10) || 0;
+
+        let id = 'ig_' + Date.now();
+        if (url) {
+            const match = url.match(/instagram\.com\/(?:reel|p)\/([A-Za-z0-9_-]+)/);
+            if (match && match[1]) {
+                id = 'ig_' + match[1];
+                const exists = state.videos.some((v) => v.id === id);
+                if (exists) {
+                    showInstagramError(`הסרטון "${title}" כבר קיים בטבלה`);
+                    return;
+                }
+            }
+        }
+        addVideo({
+            id,
+            platform: 'instagram',
+            date,
+            title,
+            duration,
+            views,
+            likes,
+            comments,
+            shares,
+            subscribers,
+            saves,
+        });
+        closeModal('instagram-modal');
     }
 
     // ==============================
@@ -1343,12 +1480,69 @@
 
         return html;
     }
+    // ==============================
+    // 12.5. 🆕 DROPDOWN
+    // ==============================
+
+    function toggleAddDropdown() {
+        const btn = document.getElementById('btn-add-dropdown');
+        const menu = document.getElementById('add-dropdown-menu');
+        if (!btn || !menu) return;
+
+        const isOpen = !menu.hidden;
+        menu.hidden = isOpen;
+        btn.setAttribute('aria-expanded', String(!isOpen));
+    }
+
+    function closeAddDropdown() {
+        const btn = document.getElementById('btn-add-dropdown');
+        const menu = document.getElementById('add-dropdown-menu');
+        if (!btn || !menu) return;
+        menu.hidden = true;
+        btn.setAttribute('aria-expanded', 'false');
+    }
+
+    function setupDropdown() {
+        const btn = document.getElementById('btn-add-dropdown');
+        const menu = document.getElementById('add-dropdown-menu');
+        if (!btn || !menu) return;
+
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleAddDropdown();
+        });
+
+        // לחיצה על פריט בתפריט → סוגר את התפריט
+        menu.querySelectorAll('.dropdown-item').forEach((item) => {
+            item.addEventListener('click', () => {
+                closeAddDropdown();
+            });
+        });
+
+        // לחיצה מחוץ לתפריט → סוגר
+        document.addEventListener('click', (e) => {
+            if (!btn.contains(e.target) && !menu.contains(e.target)) {
+                closeAddDropdown();
+            }
+        });
+
+        // Escape → סוגר
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !menu.hidden) {
+                closeAddDropdown();
+            }
+        });
+    }
 
     // ==============================
     // 13. EVENTS
     // ==============================
-
+       
     function attachEvents() {
+         // === 🆕 Dropdown Setup ===
+        setupDropdown();
+
+
         const btnAdd = document.getElementById('btn-add');
         if (btnAdd) btnAdd.addEventListener('click', openAddModal);
 
@@ -1357,6 +1551,9 @@
 
         const btnTikTok = document.getElementById('btn-tiktok');
         if (btnTikTok) btnTikTok.addEventListener('click', openTikTokModal);
+
+        const btnInstagram = document.getElementById('btn-instagram');
+        if (btnInstagram) btnInstagram.addEventListener('click', openInstagramModal);
 
         const btnPaste = document.getElementById('btn-paste');
         if (btnPaste) btnPaste.addEventListener('click', () => openModal('paste-modal'));
@@ -1418,7 +1615,7 @@
             });
         }
 
-        // === 🆕 TikTok Modal Buttons ===
+        // === TikTok Modal Buttons ===
         const ttFetch = document.getElementById('tt-fetch');
         if (ttFetch) ttFetch.addEventListener('click', fetchTikTokData);
 
@@ -1434,6 +1631,10 @@
                 }
             });
         }
+
+        // === Instagram Modal Buttons ===
+        const igConfirm = document.getElementById('ig-confirm');
+        if (igConfirm) igConfirm.addEventListener('click', confirmInstagramAdd);
 
         // === Close buttons ===
         document.querySelectorAll('[data-close]').forEach((btn) => {

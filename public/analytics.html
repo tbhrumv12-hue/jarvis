@@ -25,14 +25,70 @@
             </div>
 
             <div class="analytics-actions">
-                <button type="button" id="btn-add" class="action-btn primary">➕ הוסף סרטון</button>
-                <button type="button" id="btn-youtube" class="action-btn youtube">🔗 הוסף מקישור</button>
-                <button type="button" id="btn-tiktok" class="action-btn tiktok">📱 הוסף TikTok</button>
-                <button type="button" id="btn-paste" class="action-btn">📋 הדבק נתונים</button>
-                <button type="button" id="btn-mega" class="action-btn gold">📋 מגה-פרומפט</button>
-                <button type="button" id="btn-ai" class="action-btn gold">🤖 נתח AI</button>
-                <button type="button" id="btn-export" class="action-btn">📥 ייצוא</button>
-                <button type="button" id="btn-import" class="action-btn">📤 ייבוא</button>
+                <div class="dropdown-container">
+                    <button type="button" id="btn-add-dropdown" class="action-btn add-btn" aria-haspopup="true" aria-expanded="false">
+                        <span>➕ הוסף</span>
+                        <span class="dropdown-arrow">▼</span>
+                    </button>
+                    <div class="dropdown-menu" id="add-dropdown-menu" hidden>
+                        <button type="button" id="btn-add" class="dropdown-item">
+                            <span class="item-icon">✏️</span>
+                            <span class="item-text">
+                                <span class="item-title">הוסף סרטון ידני</span>
+                                <span class="item-hint">הזן את כל הנתונים בעצמך</span>
+                            </span>
+                        </button>
+                        <button type="button" id="btn-youtube" class="dropdown-item">
+                            <span class="item-icon">🎬</span>
+                            <span class="item-text">
+                                <span class="item-title">הוסף מ-YouTube</span>
+                                <span class="item-hint">שליפה אוטומטית מלאה</span>
+                            </span>
+                        </button>
+                        <button type="button" id="btn-tiktok" class="dropdown-item">
+                            <span class="item-icon">📱</span>
+                            <span class="item-text">
+                                <span class="item-title">הוסף מ-TikTok</span>
+                                <span class="item-hint">כותרת אוטומטית + ידני</span>
+                            </span>
+                        </button>
+                        <button type="button" id="btn-instagram" class="dropdown-item">
+                            <span class="item-icon">📸</span>
+                            <span class="item-text">
+                                <span class="item-title">הוסף מ-Instagram</span>
+                                <span class="item-hint">הזנה ידנית לחלוטין</span>
+                            </span>
+                        </button>
+                        <div class="dropdown-divider"></div>
+                        <button type="button" id="btn-paste" class="dropdown-item">
+                            <span class="item-icon">📋</span>
+                            <span class="item-text">
+                                <span class="item-title">הדבק נתונים גולמיים</span>
+                                <span class="item-hint">הדבקה מרובה בבת אחת</span>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+
+                <button type="button" id="btn-mega" class="action-btn gold">
+                    <span>📋</span>
+                    <span>מגה-פרומפט</span>
+                </button>
+
+                <button type="button" id="btn-ai" class="action-btn turquoise">
+                    <span>🤖</span>
+                    <span>נתח AI</span>
+                </button>
+
+                <div class="action-group">
+                    <button type="button" id="btn-export" class="action-btn icon-only" title="ייצוא JSON">
+                        <span>📥</span>
+                    </button>
+                    <button type="button" id="btn-import" class="action-btn icon-only" title="ייבוא JSON">
+                        <span>📤</span>
+                    </button>
+                </div>
+
                 <input type="file" id="import-file" accept=".json" hidden>
             </div>
         </header>
@@ -177,6 +233,9 @@
                             <th>צפיות</th>
                             <th>לייקים</th>
                             <th>תגובות</th>
+                            <th>שיתופים</th>
+                            <th>שמירות</th>
+                            <th>מנויים</th>
                             <th>יחס</th>
                             <th>פעולות</th>
                         </tr>
@@ -214,7 +273,7 @@
 
         <!-- === Footer === -->
         <footer class="analytics-footer">
-            <span>J.A.R.V.I.S // Analytics v1.3</span>
+            <span>J.A.R.V.I.S // Analytics v1.5</span>
             <span id="footer-updated">—</span>
         </footer>
 
@@ -257,6 +316,12 @@
                     </label>
                     <label>שיתופים:
                         <input type="number" id="f-shares" min="0" value="0">
+                    </label>
+                    <label>מנויים חדשים:
+                        <input type="number" id="f-subscribers" min="0" value="0">
+                    </label>
+                    <label>שמירות:
+                        <input type="number" id="f-saves" min="0" value="0">
                     </label>
                     <label>מזהה (אופציונלי):
                         <input type="text" id="f-id" placeholder="shortCode / ID">
@@ -334,6 +399,12 @@ instagram	2026-09-22	Day 7 — Full Planche	10	700	45	8"></textarea>
                     <label>שיתופים:
                         <input type="number" id="e-shares" min="0">
                     </label>
+                    <label>מנויים חדשים:
+                        <input type="number" id="e-subscribers" min="0" value="0">
+                    </label>
+                    <label>שמירות:
+                        <input type="number" id="e-saves" min="0" value="0">
+                    </label>
                 </form>
             </div>
             <div class="modal-footer">
@@ -368,7 +439,7 @@ instagram	2026-09-22	Day 7 — Full Planche	10	700	45	8"></textarea>
         </div>
     </div>
 
-    <!-- === 🆕 YouTube Import Modal === -->
+    <!-- === YouTube Import Modal === -->
     <div id="youtube-modal" class="modal" hidden>
         <div class="modal-backdrop" data-close="youtube-modal"></div>
         <div class="modal-content">
@@ -420,6 +491,19 @@ instagram	2026-09-22	Day 7 — Full Planche	10	700	45	8"></textarea>
                             <span class="yt-preview-value" id="yt-preview-comments">—</span>
                         </div>
                     </div>
+
+                    <h3 style="margin-top:20px;">✏️ שדות אופציונליים</h3>
+                    <div class="tt-manual-grid">
+                        <label>מנויים חדשים:
+                            <input type="number" id="yt-manual-subscribers" min="0" placeholder="2" value="0">
+                        </label>
+                        <label>שמירות:
+                            <input type="number" id="yt-manual-saves" min="0" placeholder="10" value="0">
+                        </label>
+                        <label>שיתופים:
+                            <input type="number" id="yt-manual-shares" min="0" placeholder="5" value="0">
+                        </label>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -430,7 +514,7 @@ instagram	2026-09-22	Day 7 — Full Planche	10	700	45	8"></textarea>
         </div>
     </div>
 
-    <!-- === 🆕 TikTok Import Modal === -->
+    <!-- === TikTok Import Modal === -->
     <div id="tiktok-modal" class="modal" hidden>
         <div class="modal-backdrop" data-close="tiktok-modal"></div>
         <div class="modal-content">
@@ -484,6 +568,15 @@ instagram	2026-09-22	Day 7 — Full Planche	10	700	45	8"></textarea>
                         <label>תגובות:
                             <input type="number" id="tt-manual-comments" min="0" placeholder="180" value="0">
                         </label>
+                        <label>מנויים חדשים:
+                            <input type="number" id="tt-manual-subscribers" min="0" placeholder="50" value="0">
+                        </label>
+                        <label>שמירות:
+                            <input type="number" id="tt-manual-saves" min="0" placeholder="200" value="0">
+                        </label>
+                        <label>שיתופים:
+                            <input type="number" id="tt-manual-shares" min="0" placeholder="30" value="0">
+                        </label>
                     </div>
                 </div>
             </div>
@@ -491,6 +584,62 @@ instagram	2026-09-22	Day 7 — Full Planche	10	700	45	8"></textarea>
                 <button type="button" class="modal-icon-btn" data-close="tiktok-modal">ביטול</button>
                 <button type="button" id="tt-fetch" class="modal-primary-btn">🔍 שלף נתונים</button>
                 <button type="button" id="tt-confirm" class="modal-primary-btn" hidden>✅ הוסף לטבלה</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- === Instagram Import Modal === -->
+    <div id="instagram-modal" class="modal" hidden>
+        <div class="modal-backdrop" data-close="instagram-modal"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📸 הוסף סרטון מ-Instagram</h2>
+                <button type="button" class="modal-icon-btn" data-close="instagram-modal">✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="paste-hint">
+                    הדבק קישור Instagram Reel. תמלא ידנית את כל הנתונים.
+                </p>
+                <label class="yt-label">קישור Instagram:
+                    <input type="text" id="ig-url" class="yt-input" placeholder="https://www.instagram.com/reel/..." autocomplete="off" autofocus>
+                </label>
+
+                <div id="ig-error" class="yt-error" hidden></div>
+
+                <h3 style="margin-top:20px;">✏️ מלא את הנתונים</h3>
+                <div class="tt-manual-grid">
+                    <label>כותרת *:
+                        <input type="text" id="ig-manual-title" placeholder="Day 12 — Full Planche" required>
+                    </label>
+                    <label>תאריך:
+                        <input type="date" id="ig-manual-date">
+                    </label>
+                    <label>אורך (שניות):
+                        <input type="number" id="ig-manual-duration" min="0" step="0.1" placeholder="30">
+                    </label>
+                    <label>צפיות *:
+                        <input type="number" id="ig-manual-views" min="0" placeholder="45000">
+                    </label>
+                    <label>לייקים:
+                        <input type="number" id="ig-manual-likes" min="0" placeholder="3200" value="0">
+                    </label>
+                    <label>תגובות:
+                        <input type="number" id="ig-manual-comments" min="0" placeholder="180" value="0">
+                    </label>
+                    <label>מנויים חדשים:
+                        <input type="number" id="ig-manual-subscribers" min="0" placeholder="50" value="0">
+                    </label>
+                    <label>שמירות:
+                        <input type="number" id="ig-manual-saves" min="0" placeholder="200" value="0">
+                    </label>
+                    <label>שיתופים:
+                        <input type="number" id="ig-manual-shares" min="0" placeholder="30" value="0">
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="modal-icon-btn" data-close="instagram-modal">ביטול</button>
+                <button type="button" id="ig-confirm" class="modal-primary-btn">✅ הוסף לטבלה</button>
             </div>
         </div>
     </div>

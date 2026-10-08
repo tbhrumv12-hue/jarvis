@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0e1a">
+    <meta name="description" content="J.A.R.V.I.S — Nutrition Tracker">
+    <title>J.A.R.V.I.S // NUTRITION</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/nutrition.css">
+</head>
+<body class="nutrition-page">
+
+    <div class="nutrition-container">
+
+        <!-- === Header === -->
+        <header class="nutrition-header">
+            <a href="/" class="back-btn" aria-label="חזור">←</a>
+            <div class="brand">
+                <h1>J.A.R.V.I.S // NUTRITION</h1>
+                <p class="subtitle">🍽️ מעקב תזונה יומי מבוסס AI</p>
+            </div>
+            <div class="header-actions">
+                <button type="button" id="btn-export" class="icon-btn" title="ייצוא JSON">📥</button>
+                <button type="button" id="btn-clear" class="icon-btn" title="איפוס היום">🗑️</button>
+            </div>
+        </header>
+
+        <!-- === Summary Section === -->
+        <section class="summary-section">
+            <div class="summary-header">
+                <h2 class="section-title">📊 סיכום היום</h2>
+                <span class="date-badge" id="today-date">—</span>
+            </div>
+            <div id="summary-grid" class="summary-grid">
+                <!-- Filled by JS -->
+            </div>
+        </section>
+
+        <!-- === Water Tracker === -->
+        <section class="water-section">
+            <h2 class="section-title">💧 מים</h2>
+            <div class="water-tracker">
+                <button type="button" id="water-minus" class="water-btn" aria-label="הפחת 250 מ״ל">−250</button>
+                <div class="water-display">
+                    <span id="water-value" class="water-value">0</span>
+                    <span class="water-unit">מ"ל</span>
+                    <span class="water-target">מתוך 3,000</span>
+                </div>
+                <button type="button" id="water-plus" class="water-btn" aria-label="הוסף 250 מ״ל">+250</button>
+            </div>
+            <div class="water-bar">
+                <div id="water-bar-fill" class="water-bar-fill" style="width: 0%;"></div>
+            </div>
+        </section>
+
+        <!-- === Add Meal === -->
+        <section class="add-section">
+            <h2 class="section-title">✏️ הוסף ארוחה</h2>
+            <div class="add-form">
+                <textarea 
+                    id="meal-input" 
+                    class="meal-input" 
+                    placeholder="תאר מה אכלת... למשל: 2 ביצים, 150 גרם עוף, כוס אורז"
+                    rows="3"
+                    maxlength="500"
+                ></textarea>
+                <div class="add-actions">
+                    <button type="button" id="btn-analyze" class="analyze-btn">
+                        <span>🔍</span>
+                        <span>נתח והוסף</span>
+                    </button>
+                </div>
+            </div>
+            <div class="quick-adds">
+                <span class="quick-label">הוספה מהירה:</span>
+                <button type="button" class="quick-chip" data-text="2 ביצים">🥚 2 ביצים</button>
+                <button type="button" class="quick-chip" data-text="150 גרם עוף">🍗 150 גרם עוף</button>
+                <button type="button" class="quick-chip" data-text="כוס אורז">🍚 כוס אורז</button>
+                <button type="button" class="quick-chip" data-text="100 גרם קוטג'">🧀 100 גרם קוטג'</button>
+                <button type="button" class="quick-chip" data-text="כף טחינה">🫘 כף טחינה</button>
+            </div>
+        </section>
+
+        <!-- === Loading === -->
+        <section id="loading" class="loading-section" hidden>
+            <div class="loading-spinner"></div>
+            <p class="loading-text">מנתח את הארוחה...</p>
+            <p class="loading-subtext">זה יכול לקחת 5-15 שניות</p>
+        </section>
+
+        <!-- === Error === -->
+        <section id="error-box" class="error-section" hidden>
+            <span class="error-icon">❌</span>
+            <p id="error-text" class="error-text"></p>
+        </section>
+
+        <!-- === Meals Today === -->
+        <section id="meals-section" class="meals-section" hidden>
+            <div class="section-header-row">
+                <h2 class="section-title">🍽️ ארוחות היום</h2>
+                <span class="count-badge" id="meals-count">(0)</span>
+            </div>
+            <div id="meals-list" class="meals-list"></div>
+        </section>
+
+        <!-- === Vitamins & Minerals === -->
+        <section id="micro-section" class="micro-section" hidden>
+            <div class="micro-columns">
+                <div class="micro-column">
+                    <h2 class="section-title">💊 ויטמינים</h2>
+                    <div id="vitamins-list" class="micro-list"></div>
+                </div>
+                <div class="micro-column">
+                    <h2 class="section-title">🧂 מינרלים</h2>
+                    <div id="minerals-list" class="micro-list"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- === Amino Acids === -->
+        <section id="amino-section" class="amino-section" hidden>
+            <h2 class="section-title">🧬 חומצות אמינו חיוניות</h2>
+            <div id="amino-list" class="amino-grid"></div>
+        </section>
+
+        <!-- === AI Insights === -->
+        <section id="insights-section" class="insights-section" hidden>
+            <h2 class="section-title">🤖 תובנות AI</h2>
+            <div id="insights-text" class="insights-text"></div>
+        </section>
+
+        <!-- === History === -->
+        <section id="history-section" class="history-section" hidden>
+            <h2 class="section-title">📅 היסטוריה — 7 ימים אחרונים</h2>
+            <div id="history-list" class="history-list"></div>
+        </section>
+
+        <!-- === Footer === -->
+        <footer class="nutrition-footer">
+            <span>J.A.R.V.I.S // Nutrition v1.0</span>
+            <span id="footer-updated">—</span>
+        </footer>
+
+    </div>
+
+    <script src="/js/nutrition.js" defer></script>
+</body>
+</html>

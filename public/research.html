@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0e1a">
+    <title>J.A.R.V.I.S // RESEARCH</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/research.css">
+</head>
+<body class="research-page">
+
+    <div class="research-container">
+
+        <!-- === Header === -->
+        <header class="research-header">
+            <a href="/" class="back-btn" aria-label="חזור">←</a>
+            <div class="brand">
+                <h1>J.A.R.V.I.S // RESEARCH</h1>
+                <p class="subtitle">🔬 מחקר מבוסס מחקרים אמיתיים</p>
+            </div>
+            <div class="header-actions">
+                <button type="button" id="btn-clear" class="icon-btn" title="נקה תוצאות">🗑️</button>
+            </div>
+        </header>
+
+        <!-- === Search === -->
+        <section class="search-section">
+            <div class="search-box">
+                <span class="search-icon">🔍</span>
+                <input 
+                    type="text" 
+                    id="search-input" 
+                    class="search-input" 
+                    placeholder="שאל משהו... למשל: cottage cheese, creatine, intermittent fasting"
+                    autocomplete="off"
+                    maxlength="300"
+                    autofocus
+                >
+                <button type="button" id="search-btn" class="search-btn">חפש</button>
+            </div>
+
+            <div class="examples-row">
+                <span class="examples-label">דוגמאות:</span>
+                <button type="button" class="example-chip" data-query="cottage cheese health">🧀 קוטג'</button>
+                <button type="button" class="example-chip" data-query="creatine supplementation">💪 קריאטין</button>
+                <button type="button" class="example-chip" data-query="intermittent fasting">⏱️ צום לסירוגין</button>
+                <button type="button" class="example-chip" data-query="protein intake muscle">🍗 חלבון ושריר</button>
+                <button type="button" class="example-chip" data-query="sleep testosterone">😴 שינה וטסטוסטרון</button>
+            </div>
+        </section>
+
+        <!-- === Loading === -->
+        <section id="loading" class="loading-section" hidden>
+            <div class="loading-spinner"></div>
+            <p class="loading-text">מחפש ב-40 מיליון מחקרים...</p>
+            <p class="loading-subtext">זה יכול לקחת 20-40 שניות</p>
+        </section>
+
+        <!-- === Error === -->
+        <section id="error-box" class="error-section" hidden>
+            <span class="error-icon">❌</span>
+            <p id="error-text" class="error-text"></p>
+        </section>
+
+        <!-- === Results === -->
+        <section id="results" class="results-section" hidden>
+
+            <!-- Verdict -->
+            <div class="verdict-card" id="verdict-card">
+                <span class="verdict-label">השורה התחתונה</span>
+                <p class="verdict-text" id="verdict-text">—</p>
+            </div>
+
+            <!-- Summary -->
+            <div class="info-card">
+                <div class="info-header">
+                    <span class="info-icon">📊</span>
+                    <span class="info-title">סיכום</span>
+                </div>
+                <p class="info-text" id="summary-text">—</p>
+            </div>
+
+            <!-- Myth -->
+            <div class="info-card myth-card" id="myth-card">
+                <div class="info-header">
+                    <span class="info-icon">⚠️</span>
+                    <span class="info-title">מיתוס</span>
+                </div>
+                <p class="info-text" id="myth-text">—</p>
+            </div>
+
+            <!-- Papers -->
+            <div class="papers-section">
+                <div class="papers-header">
+                    <h2 class="papers-title">🔬 מחקרים מרכזיים</h2>
+                    <span class="papers-count" id="papers-count">(0)</span>
+                </div>
+                <div id="papers-list" class="papers-list"></div>
+            </div>
+
+            <!-- Stats -->
+            <div class="stats-row" id="stats-row">
+                <span id="stats-text">—</span>
+            </div>
+        </section>
+
+        <!-- === History === -->
+        <section id="history-section" class="history-section" hidden>
+            <h2 class="section-title">📜 חיפושים אחרונים</h2>
+            <div id="history-list" class="history-list"></div>
+        </section>
+
+        <!-- === Footer === -->
+        <footer class="research-footer">
+            <span>J.A.R.V.I.S // Research v1.0</span>
+            <span>מבוסס על Europe PMC (40M מחקרים)</span>
+        </footer>
+
+    </div>
+
+    <script src="/js/research.js" defer></script>
+</body>
+</html>
