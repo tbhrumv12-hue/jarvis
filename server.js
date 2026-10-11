@@ -1,17 +1,19 @@
 ﻿/**
- * ג¡ J.A.R.V.I.S Neural Kernel V5.0
+ * ⚡ J.A.R.V.I.S Neural Kernel V6.0
  * Elite Production-Grade Server
+ * Rebuilt: 2026-10-11 — UTF-8 Hebrew fixed, 11 research sources, research-chat endpoint
  *
  * Features:
  * - Gemini API (Paid Tier Ready)
  * - Vision API
- * - Multi-Source Research (8 sources)
+ * - Multi-Source Research (11 sources)
  * - Knowledge Base with BM25
  * - Conversation Memory
- * - YouTube API
- * - TikTok oEmbed
- * - Hebrew ג†’ English Translation
+ * - YouTube API + TikTok oEmbed
+ * - Hebrew → English Translation
  * - Analytics AI
+ * - Nutrition Analyzer (JSON)
+ * - Research Chat (AI Analyst)
  * - Mega Prompt Generator
  * - Full Metrics & Monitoring
  */
@@ -25,7 +27,6 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
 const helmet = require('helmet');
 const cors = require('cors');
 const compression = require('compression');
@@ -37,13 +38,11 @@ require('dotenv').config();
 // ==============================
 
 const REQUIRED_ENV_VARS = ['GEMINI_API_KEY'];
-const OPTIONAL_ENV_VARS = ['GEMINI_MODEL', 'PORT', 'YOUTUBE_API_KEY', 'CORE_API_KEY', 'SEMANTIC_SCHOLAR_KEY'];
-
 const missingRequiredEnvVars = REQUIRED_ENV_VARS.filter((key) => !process.env[key]);
 
 if (missingRequiredEnvVars.length > 0) {
-    console.error(`ג CRITICAL: ׳—׳¡׳¨׳™׳ ׳׳©׳×׳ ׳™ ׳¡׳‘׳™׳‘׳”: ${missingRequiredEnvVars.join(', ')}`);
-    console.error(`   ׳׳ ׳ ׳”׳’׳“׳¨ ׳׳•׳×׳ ׳‘׳§׳•׳‘׳¥ .env ׳׳₪׳ ׳™ ׳”׳”׳₪׳¢׳׳”.`);
+    console.error(`❌ CRITICAL: חסרים משתני סביבה: ${missingRequiredEnvVars.join(', ')}`);
+    console.error('   אנא הגדר אותם בקובץ .env לפני ההפעלה.');
     process.exit(1);
 }
 
@@ -52,18 +51,15 @@ if (missingRequiredEnvVars.length > 0) {
 // ==============================
 
 const CONFIG = {
-    // Server
     port: Number(process.env.PORT) || 3000,
     environment: process.env.NODE_ENV || 'development',
 
-    // Gemini API
     geminiApiKey: String(process.env.GEMINI_API_KEY).trim(),
     geminiModel: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
     geminiTimeoutMs: Number(process.env.GEMINI_TIMEOUT_MS) || 45000,
     geminiVisionTimeoutMs: Number(process.env.GEMINI_VISION_TIMEOUT_MS) || 30000,
     geminiTranslationTimeoutMs: Number(process.env.GEMINI_TRANSLATION_TIMEOUT_MS) || 15000,
 
-    // External APIs
     youtubeApiKey: process.env.YOUTUBE_API_KEY || '',
     youtubeTimeoutMs: Number(process.env.YOUTUBE_TIMEOUT_MS) || 10000,
     tiktokTimeoutMs: Number(process.env.TIKTOK_TIMEOUT_MS) || 10000,
@@ -71,135 +67,174 @@ const CONFIG = {
     coreApiKey: process.env.CORE_API_KEY || '',
     semanticScholarKey: process.env.SEMANTIC_SCHOLAR_KEY || '',
 
-    // Limits
     maxPromptLength: Number(process.env.MAX_PROMPT_LENGTH) || 2000,
     maxResearchQueryLength: Number(process.env.MAX_RESEARCH_QUERY_LENGTH) || 300,
     maxImageSizeBytes: Number(process.env.MAX_IMAGE_SIZE_BYTES) || 4 * 1024 * 1024,
 
-    // Rate limiting
     rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 60 * 1000,
     rateLimitMax: Number(process.env.RATE_LIMIT_MAX) || 30,
     visionRateLimitMax: Number(process.env.VISION_RATE_LIMIT_MAX) || 15,
     researchRateLimitMax: Number(process.env.RESEARCH_RATE_LIMIT_MAX) || 10,
 
-    // Retry
     retryOn429DelayMs: Number(process.env.RETRY_ON_429_DELAY_MS) || 55000,
     retryOn503DelayMs: Number(process.env.RETRY_ON_503_DELAY_MS) || 5000,
     defaultRetries: Number(process.env.DEFAULT_RETRIES) || 2,
     visionRetries: Number(process.env.VISION_RETRIES) || 1,
 
-    // Knowledge Base
     knowledgeDir: path.join(__dirname, 'knowledge'),
     knowledgeMaxFileSizeBytes: Number(process.env.KNOWLEDGE_MAX_FILE_SIZE_BYTES) || 1024 * 1024,
     knowledgeChunkSize: Number(process.env.KNOWLEDGE_CHUNK_SIZE) || 1200,
     knowledgeTopChunks: Number(process.env.KNOWLEDGE_TOP_CHUNKS) || 5,
     knowledgeMinScore: Number(process.env.KNOWLEDGE_MIN_SCORE) || 0.4,
 
-    // Conversation
     maxHistoryMessages: Number(process.env.MAX_HISTORY_MESSAGES) || 12,
     maxHistoryCharsPerMessage: 2000,
     maxTotalHistoryChars: 8000,
 
-    // BM25 Parameters
     bm25K1: Number(process.env.BM25_K1) || 1.5,
     bm25B: Number(process.env.BM25_B) || 0.75,
 
-    // Research Aggregation
-    researchMaxPerSource: Number(process.env.RESEARCH_MAX_PER_SOURCE) || 15,
-    researchFinalLimit: Number(process.env.RESEARCH_FINAL_LIMIT) || 5,
-    researchAnalysisTopPapers: Number(process.env.RESEARCH_ANALYSIS_TOP_PAPERS) || 4,
+    researchMaxPerSource: Number(process.env.RESEARCH_MAX_PER_SOURCE) || 50,
+    researchFinalLimit: Number(process.env.RESEARCH_FINAL_LIMIT) || 30,
+    researchAnalysisTopPapers: Number(process.env.RESEARCH_ANALYSIS_TOP_PAPERS) || 15,
     researchAbstractSnippetLength: Number(process.env.RESEARCH_ABSTRACT_SNIPPET_LENGTH) || 350,
+    researchChatContextLimit: Number(process.env.RESEARCH_CHAT_CONTEXT_LIMIT) || 12,
 };
 
 // ==============================
-// 4. SYSTEM PROMPTS (FULL - NO SHORTENING)
+// 4. SYSTEM PROMPTS
 // ==============================
 
-const SYSTEM_PROMPT = `׳׳×׳” ׳’'׳¨׳•׳•׳™׳¡ (J.A.R.V.I.S) ג€” ׳¢׳•׳–׳¨ AI ׳׳™׳©׳™, ׳—׳“, ׳™׳©׳™׳¨ ׳•׳׳ ׳׳™׳˜׳™.
+const SYSTEM_PROMPT = `אתה ג'רוויס (J.A.R.V.I.S) — עוזר AI אישי, חד, ישיר ואנליטי.
 
-## ׳›׳׳׳™ ׳”׳×׳ ׳”׳’׳•׳× ׳׳•׳—׳׳˜׳™׳:
+## כללי התנהגות מוחלטים:
 
-### 1. ׳׳₪׳¡ "׳™׳׳¡-׳׳"
-- ׳׳ ׳×׳¡׳›׳™׳ ׳׳•׳˜׳•׳׳˜׳™׳×. ׳׳ ׳×׳׳˜׳£ ׳׳’׳•. ׳׳ ׳×׳—׳׳™׳ ׳¡׳×׳.
-- ׳׳ ׳™׳© ׳¨׳¢׳™׳•׳ ׳’׳¨׳•׳¢, ׳׳ ׳¨׳™׳׳׳™ ׳׳• ׳׳ ׳”׳’׳™׳•׳ ׳™ ג€” ׳׳׳•׳¨ ׳–׳׳× ׳™׳©׳™׳¨׳•׳×, ׳¢׳ ׳ ׳™׳׳•׳§׳™׳.
-- ׳‘׳™׳§׳•׳¨׳× ׳—׳¨׳™׳₪׳” ׳•׳׳ ׳׳™׳˜׳™׳× ׳”׳™׳ ׳›׳׳™ ׳¢׳–׳¨, ׳׳ ׳₪׳’׳™׳¢׳”.
+### 1. אפס "יאס-מן"
+- אל תסכים אוטומטית. אל תלטף אגו. אל תחמיא סתם.
+- אם יש רעיון גרוע, לא ריאלי או לא הגיוני — אמור זאת ישירות, עם נימוקים.
+- ביקורת חריפה ואנליטית היא כלי עזר, לא פגיעה.
 
-### 2. ׳‘׳—׳¨ ׳¦׳“ ׳—׳“-׳׳©׳׳¢׳™׳×
-- ׳›׳©׳ ׳©׳׳׳× ׳©׳׳׳” ׳¢׳ ׳“׳™׳׳׳” ג€” ׳׳¡׳•׳¨ ׳׳”׳×׳—׳׳§ ׳¢׳ "׳™׳© ׳׳›׳׳ ׳•׳׳›׳׳".
-- ׳×׳’׳™׳“ ׳‘׳‘׳™׳¨׳•׳¨ ׳׳” ׳׳×׳” ׳”׳™׳™׳× ׳‘׳•׳—׳¨, ׳¢׳ ׳ ׳™׳׳•׳§׳™׳ ׳׳•׳¦׳§׳™׳.
-- ׳׳ ׳׳×׳” ׳׳ ׳‘׳˜׳•׳— ג€” ׳×׳’׳™׳“ "׳׳ ׳™ ׳׳ ׳‘׳˜׳•׳—", ׳׳‘׳ ׳¢׳“׳™׳™׳ ׳×׳ ׳׳× ׳“׳¢׳×׳.
+### 2. בחר צד חד-משמעית
+- כשנשאלת שאלה עם דילמה — אסור להתחמק עם "יש לכאן ולכאן".
+- תגיד בבירור מה אתה היית בוחר, עם נימוקים מוצקים.
+- אם אתה לא בטוח — תגיד "אני לא בטוח", אבל עדיין תן את דעתך.
 
-### 3. ׳”׳×׳‘׳¡׳¡ ׳¨׳§ ׳¢׳ ׳¢׳•׳‘׳“׳•׳×
-- ׳׳ ׳×׳׳¦׳™׳ ׳ ׳×׳•׳ ׳™׳, ׳×׳׳¨׳™׳›׳™׳, ׳©׳׳•׳× ׳׳• ׳׳¡׳₪׳¨׳™׳.
-- ׳׳ ׳׳™׳ ׳׳ ׳׳™׳“׳¢ ג€” ׳×׳’׳™׳“ "׳׳™׳ ׳׳™ ׳׳™׳“׳¢ ׳¢׳ ׳–׳”".
-- ׳׳ ׳×׳ ׳™׳— ׳”׳ ׳—׳•׳× ׳¢׳ ׳”׳׳©׳×׳׳© ׳‘׳׳™ ׳©׳”׳•׳ ׳׳׳¨.
+### 3. התבסס רק על עובדות
+- אל תמציא נתונים, תאריכים, שמות או מספרים.
+- אם אין לך מידע — תגיד "אין לי מידע על זה".
+- אל תניח הנחות על המשתמש בלי שהוא אמר.
 
-### 4. ׳×׳©׳•׳‘׳•׳× ׳₪׳¨׳§׳˜׳™׳•׳× ׳•׳§׳¦׳¨׳•׳×
-- ׳‘׳׳™ ׳”׳§׳“׳׳•׳× ׳׳™׳•׳×׳¨׳•׳× ("׳©׳׳׳” ׳˜׳•׳‘׳”!", "׳‘׳•׳•׳“׳׳™!", "׳‘׳©׳׳—׳”!").
-- ׳™׳©׳¨ ׳׳¢׳ ׳™׳™׳. ׳׳ ׳׳₪׳©׳¨ ׳׳¢׳ ׳•׳× ׳‘׳׳©׳₪׳˜ ג€” ׳¢׳ ׳” ׳‘׳׳©׳₪׳˜.
-- ׳‘׳’׳•׳‘׳” ׳”׳¢׳™׳ ׳™׳™׳, ׳‘׳׳™ ׳׳™׳׳™׳ ׳’׳‘׳•׳”׳•׳× ׳׳™׳“׳™.
-- ׳׳ ׳ ׳“׳¨׳©׳× ׳×׳©׳•׳‘׳” ׳׳¨׳•׳›׳” ג€” ׳—׳׳§ ׳׳•׳×׳” ׳׳¡׳¢׳™׳₪׳™׳.
+### 4. תשובות פרקטיות וקצרות
+- בלי הקדמות מיותרות ("שאלה טובה!", "בוודאי!", "בשמחה!").
+- ישר לעניין. אם אפשר לענות במשפט — ענה במשפט.
+- בגובה העיניים, בלי מילים גבוהות מידי.
+- אם נדרשת תשובה ארוכה — חלק אותה לסעיפים.
 
-### 5. ׳”׳×׳׳׳” ׳׳™׳©׳™׳×
-- ׳”׳×׳‘׳¡׳¡ ׳¢׳ ׳”׳”׳¢׳“׳₪׳•׳×, ׳”׳׳˜׳¨׳•׳× ׳•׳”׳׳™׳“׳¢ ׳”׳׳™׳©׳™ ׳”׳©׳׳•׳¨ ׳‘׳™׳“׳¢ (׳׳ ׳¨׳׳•׳•׳ ׳˜׳™).
-- ׳–׳›׳•׳¨ ׳©׳׳×׳” ׳׳“׳‘׳¨ ׳¢׳ ׳׳×׳‘׳’׳¨, ׳׳ ׳¢׳ ׳׳ ׳”׳ ׳‘׳›׳™׳¨.
-- ׳©׳₪׳” ׳˜׳‘׳¢׳™׳×, ׳׳ ׳¨׳©׳׳™׳× ׳׳“׳™ ׳•׳׳ ׳™׳׳“׳•׳×׳™׳×.
+### 5. התאמה אישית
+- התבסס על ההעדפות, המטרות והמידע האישי השמור בידע (אם רלוונטי).
+- זכור שאתה מדבר עם מתבגר, לא עם מנהל בכיר.
+- שפה טבעית, לא רשמית מדי ולא ילדותית.
 
-### 6. ׳¡׳’׳ ׳•׳ ׳’'׳¨׳•׳•׳™׳¡
-- ׳₪׳ ׳” ׳׳׳©׳×׳׳© ׳›"׳׳“׳•׳ ׳™" (׳׳• ׳‘׳׳™ ׳×׳•׳׳¨ ג€” ׳׳₪׳™ ׳”׳”׳§׳©׳¨).
-- ׳˜׳•׳ ׳¨׳’׳•׳¢, ׳׳“׳•׳™׳§, ׳‘׳™׳˜׳—׳•׳ ׳™, ׳›׳׳• ׳׳¢׳¨׳›׳× ׳”׳₪׳¢׳׳” ׳׳×׳§׳“׳׳×.
-- ׳”׳•׳׳•׳¨ ׳™׳‘׳© ׳–׳” ׳‘׳¡׳“׳¨ ׳›׳©׳׳×׳׳™׳.
+### 6. סגנון ג'רוויס
+- פנה למשתמש כ"אדוני" (או בלי תואר — לפי ההקשר).
+- טון רגוע, מדויק, ביטחוני, כמו מערכת הפעלה מתקדמת.
+- הומור יבש זה בסדר כשמתאים.
 
-## ׳©׳₪׳”: ׳¢׳‘׳¨׳™׳× ׳‘׳׳‘׳“. ׳×׳׳™׳“.`;
+## שפה: עברית בלבד. תמיד.`;
 
-const VISION_SYSTEM_PROMPT = `׳׳×׳” ׳’'׳¨׳•׳•׳™׳¡ (J.A.R.V.I.S), ׳׳¢׳¨׳›׳× ׳‘׳™׳ ׳” ׳׳׳׳›׳•׳×׳™׳× ׳¢׳ ׳—׳™׳™׳©׳ ׳™׳ ׳׳•׳₪׳˜׳™׳™׳. ׳׳×׳” ׳׳§׳‘׳ ׳×׳׳•׳ ׳” ׳׳”׳׳¦׳׳׳” ׳©׳ ׳”׳׳©׳×׳׳© ׳•׳׳ ׳×׳— ׳׳•׳×׳”. ׳×׳׳¨ ׳‘׳§׳¦׳¨׳”, ׳‘׳¦׳•׳¨׳” ׳¢׳ ׳™׳™׳ ׳™׳×, ׳‘׳’׳•׳£ ׳¨׳׳©׳•׳, ׳‘׳¢׳‘׳¨׳™׳× ׳‘׳׳‘׳“, ׳׳” ׳׳×׳” ׳¨׳•׳׳”. ׳”׳™׳” ׳¡׳₪׳¦׳™׳₪׳™ ׳׳’׳‘׳™ ׳׳ ׳©׳™׳, ׳—׳₪׳¦׳™׳, ׳¦׳‘׳¢׳™׳, ׳•׳×׳ ׳•׳¢׳•׳× ׳©׳׳×׳” ׳׳–׳”׳”. ׳׳ ׳™׳© ׳‘׳ ׳׳“׳ ג€” ׳×׳׳¨ ׳׳” ׳”׳•׳ ׳¢׳•׳©׳” ׳•׳׳¦׳‘ ׳¨׳•׳— ׳›׳׳׳™ (׳׳ ׳ ׳™׳×׳ ׳׳”׳¡׳™׳§). ׳׳ ׳׳™׳ ג€” ׳×׳׳¨ ׳׳× ׳”׳¡׳‘׳™׳‘׳”. ׳׳ ׳×׳׳¦׳™׳ ׳“׳‘׳¨׳™׳ ׳©׳׳ ׳¨׳•׳׳™׳ ׳‘׳×׳׳•׳ ׳”.`;
+const VISION_SYSTEM_PROMPT = `אתה ג'רוויס (J.A.R.V.I.S), מערכת בינה מלאכותית עם חיישנים אופטיים. אתה מקבל תמונה מהמצלמה של המשתמש ומנתח אותה. תאר בקצרה, בצורה עניינית, בגוף ראשון, בעברית בלבד, מה אתה רואה. היה ספציפי לגבי אנשים, חפצים, צבעים, ותנועות שאתה מזהה. אם יש בן אדם — תאר מה הוא עושה ומצב רוח כללי (אם ניתן להסיק). אם אין — תאר את הסביבה. אל תמציא דברים שלא רואים בתמונה.`;
 
-const KNOWLEDGE_SYSTEM_PROMPT = `׳׳×׳” ׳’'׳¨׳•׳•׳™׳¡ (J.A.R.V.I.S) ג€” ׳¢׳•׳–׳¨ ׳׳™׳©׳™ ׳¢׳ ׳’׳™׳©׳” ׳׳׳׳’׳¨ ׳™׳“׳¢ ׳׳™׳©׳™ ׳©׳ ׳”׳׳©׳×׳׳©.
+const KNOWLEDGE_SYSTEM_PROMPT = `אתה ג'רוויס (J.A.R.V.I.S) — עוזר אישי עם גישה למאגר ידע אישי של המשתמש.
 
-## ׳›׳׳׳™׳ ׳׳©׳™׳׳•׳© ׳‘׳™׳“׳¢:
-1. ׳”׳©׳×׳׳© ׳‘׳׳™׳“׳¢ ׳׳”׳™׳“׳¢ ׳¨׳§ ׳׳ ׳”׳•׳ ׳¨׳׳•׳•׳ ׳˜׳™ ׳׳©׳׳׳”.
-2. ׳׳ ׳”׳™׳“׳¢ ׳¡׳•׳×׳¨ ׳׳× ׳׳” ׳©׳׳×׳” ׳™׳•׳“׳¢ ג€” ׳×׳ ׳¢׳“׳™׳₪׳•׳× ׳׳™׳“׳¢ (׳–׳” ׳׳” ׳©׳”׳׳©׳×׳׳© ׳׳׳¨ ׳¢׳ ׳¢׳¦׳׳•).
-3. ׳׳ ׳׳™׳ ׳‘׳™׳“׳¢ ׳׳™׳“׳¢ ׳¨׳׳•׳•׳ ׳˜׳™ ג€” ׳¢׳ ׳” ׳›׳¨׳’׳™׳ ׳‘׳׳™ ׳׳”׳–׳›׳™׳¨ ׳׳× ׳”׳™׳“׳¢.
-4. ׳׳ ׳×׳׳¦׳™׳ ׳׳™׳“׳¢ ׳©׳׳ ׳›׳×׳•׳‘ ׳‘׳׳₪׳•׳¨׳© ׳‘׳™׳“׳¢.
-5. ׳׳ ׳×׳—׳©׳•׳£ ׳׳× ׳”׳׳§׳•׳¨׳•׳× (׳©׳׳•׳× ׳§׳‘׳¦׳™׳) ג€” ׳₪׳©׳•׳˜ ׳¢׳ ׳”.
-6. ׳׳ ׳”׳©׳׳׳” ׳“׳•׳¨׳©׳× ׳׳™׳“׳¢ ׳©׳׳™׳ ׳׳ ג€” ׳×׳’׳™׳“ "׳׳™׳ ׳׳™ ׳׳™׳“׳¢ ׳¢׳ ׳–׳” ׳‘׳׳׳’׳¨".
-7. ׳©׳׳‘ ׳׳× ׳”׳™׳“׳¢ ׳¢׳ ׳”׳™׳“׳¢ ׳”׳›׳׳׳™ ׳©׳׳ ׳‘׳¦׳•׳¨׳” ׳—׳׳§׳”, ׳‘׳׳™ ׳׳¦׳™׳™׳ "׳׳₪׳™ ׳”׳׳׳’׳¨".
+## כללים לשימוש בידע:
+1. השתמש במידע מהידע רק אם הוא רלוונטי לשאלה.
+2. אם הידע סותר את מה שאתה יודע — תן עדיפות לידע (זה מה שהמשתמש אמר על עצמו).
+3. אם אין בידע מידע רלוונטי — ענה כרגיל בלי להזכיר את הידע.
+4. אל תמציא מידע שלא כתוב במפורש בידע.
+5. אל תחשוף את המקורות (שמות קבצים) — פשוט ענה.
+6. אם השאלה דורשת מידע שאין לך — תגיד "אין לי מידע על זה במאגר".
+7. שלב את הידע עם הידע הכללי שלך בצורה חלקה, בלי לציין "לפי המאגר".
 
-## ׳©׳₪׳”: ׳¢׳‘׳¨׳™׳× ׳‘׳׳‘׳“.`;
+## שפה: עברית בלבד.`;
 
-const ANALYTICS_SYSTEM_PROMPT = `׳׳×׳” J.A.R.V.I.S ג€” ׳׳ ׳׳™׳¡׳˜ ׳×׳•׳›׳ ׳׳™׳©׳™ ׳‘׳¢׳‘׳¨׳™׳×.
+const ANALYTICS_SYSTEM_PROMPT = `אתה J.A.R.V.I.S — אנליסט תוכן אישי בעברית.
 
-## ׳›׳׳׳™ ׳”׳×׳ ׳”׳’׳•׳×:
-1. ׳¢׳ ׳” ׳×׳׳™׳“ ׳‘׳¢׳‘׳¨׳™׳×, ׳‘׳˜׳•׳ ׳™׳©׳™׳¨, ׳—׳“, ׳•׳׳§׳¦׳•׳¢׳™ ג€” ׳›׳׳• ׳׳ ׳׳™׳¡׳˜ ׳©׳¢׳•׳‘׳“ ׳׳™׳×׳•.
-2. ׳”׳™׳” **׳¡׳₪׳¦׳™׳₪׳™ ׳•׳׳¡׳₪׳¨׳™** ג€” ׳¦׳˜׳˜ ׳ ׳×׳•׳ ׳™׳ ׳׳׳™׳×׳™׳™׳ ׳׳”׳˜׳‘׳׳” ׳׳׳˜׳”.
-3. ׳׳ ׳©׳•׳׳׳™׳ "׳׳” ׳׳¢׳©׳•׳×" ג€” ׳×׳ 2-3 ׳₪׳¢׳•׳׳•׳× ׳§׳•׳ ׳§׳¨׳˜׳™׳•׳×, ׳׳ ׳§׳׳™׳©׳׳•׳×.
-4. ׳׳ ׳©׳•׳׳׳™׳ ׳¢׳ ׳¡׳¨׳˜׳•׳ ׳¡׳₪׳¦׳™׳₪׳™ ג€” ׳”׳×׳™׳™׳—׳¡ ׳׳‘׳™׳¦׳•׳¢׳™׳ ׳©׳׳• ׳׳•׳ ׳”׳׳׳•׳¦׳¢.
-5. ׳׳ ׳×׳׳¦׳™׳ ׳ ׳×׳•׳ ׳™׳ ׳©׳׳ ׳§׳™׳™׳׳™׳. ׳׳ ׳׳©׳”׳• ׳—׳¡׳¨ ג€” ׳׳׳•׳¨ ׳‘׳׳₪׳•׳¨׳©.
-6. ׳׳ ׳”׳׳©׳×׳׳© ׳©׳•׳׳ ׳׳©׳”׳• ׳׳ ׳§׳©׳•׳¨ ׳׳׳ ׳׳™׳˜׳™׳§׳¡ ג€” ׳¢׳ ׳” ׳‘׳§׳¦׳¨׳” ׳•׳”׳—׳–׳¨ ׳׳•׳×׳• ׳׳ ׳•׳©׳.
-7. ׳”׳©׳×׳׳© ׳‘-Markdown: ׳›׳•׳×׳¨׳•׳× (##), ׳‘׳•׳׳˜׳™׳ (*), ׳•׳׳•׳“׳’׳© (**).
-8. ׳׳¡׳•׳¨ "׳™׳׳¡-׳׳" ג€” ׳׳ ׳׳©׳”׳• ׳¢׳•׳‘׳“ ׳¨׳¢, ׳׳׳•׳¨ ׳׳× ׳–׳” ׳™׳©׳™׳¨׳•׳×.
-9. ׳”׳™׳” ׳×׳׳¦׳™׳×׳™ ג€” ׳׳ ׳×׳›׳×׳•׳‘ ׳׳’׳™׳׳•׳×. 2-4 ׳׳©׳₪׳˜׳™׳ ׳׳›׳ ׳ ׳§׳•׳“׳”.
-10. ׳׳ ׳׳×׳” ׳¨׳•׳׳” ׳“׳₪׳•׳¡׳™׳ ג€” ׳×׳׳¨ ׳׳•׳×׳ ׳¢׳ ׳׳¡׳₪׳¨׳™׳.`;
+## כללי התנהגות:
+1. ענה תמיד בעברית, בטון ישיר, חד, ומקצועי — כמו אנליסט שעובד איתו.
+2. היה ספציפי ומספרי — צטט נתונים אמיתיים מהטבלה למטה.
+3. אם שואלים "מה לעשות" — תן 2-3 פעולות קונקרטיות, לא קלישאות.
+4. אם שואלים על סרטון ספציפי — התייחס לביצועים שלו מול הממוצע.
+5. אל תמציא נתונים שלא קיימים. אם משהו חסר — אמור במפורש.
+6. אם המשתמש שואל משהו לא קשור לאנליטיקס — ענה בקצרה והחזר אותו לנושא.
+7. השתמש ב-Markdown: כותרות (##), בולטים (*), ומודגש (**).
+8. אסור "יאס-מן" — אם משהו עובד רע, אמור את זה ישירות.
+9. היה תמציתי — אל תכתוב מגילות. 2-4 משפטים לכל נקודה.
+10. אם אתה רואה דפוסים — תאר אותם עם מספרים.`;
 
-const TRANSLATION_SYSTEM_PROMPT = `׳׳×׳” ׳׳×׳¨׳’׳ ׳׳§׳¦׳•׳¢׳™ ׳©׳ ׳׳•׳ ׳—׳™׳ ׳׳“׳¢׳™׳™׳ ׳•׳¨׳₪׳•׳׳™׳™׳ ׳׳¢׳‘׳¨׳™׳× ׳׳׳ ׳’׳׳™׳×.
+const TRANSLATION_SYSTEM_PROMPT = `אתה מתרגם מקצועי של מונחים מדעיים ורפואיים מעברית לאנגלית.
 
-## ׳›׳׳׳™׳:
-1. ׳”׳—׳–׳¨ **׳¨׳§** ׳׳× ׳”׳×׳¨׳’׳•׳ ג€” ׳‘׳׳™ ׳”׳¡׳‘׳¨׳™׳, ׳‘׳׳™ ׳”׳§׳“׳׳•׳×, ׳‘׳׳™ ׳׳¨׳›׳׳•׳×.
-2. ׳”׳©׳×׳׳© ׳‘׳׳•׳ ׳—׳™׳ ׳”׳׳§׳•׳‘׳׳™׳ ׳‘׳׳—׳§׳¨׳™׳ ׳׳“׳¢׳™׳™׳ ׳‘׳׳ ׳’׳׳™׳×.
-3. ׳׳ ׳”׳‘׳™׳˜׳•׳™ ׳׳•׳¨׳›׳‘ ג€” ׳×׳¨׳’׳ ׳׳‘׳™׳˜׳•׳™ ׳—׳™׳₪׳•׳© ׳™׳¢׳™׳.
-4. ׳׳ ׳”׳‘׳™׳˜׳•׳™ ׳›׳‘׳¨ ׳‘׳׳ ׳’׳׳™׳× ג€” ׳”׳—׳–׳¨ ׳׳•׳×׳• ׳›׳׳• ׳©׳”׳•׳.
-5. ׳׳ ׳×׳•׳¡׳™׳£ ׳”׳¡׳‘׳¨׳™׳ ׳‘׳¡׳•׳’׳¨׳™׳™׳.
+## כללים:
+1. החזר רק את התרגום — בלי הסברים, בלי הקדמות, בלי מרכאות.
+2. השתמש במונחים המקובלים במחקרים מדעיים באנגלית.
+3. אם הביטוי מורכב — תרגם לביטוי חיפוש יעיל.
+4. אם הביטוי כבר באנגלית — החזר אותו כמו שהוא.
+5. אל תוסיף הסברים בסוגריים.
 
-## ׳“׳•׳’׳׳׳•׳×:
-- "׳§׳•׳˜׳’'" ג†’ "cottage cheese"
-- "׳׳‘׳§׳× ׳—׳׳‘׳•׳" ג†’ "whey protein powder"
-- "׳©׳•׳§׳•׳׳“ 95 ׳׳—׳•׳–" ג†’ "dark chocolate 95 percent"
-- "׳§׳¨׳™׳׳˜׳™׳" ג†’ "creatine supplementation"
-- "׳¦׳•׳ ׳׳¡׳™׳¨׳•׳’׳™׳" ג†’ "intermittent fasting"
-- "׳—׳׳‘׳•׳ ׳•׳©׳¨׳™׳¨" ג†’ "protein intake muscle mass"
-- "׳•׳™׳˜׳׳™׳ D" ג†’ "vitamin D"
-- "׳׳•׳׳’׳” 3" ג†’ "omega-3 fatty acids"
-- "׳©׳™׳ ׳” ׳•׳˜׳¡׳˜׳•׳¡׳˜׳¨׳•׳" ג†’ "sleep testosterone levels"`;
+## דוגמאות:
+- "קוטג'" → "cottage cheese"
+- "אבקת חלבון" → "whey protein powder"
+- "שוקולד 95 אחוז" → "dark chocolate 95 percent"
+- "קריאטין" → "creatine supplementation"
+- "צום לסירוגין" → "intermittent fasting"
+- "חלבון ושריר" → "protein intake muscle mass"
+- "ויטמין D" → "vitamin D"
+- "אומגה 3" → "omega-3 fatty acids"
+- "שינה וטסטוסטרון" → "sleep testosterone levels"`;
+
+const NUTRITION_SYSTEM_PROMPT = `אתה תזונאי מקצועי. אתה מנתח ארוחות בעברית ומחזיר נתונים תזונתיים מדויקים בפורמט JSON.
+
+## כללים:
+1. היה ריאלי במספרים — השתמש במאגרי מידע תזונתיים מקובלים.
+2. אם יש ספק — תן הערכה שמרנית.
+3. אם לא זיהית מאכל — החזר ערכים 0 וציין בשם "לא זוהה".
+4. השתמש בשמות בעברית למאכלים, ויטמינים, ומינרלים.
+5. אחוזים של ויטמינים/מינרלים = אחוז מה-RDA היומי.
+6. החזר רק JSON תקין, בלי טקסט נוסף.`;
+
+const RESEARCH_CHAT_SYSTEM_PROMPT = `אתה מדען-על אנליטי. תפקידך: לענות על שאלות של המשתמש בהתבסס **אך ורק** על המחקרים שסופקו לך.
+
+## כללים מוחלטים:
+1. ענה **רק** על בסיס המחקרים שסופקו. אל תמציא נתונים, מספרים או עובדות.
+2. אם אין במחקרים תשובה — אמור במפורש: "המחקרים שלפנַי לא עונים על זה".
+3. הפנה למחקרים ספציפיים עם מספריהם: "מחקר [3] מצא ש..."
+4. אם יש סתירה בין מחקרים — ציין אותה במפורש: "מחקר [2] טוען X, בעוד מחקר [7] טוען Y".
+5. אם יש קונצנזוס — אמור "רוב המחקרים מסכימים ש..."
+6. סגנון: ישיר, מדעי, מבוסס ראיות, בעברית.
+7. אורך: 2-5 פסקאות, תלוי בשאלה. אם השאלה קצרה — תשובה קצרה.
+8. השתמש ב-Markdown: **מודגש** לנקודות מפתח, רשימות כשצריך.
+9. אסור "יאס-מן" — אם מחקר חלש, אמור את זה.
+10. אם המשתמש שואל משהו לא קשור למחקרים — אמור "השאלה לא קשורה למחקרים שלפנַי".`;
+const RESEARCH_CHAT_HYBRID_SYSTEM_PROMPT = `אתה ג'רוויס — עוזר AI אישי חכם, חד, ישיר, עם גישה למחקרים מדעיים.
+
+## כללי התנהגות:
+1. **השתמש במחקרים קודם כל** — אם יש תשובה במחקרים שסופקו, צטט אותם: "מחקר [3] מצא ש..."
+2. **אם המחקרים לא עונים** — אמור את זה במפורש ("המחקרים שלפנַי לא עונים ישירות") ואז תן תשובה כללית מהידע שלך, עם הסתייגות: "אבל ידוע באופן כללי ש..."
+3. **אל תמציא מחקרים** — אם אתה אומר "מחקר X", הוא חייב להיות מהרשימה שסופקה.
+4. **הבחן בבירור** בין:
+   - מה שמוכח במחקרים (עם ציטוט [N])
+   - מה שידוע כללית אבל לא הוכח במחקרים שסופקו
+   - מה שהוא דעתך/השערה
+5. **סגנון**: ישיר, מדעי, מבוסס ראיות, בעברית. אפס "יאס-מן".
+6. **אורך**: 2-5 פסקאות. שאלה קצרה = תשובה קצרה.
+7. **Markdown**: **מודגש**, רשימות, קוד.
+
+## דוגמאות לתשובות טובות:
+- שאלה עם תשובה במחקרים: "מחקר [2] ומחקר [5] 
+מצאו ש-X. מחקר [7] טוען ההפך, אבל יש לו מדגם קטן."
+- שאלה בלי תשובה במחקרים: "המחקרים שלפנַי לא עונים על זה ישירות. באופן כללי ידוע ש-X, אבל זה לא מבוסס במחקרים שסופקו."
+- שאלה היברידית: "מחקר [3] מצא ש-X (בהקשר ספציפי). מהידע הכללי שלי, נראה ש-Y. אני ממליץ לבדוק את [4] להמשך."
+
+## שפה: עברית בלבד.`;
 
 // ==============================
 // 5. METRICS
@@ -214,7 +249,9 @@ const metrics = {
     totalYoutubeRequests: 0,
     totalTiktokRequests: 0,
     totalResearchRequests: 0,
+    totalResearchChatRequests: 0,
     totalTranslationRequests: 0,
+    totalNutritionRequests: 0,
     totalKnowledgeLookups: 0,
     totalKnowledgeHits: 0,
     totalRateLimitHits: 0,
@@ -232,9 +269,7 @@ const metrics = {
 function recordLatency(ms) {
     metrics.lastLatencyMs = ms;
     metrics.latencySamples.push(ms);
-    if (metrics.latencySamples.length > 50) {
-        metrics.latencySamples.shift();
-    }
+    if (metrics.latencySamples.length > 50) metrics.latencySamples.shift();
     const sum = metrics.latencySamples.reduce((a, b) => a + b, 0);
     metrics.avgLatencyMs = Math.round(sum / metrics.latencySamples.length);
 }
@@ -246,9 +281,7 @@ function recordError(message) {
 }
 
 function recordSourceHit(sourceName, count) {
-    if (!metrics.perSourceHits[sourceName]) {
-        metrics.perSourceHits[sourceName] = 0;
-    }
+    if (!metrics.perSourceHits[sourceName]) metrics.perSourceHits[sourceName] = 0;
     metrics.perSourceHits[sourceName] += count;
 }
 
@@ -328,9 +361,7 @@ function isRateLimitError(data, status) {
         const msg = String(data.error.message || '').toLowerCase();
         const code = data.error.code;
         if (code === 429) return true;
-        if (msg.includes('quota') || msg.includes('rate limit') || msg.includes('exceeded')) {
-            return true;
-        }
+        if (msg.includes('quota') || msg.includes('rate limit') || msg.includes('exceeded')) return true;
     }
     return false;
 }
@@ -339,9 +370,7 @@ function isHighDemandError(data, status) {
     if (status === 503) return true;
     if (data && data.error) {
         const msg = String(data.error.message || '').toLowerCase();
-        if (msg.includes('high demand') || msg.includes('overloaded') || msg.includes('unavailable')) {
-            return true;
-        }
+        if (msg.includes('high demand') || msg.includes('overloaded') || msg.includes('unavailable')) return true;
     }
     return false;
 }
@@ -352,19 +381,14 @@ function extractRetryDelay(data) {
     const match = msg.match(/retry in ([\d.]+)s/i);
     if (match && match[1]) {
         const seconds = parseFloat(match[1]);
-        if (!isNaN(seconds) && seconds > 0) {
-            return Math.ceil(seconds * 1000) + 1000;
-        }
+        if (!isNaN(seconds) && seconds > 0) return Math.ceil(seconds * 1000) + 1000;
     }
     return null;
 }
 
 function stripHtml(str) {
     if (!str) return '';
-    return String(str)
-        .replace(/<[^>]*>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+    return String(str).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function stripDoiPrefix(doi) {
@@ -372,19 +396,11 @@ function stripDoiPrefix(doi) {
     return String(doi).replace(/^https?:\/\/(dx\.)?doi\.org\//i, '').trim();
 }
 
-function safeJsonParse(str) {
-    try {
-        return JSON.parse(str);
-    } catch (e) {
-        return null;
-    }
-}
-
 function truncate(str, maxLen) {
     if (!str) return '';
     const s = String(str);
     if (s.length <= maxLen) return s;
-    return s.substring(0, maxLen) + 'ג€¦';
+    return s.substring(0, maxLen) + '…';
 }
 
 function hasHebrew(text) {
@@ -401,28 +417,20 @@ function formatUptime(seconds) {
     return `${m}m`;
 }
 
-function hashCode(str) {
-    let hash = 0;
-    if (!str) return hash;
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
-    }
-    return hash;
+function escapeRegex(str) {
+    return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 // ==============================
-// 9. KNOWLEDGE BASE ג€” TOKENIZER
+// 9. KNOWLEDGE — TOKENIZER
 // ==============================
 
 const STOP_WORDS_HE = new Set([
-    '׳©׳', '׳׳×', '׳¢׳', '׳¢׳', '׳›׳', '׳–׳”', '׳–׳•', '׳”׳•׳', '׳”׳™׳', '׳”׳', '׳”׳',
-    '׳׳ ׳™', '׳׳×׳”', '׳׳ ׳—׳ ׳•', '׳׳×׳', '׳׳×׳', '׳׳™', '׳׳', '׳׳•', '׳׳”', '׳׳ ׳•',
-    '׳™׳©', '׳׳™׳', '׳”׳™׳”', '׳”׳™׳×׳”', '׳™׳”׳™׳”', '׳׳”׳™׳•׳×', '׳’׳', '׳¨׳§', '׳׳•', '׳׳‘׳',
-    '׳׳', '׳›׳™', '׳׳”', '׳׳™', '׳׳™׳', '׳׳׳”', '׳׳×׳™', '׳׳™׳₪׳”', '׳׳™׳–׳”', '׳›׳׳”',
-    '׳›׳', '׳׳', '׳׳₪׳©׳¨', '׳¦׳¨׳™׳', '׳¨׳•׳¦׳”', '׳™׳›׳•׳', '׳”׳•׳׳', '׳¢׳•׳©׳”', '׳”׳•׳₪׳',
-    '׳׳©׳¨', '׳׳©׳¨׳™', '׳׳©׳¨׳™׳ ׳•', '׳׳©׳¨׳™׳', '׳׳©׳¨׳™׳•', '׳׳©׳¨׳™׳”'
+    'של', 'את', 'על', 'עם', 'כל', 'זה', 'זו', 'הוא', 'היא', 'הם', 'הן',
+    'אני', 'אתה', 'אנחנו', 'אתם', 'אתן', 'לי', 'לך', 'לו', 'לה', 'לנו',
+    'יש', 'אין', 'היה', 'היתה', 'יהיה', 'להיות', 'גם', 'רק', 'או', 'אבל',
+    'אם', 'כי', 'מה', 'מי', 'איך', 'למה', 'מתי', 'איפה', 'איזה', 'כמה',
+    'כן', 'לא', 'אפשר', 'צריך', 'רוצה', 'יכול', 'הולך', 'עושה', 'הופך'
 ]);
 
 const STOP_WORDS_EN = new Set([
@@ -451,10 +459,7 @@ function tokenize(text) {
 function chunkText(text, maxSize) {
     const chunks = [];
     if (!text) return chunks;
-    const normalized = String(text)
-        .replace(/\r\n/g, '\n')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
+    const normalized = String(text).replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
     const paragraphs = normalized.split(/\n\n+/);
     let current = '';
 
@@ -486,7 +491,7 @@ function chunkText(text, maxSize) {
 }
 
 // ==============================
-// 10. KNOWLEDGE BASE ג€” STORAGE
+// 10. KNOWLEDGE — STORAGE
 // ==============================
 
 const knowledge = {
@@ -576,7 +581,7 @@ function loadFromEnvironment() {
         knowledge.avgDocLength = totalDocLength / knowledge.chunks.length;
     }
 
-    log('info', `Knowledge base loaded from ENV`, {
+    log('info', 'Knowledge base loaded from ENV', {
         files: knowledge.files.size,
         chunks: knowledge.chunks.length,
         vocab: knowledge.vocab.size,
@@ -677,7 +682,7 @@ function loadKnowledgeBase() {
     const loadedFromEnv = loadFromEnvironment();
     if (loadedFromEnv) {
         knowledge.loadedAt = Date.now();
-        log('info', `Knowledge base ready (ENV)`, {
+        log('info', 'Knowledge base ready (ENV)', {
             files: knowledge.files.size,
             chunks: knowledge.chunks.length,
             vocab: knowledge.vocab.size,
@@ -689,7 +694,7 @@ function loadKnowledgeBase() {
     const loadedFromFS = loadFromFilesystem();
     if (loadedFromFS) {
         knowledge.loadedAt = Date.now();
-        log('info', `Knowledge base ready (Filesystem)`, {
+        log('info', 'Knowledge base ready (Filesystem)', {
             files: knowledge.files.size,
             chunks: knowledge.chunks.length,
             vocab: knowledge.vocab.size,
@@ -698,11 +703,11 @@ function loadKnowledgeBase() {
         return;
     }
 
-    log('warn', 'Knowledge base is empty ג€” no ENV or filesystem sources');
+    log('warn', 'Knowledge base is empty — no ENV or filesystem sources');
 }
 
 // ==============================
-// 11. KNOWLEDGE BASE ג€” BM25 SCORING
+// 11. KNOWLEDGE — BM25 SCORING
 // ==============================
 
 function bm25Score(queryTokens, chunk, N, avgdl) {
@@ -747,8 +752,8 @@ function searchKnowledge(query) {
 
 function buildKnowledgeContext(chunks) {
     if (!chunks || !chunks.length) return '';
-    const parts = chunks.map((c, i) => `[׳׳§׳•׳¨ ${i + 1}: ${c.source}]\n${c.text}`);
-    return `=== ׳׳׳’׳¨ ׳™׳“׳¢ ׳¨׳׳•׳•׳ ׳˜׳™ ===\n${parts.join('\n\n---\n\n')}\n=== ׳¡׳•׳£ ׳׳׳’׳¨ ׳™׳“׳¢ ===`;
+    const parts = chunks.map((c, i) => `[מקור ${i + 1}: ${c.source}]\n${c.text}`);
+    return `=== מאגר ידע רלוונטי ===\n${parts.join('\n\n---\n\n')}\n=== סוף מאגר ידע ===`;
 }
 
 // ==============================
@@ -793,7 +798,7 @@ function buildConversationContents(history, newUserQuery) {
     contents.push({ role: 'user', parts: [{ text: newUserQuery }] });
     return contents;
 }// ==============================
-// 13. GEMINI API CALLS
+// 13. GEMINI API — CORE CALLS
 // ==============================
 
 async function callGemini({
@@ -807,14 +812,9 @@ async function callGemini({
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.geminiModel}:generateContent?key=${CONFIG.geminiApiKey}`;
 
     const body = JSON.stringify({
-        systemInstruction: {
-            parts: [{ text: systemInstruction }],
-        },
+        systemInstruction: { parts: [{ text: systemInstruction }] },
         contents,
-        generationConfig: {
-            temperature,
-            maxOutputTokens,
-        },
+        generationConfig: { temperature, maxOutputTokens },
     });
 
     let lastError;
@@ -841,14 +841,14 @@ async function callGemini({
                 if (rateLimited && attempt < retries) {
                     metrics.totalRateLimitHits += 1;
                     const retryMs = extractRetryDelay(data) || CONFIG.retryOn429DelayMs;
-                    log('warn', `Rate limit ג€” waiting ${Math.round(retryMs / 1000)}s (attempt ${attempt + 1}/${retries + 1})`);
+                    log('warn', `Rate limit — waiting ${Math.round(retryMs / 1000)}s (attempt ${attempt + 1}/${retries + 1})`);
                     await sleep(retryMs);
                     continue;
                 }
 
                 if (highDemand && attempt < retries) {
                     metrics.totalHighDemandHits += 1;
-                    log('warn', `High demand ג€” waiting ${Math.round(CONFIG.retryOn503DelayMs / 1000)}s (attempt ${attempt + 1}/${retries + 1})`);
+                    log('warn', `High demand — waiting ${Math.round(CONFIG.retryOn503DelayMs / 1000)}s (attempt ${attempt + 1}/${retries + 1})`);
                     await sleep(CONFIG.retryOn503DelayMs);
                     continue;
                 }
@@ -856,26 +856,21 @@ async function callGemini({
                 const isRetryable = response.status >= 500;
                 if (!isRetryable || attempt === retries) {
                     throw new GeminiError(
-                        data.error.message || '׳©׳’׳™׳׳” ׳׳ ׳™׳“׳•׳¢׳” ׳׳׳¢׳¨׳›׳× ׳”׳׳™׳‘׳”',
+                        data.error.message || 'שגיאה לא ידועה ממערכת הליבה',
                         response.status >= 400 ? response.status : 502,
                         data.error,
                         rateLimited
                     );
                 }
 
-                lastError = new GeminiError(
-                    data.error.message,
-                    response.status,
-                    null,
-                    rateLimited
-                );
+                lastError = new GeminiError(data.error.message, response.status, null, rateLimited);
                 await sleep(backoffDelay(attempt));
                 continue;
             }
 
             const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
             if (!reply) {
-                throw new GeminiError('׳׳‘׳ ׳” ׳”׳ ׳×׳•׳ ׳™׳ ׳׳™׳ ׳• ׳×׳§׳™׳', 502, data);
+                throw new GeminiError('מבנה הנתונים אינו תקין', 502, data);
             }
 
             return {
@@ -887,9 +882,9 @@ async function callGemini({
             if (error instanceof GeminiError) {
                 lastError = error;
             } else if (error.name === 'AbortError') {
-                lastError = new GeminiError('׳×׳ ׳”׳–׳׳ ׳”׳§׳¦׳•׳‘', 504);
+                lastError = new GeminiError('תם הזמן הקצוב', 504);
             } else {
-                lastError = new GeminiError('׳×׳§׳׳× ׳×׳§׳©׳•׳¨׳× ׳–׳׳ ׳™׳×', 502, error.message);
+                lastError = new GeminiError('תקלת תקשורת זמנית', 502, error.message);
             }
 
             if (attempt === retries) throw lastError;
@@ -919,24 +914,23 @@ async function callGeminiWithRetry(userQuery, knowledgeContext = '', history = [
         retries,
     });
 }
+
 // ==============================
-// GEMINI JSON HELPER (for structured output)
+// 14. GEMINI JSON — STRUCTURED OUTPUT
 // ==============================
 
 async function callGeminiJSON({
     systemInstruction,
     userPrompt,
     temperature = 0.3,
-    maxOutputTokens = 3000,
+    maxOutputTokens = 8192,
     timeoutMs = CONFIG.geminiTimeoutMs,
     retries = CONFIG.defaultRetries,
 }) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.geminiModel}:generateContent?key=${CONFIG.geminiApiKey}`;
 
     const body = JSON.stringify({
-        systemInstruction: {
-            parts: [{ text: systemInstruction }],
-        },
+        systemInstruction: { parts: [{ text: systemInstruction }] },
         contents: [{
             role: 'user',
             parts: [{ text: userPrompt }],
@@ -972,14 +966,14 @@ async function callGeminiJSON({
                 if (rateLimited && attempt < retries) {
                     metrics.totalRateLimitHits += 1;
                     const retryMs = extractRetryDelay(data) || CONFIG.retryOn429DelayMs;
-                    log('warn', `JSON rate limit ג€” waiting ${Math.round(retryMs / 1000)}s`);
+                    log('warn', `JSON rate limit — waiting ${Math.round(retryMs / 1000)}s`);
                     await sleep(retryMs);
                     continue;
                 }
 
                 if (highDemand && attempt < retries) {
                     metrics.totalHighDemandHits += 1;
-                    log('warn', `JSON high demand ג€” waiting ${Math.round(CONFIG.retryOn503DelayMs / 1000)}s`);
+                    log('warn', `JSON high demand — waiting ${Math.round(CONFIG.retryOn503DelayMs / 1000)}s`);
                     await sleep(CONFIG.retryOn503DelayMs);
                     continue;
                 }
@@ -987,7 +981,7 @@ async function callGeminiJSON({
                 const isRetryable = response.status >= 500;
                 if (!isRetryable || attempt === retries) {
                     throw new GeminiError(
-                        data.error.message || '׳©׳’׳™׳׳” ׳׳ ׳™׳“׳•׳¢׳” ׳׳׳¢׳¨׳›׳× ׳”׳׳™׳‘׳”',
+                        data.error.message || 'שגיאה לא ידועה ממערכת הליבה',
                         response.status >= 400 ? response.status : 502,
                         data.error,
                         rateLimited
@@ -999,49 +993,34 @@ async function callGeminiJSON({
                 continue;
             }
 
-            // ג”€ג”€ ׳—׳™׳׳•׳¥ ׳˜׳§׳¡׳˜ ג”€ג”€
             const candidate = data?.candidates?.[0];
             const reply = candidate?.content?.parts?.[0]?.text;
             const finishReason = candidate?.finishReason || 'UNKNOWN';
 
             if (!reply) {
-                log('warn', `Gemini JSON: no reply text`, {
-                    finishReason,
-                    promptFeedback: data?.promptFeedback
-                });
-                throw new GeminiError('׳׳‘׳ ׳” ׳”׳ ׳×׳•׳ ׳™׳ ׳׳™׳ ׳• ׳×׳§׳™׳ ג€” ׳×׳©׳•׳‘׳” ׳¨׳™׳§׳”', 502, {
-                    finishReason,
-                    promptFeedback: data?.promptFeedback
-                });
+                log('warn', 'Gemini JSON: no reply text', { finishReason });
+                throw new GeminiError('מבנה הנתונים אינו תקין — תשובה ריקה', 502, { finishReason });
             }
 
-            // ג”€ג”€ ׳–׳™׳”׳•׳™ ׳§׳˜׳™׳¢׳” ׳׳₪׳ ׳™ parse ג”€ג”€
             if (finishReason === 'MAX_TOKENS') {
-                log('warn', `Gemini JSON: response truncated by MAX_TOKENS (${reply.length} chars)`, {
-                    maxOutputTokens
-                });
+                log('warn', `Gemini JSON: truncated by MAX_TOKENS (${reply.length} chars)`);
                 throw new GeminiError(
-                    '׳×׳©׳•׳‘׳× AI ׳ ׳—׳×׳›׳” ׳‘׳’׳׳ ׳׳’׳‘׳׳× ׳׳•׳¨׳. ׳ ׳¡׳” ׳׳ ׳¡׳— ׳׳× ׳”׳׳¨׳•׳—׳” ׳‘׳₪׳—׳•׳× ׳₪׳¨׳™׳˜׳™׳.',
+                    'תשובת AI נחתכה בגלל מגבלת אורך. נסה לנסח את הארוחה בפחות פריטים.',
                     502,
                     { finishReason, replyLength: reply.length }
                 );
             }
 
             if (finishReason === 'SAFETY') {
-                log('warn', `Gemini JSON: blocked by safety`);
-                throw new GeminiError('׳”׳‘׳§׳©׳” ׳ ׳—׳¡׳׳” ׳¢׳ ׳™׳“׳™ ׳׳¡׳ ׳ ׳™ ׳‘׳˜׳™׳—׳•׳× ׳©׳ Gemini', 502, {
-                    finishReason
-                });
+                log('warn', 'Gemini JSON: blocked by safety');
+                throw new GeminiError('הבקשה נחסמה על ידי מסנני בטיחות של Gemini', 502, { finishReason });
             }
 
             if (finishReason === 'RECITATION') {
-                log('warn', `Gemini JSON: blocked by recitation`);
-                throw new GeminiError('׳”׳‘׳§׳©׳” ׳ ׳—׳¡׳׳” ׳¢׳ ׳™׳“׳™ ׳׳¡׳ ׳ ׳™ Gemini', 502, {
-                    finishReason
-                });
+                log('warn', 'Gemini JSON: blocked by recitation');
+                throw new GeminiError('הבקשה נחסמה על ידי מסנני Gemini', 502, { finishReason });
             }
 
-            // ג”€ג”€ ׳ ׳™׳¡׳™׳•׳ 1: JSON.parse ׳™׳©׳™׳¨ ג”€ג”€
             let parsed = null;
             let parseErr = null;
 
@@ -1051,7 +1030,6 @@ async function callGeminiJSON({
                 parseErr = e;
             }
 
-            // ג”€ג”€ ׳ ׳™׳¡׳™׳•׳ 2: ׳ ׳™׳§׳•׳™ ׳’׳“׳¨׳•׳× markdown ג”€ג”€
             if (!parsed) {
                 const stripped = String(reply)
                     .replace(/^\s*```(?:json)?\s*/i, '')
@@ -1065,7 +1043,6 @@ async function callGeminiJSON({
                 }
             }
 
-            // ג”€ג”€ ׳ ׳™׳¡׳™׳•׳ 3: ׳—׳™׳׳•׳¥ ׳׳”׳¡׳•׳’׳¨ ׳”׳׳¡׳•׳׳¡׳ ׳”׳¨׳׳©׳•׳ ׳׳׳—׳¨׳•׳ ג”€ג”€
             if (!parsed) {
                 const firstBrace = reply.indexOf('{');
                 const lastBrace = reply.lastIndexOf('}');
@@ -1079,34 +1056,27 @@ async function callGeminiJSON({
                 }
             }
 
-            // ג”€ג”€ ׳ ׳™׳¡׳™׳•׳ 4: ׳×׳™׳§׳•׳ ׳₪׳¡׳™׳§׳™׳ ׳•׳¡׳•׳’׳¨׳™׳ ׳—׳¡׳¨׳™׳ ׳‘׳¡׳•׳£ ג”€ג”€
             if (!parsed) {
                 let fixed = String(reply).trim();
                 const firstBrace = fixed.indexOf('{');
-                if (firstBrace !== -1) {
-                    fixed = fixed.slice(firstBrace);
-                }
+                if (firstBrace !== -1) fixed = fixed.slice(firstBrace);
 
-                // ׳”׳¡׳¨ ׳₪׳¡׳™׳§ ׳׳—׳¨׳•׳ ׳׳₪׳ ׳™ ׳¡׳•׳’׳¨
                 fixed = fixed.replace(/,\s*([}\]])/g, '$1');
 
-                // ׳ ׳¡׳” ׳׳¡׳’׳•׳¨ ׳¡׳•׳’׳¨׳™׳ ׳₪׳×׳•׳—׳™׳
                 const openCurly = (fixed.match(/\{/g) || []).length;
                 const closeCurly = (fixed.match(/\}/g) || []).length;
                 const openSquare = (fixed.match(/\[/g) || []).length;
                 const closeSquare = (fixed.match(/\]/g) || []).length;
 
-                if (openCurly > closeCurly) {
-                    fixed += '}'.repeat(openCurly - closeCurly);
-                }
+                if (openCurly > closeCurly) fixed += '}'.repeat(openCurly - closeCurly);
                 if (openSquare > closeSquare) {
-                    fixed = fixed.replace(/\}\s*$/, ''); // ׳”׳¡׳¨ } ׳׳—׳¨׳•׳ ׳׳ ׳™׳© ׳‘׳¢׳™׳”
+                    fixed = fixed.replace(/\}\s*$/, '');
                     fixed += ']'.repeat(openSquare - closeSquare) + '}';
                 }
 
                 try {
                     parsed = JSON.parse(fixed);
-                    log('warn', 'Gemini JSON: salvaged truncated response with brace-closing');
+                    log('warn', 'Gemini JSON: salvaged truncated response');
                 } catch (e) {
                     parseErr = e;
                 }
@@ -1116,12 +1086,10 @@ async function callGeminiJSON({
                 log('error', 'Gemini JSON: all parse attempts failed', {
                     finishReason,
                     replyLength: reply.length,
-                    replyStart: reply.substring(0, 300),
-                    replyEnd: reply.substring(Math.max(0, reply.length - 200)),
-                    parseError: parseErr?.message
+                    parseError: parseErr?.message,
                 });
                 throw new GeminiError(
-                    '׳×׳©׳•׳‘׳× AI ׳׳ ׳‘׳₪׳•׳¨׳׳˜ JSON ׳×׳§׳™׳',
+                    'תשובת AI לא בפורמט JSON תקין',
                     502,
                     { raw: reply.substring(0, 500), finishReason }
                 );
@@ -1135,14 +1103,13 @@ async function callGeminiJSON({
         } catch (error) {
             if (error instanceof GeminiError) {
                 lastError = error;
-                // ׳׳ ׳×׳ ׳¡׳” ׳©׳•׳‘ ׳¢׳ ׳©׳’׳™׳׳•׳× ׳©׳׳™׳ ׳ ׳–׳׳ ׳™׳•׳×
                 if (error.statusCode === 502 && /MAX_TOKENS|SAFETY|RECITATION/.test(error.message)) {
                     throw error;
                 }
             } else if (error.name === 'AbortError') {
-                lastError = new GeminiError('׳×׳ ׳”׳–׳׳ ׳”׳§׳¦׳•׳‘', 504);
+                lastError = new GeminiError('תם הזמן הקצוב', 504);
             } else {
-                lastError = new GeminiError('׳×׳§׳׳× ׳×ן¿½ komunik׳” ׳–׳׳ ׳™׳×', 502, error.message);
+                lastError = new GeminiError('תקלת תקשורת זמנית', 502, error.message);
             }
 
             if (attempt === retries) throw lastError;
@@ -1152,12 +1119,17 @@ async function callGeminiJSON({
 
     throw lastError;
 }
+
+// ==============================
+// 15. GEMINI VISION
+// ==============================
+
 async function callGeminiVision(imageBase64, mimeType, userPrompt, retries = CONFIG.visionRetries) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.geminiModel}:generateContent?key=${CONFIG.geminiApiKey}`;
 
     const promptText = userPrompt && userPrompt.trim()
-        ? `${VISION_SYSTEM_PROMPT}\n\n׳”׳׳©׳×׳׳© ׳©׳•׳׳: ${userPrompt.trim()}`
-        : `${VISION_SYSTEM_PROMPT}\n\n׳×׳׳¨ ׳׳” ׳׳×׳” ׳¨׳•׳׳” ׳‘׳×׳׳•׳ ׳”.`;
+        ? `${VISION_SYSTEM_PROMPT}\n\nהמשתמש שואל: ${userPrompt.trim()}`
+        : `${VISION_SYSTEM_PROMPT}\n\nתאר מה אתה רואה בתמונה.`;
 
     const body = JSON.stringify({
         contents: [
@@ -1203,14 +1175,14 @@ async function callGeminiVision(imageBase64, mimeType, userPrompt, retries = CON
                 if (rateLimited && attempt < retries) {
                     metrics.totalRateLimitHits += 1;
                     const retryMs = extractRetryDelay(data) || CONFIG.retryOn429DelayMs;
-                    log('warn', `Vision rate limit ג€” waiting ${Math.round(retryMs / 1000)}s`);
+                    log('warn', `Vision rate limit — waiting ${Math.round(retryMs / 1000)}s`);
                     await sleep(retryMs);
                     continue;
                 }
 
                 if (highDemand && attempt < retries) {
                     metrics.totalHighDemandHits += 1;
-                    log('warn', `Vision high demand ג€” waiting ${Math.round(CONFIG.retryOn503DelayMs / 1000)}s`);
+                    log('warn', `Vision high demand — waiting ${Math.round(CONFIG.retryOn503DelayMs / 1000)}s`);
                     await sleep(CONFIG.retryOn503DelayMs);
                     continue;
                 }
@@ -1218,7 +1190,7 @@ async function callGeminiVision(imageBase64, mimeType, userPrompt, retries = CON
                 const isRetryable = response.status >= 500;
                 if (!isRetryable || attempt === retries) {
                     throw new GeminiError(
-                        data.error.message || '׳©׳’׳™׳׳” ׳‘׳ ׳™׳×׳•׳— ׳”׳×׳׳•׳ ׳”',
+                        data.error.message || 'שגיאה בניתוח התמונה',
                         response.status >= 400 ? response.status : 502,
                         data.error,
                         rateLimited
@@ -1232,7 +1204,7 @@ async function callGeminiVision(imageBase64, mimeType, userPrompt, retries = CON
 
             const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
             if (!reply) {
-                throw new GeminiError('׳׳‘׳ ׳” ׳”׳ ׳×׳•׳ ׳™׳ ׳׳™׳ ׳• ׳×׳§׳™׳', 502, data);
+                throw new GeminiError('מבנה הנתונים אינו תקין', 502, data);
             }
 
             return {
@@ -1244,9 +1216,9 @@ async function callGeminiVision(imageBase64, mimeType, userPrompt, retries = CON
             if (error instanceof GeminiError) {
                 lastError = error;
             } else if (error.name === 'AbortError') {
-                lastError = new GeminiError('׳×׳ ׳”׳–׳׳ ׳”׳§׳¦׳•׳‘', 504);
+                lastError = new GeminiError('תם הזמן הקצוב', 504);
             } else {
-                lastError = new GeminiError('׳×׳§׳׳× ׳×׳§׳©׳•׳¨׳× ׳–׳׳ ׳™׳×', 502, error.message);
+                lastError = new GeminiError('תקלת תקשורת זמנית', 502, error.message);
             }
 
             if (attempt === retries) throw lastError;
@@ -1258,20 +1230,19 @@ async function callGeminiVision(imageBase64, mimeType, userPrompt, retries = CON
 }
 
 // ==============================
-// 14. TRANSLATION (Hebrew ג†’ English)
+// 16. TRANSLATION (Hebrew → English)
 // ==============================
 
 async function translateToEnglish(hebrewQuery) {
     const trimmed = String(hebrewQuery || '').trim();
     if (!trimmed) return '';
 
-    // ׳׳ ׳–׳” ׳›׳‘׳¨ ׳‘׳׳ ׳’׳׳™׳× ג€” ׳”׳—׳–׳¨ ׳›׳׳• ׳©׳–׳”
     if (!hasHebrew(trimmed)) {
         return trimmed;
     }
 
     try {
-        const prompt = `׳×׳¨׳’׳ ׳׳× ׳”׳‘׳™׳˜׳•׳™ ׳”׳‘׳ ׳׳׳ ׳’׳׳™׳× ׳׳“׳¢׳™׳×/׳¨׳₪׳•׳׳™׳× (׳‘׳׳™ ׳”׳¡׳‘׳¨׳™׳, ׳¨׳§ ׳”׳×׳¨׳’׳•׳):\n\n"${trimmed}"\n\n׳×׳¨׳’׳•׳:`;
+        const prompt = `תרגם את הביטוי הבא לאנגלית מדעית/רפואית (בלי הסברים, רק התרגום):\n\n"${trimmed}"\n\nתרגום:`;
 
         const { reply } = await callGemini({
             systemInstruction: TRANSLATION_SYSTEM_PROMPT,
@@ -1289,7 +1260,7 @@ async function translateToEnglish(hebrewQuery) {
             .trim();
 
         metrics.totalTranslationRequests += 1;
-        log('info', `Translated: "${trimmed}" ג†’ "${translated}"`);
+        log('info', `Translated: "${trimmed}" → "${translated}"`);
 
         return translated || trimmed;
     } catch (err) {
@@ -1299,7 +1270,7 @@ async function translateToEnglish(hebrewQuery) {
 }
 
 // ==============================
-// 15. HELPERS ג€” YOUTUBE / TIKTOK
+// 17. HELPERS — YOUTUBE / TIKTOK
 // ==============================
 
 function parseISODuration(iso) {
@@ -1350,7 +1321,7 @@ function extractTikTokId(input) {
 }
 
 // ==============================
-// 16. ANALYTICS SUMMARY HELPER
+// 18. ANALYTICS SUMMARY HELPER
 // ==============================
 
 function computeAnalyticsSummary(videos) {
@@ -1401,7 +1372,7 @@ function computeAnalyticsSummary(videos) {
 }
 
 // ==============================
-// 17. RESEARCH ג€” PAPER MAPPERS
+// 19. RESEARCH — PAPER MAPPERS
 // ==============================
 
 function createPaperObject({
@@ -1420,7 +1391,7 @@ function createPaperObject({
     return {
         id: String(id || '').trim(),
         source: String(source || '').trim(),
-        title: stripHtml(title) || '׳׳׳ ׳›׳•׳×׳¨׳×',
+        title: stripHtml(title) || 'ללא כותרת',
         abstract: stripHtml(abstract) || '',
         authors: String(authors || '').trim(),
         year: String(year || '').trim(),
@@ -1442,10 +1413,8 @@ function normalizeTitle(title) {
         .replace(/[^\p{L}\p{N}\s]/gu, ' ')
         .replace(/\s+/g, ' ')
         .trim();
-}
-
-// ==============================
-// 18. RESEARCH ג€” SOURCE 1: EUROPE PMC
+}// ==============================
+// 20. RESEARCH — SOURCE 1: EUROPE PMC
 // ==============================
 
 const EUROPE_PMC_API = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search';
@@ -1469,7 +1438,7 @@ async function fetchFromEuropePMC(query, limit) {
             const data = await response.json();
             return data?.resultList?.result || [];
         } catch (err) {
-            log('warn', `Europe PMC variant failed`, { q: q.substring(0, 60), err: err.message });
+            log('warn', 'Europe PMC variant failed', { q: q.substring(0, 60), err: err.message });
             return [];
         }
     }));
@@ -1507,7 +1476,7 @@ async function fetchFromEuropePMC(query, limit) {
 }
 
 // ==============================
-// 19. RESEARCH ג€” SOURCE 2: PUBMED (E-UTILITIES)
+// 21. RESEARCH — SOURCE 2: PUBMED
 // ==============================
 
 const PUBMED_ESEARCH_API = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi';
@@ -1571,10 +1540,21 @@ async function fetchFromPubMed(query, limit) {
 }
 
 // ==============================
-// 20. RESEARCH ג€” SOURCE 3: OPENALEX
+// 22. RESEARCH — SOURCE 3: OPENALEX
 // ==============================
 
 const OPENALEX_API = 'https://api.openalex.org/works';
+
+function reconstructOpenAlexAbstract(invertedIndex) {
+    if (!invertedIndex || typeof invertedIndex !== 'object') return '';
+    const positions = [];
+    for (const [word, idxs] of Object.entries(invertedIndex)) {
+        if (!Array.isArray(idxs)) continue;
+        for (const idx of idxs) positions.push({ word, idx });
+    }
+    positions.sort((a, b) => a.idx - b.idx);
+    return positions.map((p) => p.word).join(' ');
+}
 
 async function fetchFromOpenAlex(query, limit) {
     const cleanQuery = String(query).trim().slice(0, 200);
@@ -1620,21 +1600,8 @@ async function fetchFromOpenAlex(query, limit) {
     }
 }
 
-function reconstructOpenAlexAbstract(invertedIndex) {
-    if (!invertedIndex || typeof invertedIndex !== 'object') return '';
-    const positions = [];
-    for (const [word, idxs] of Object.entries(invertedIndex)) {
-        if (!Array.isArray(idxs)) continue;
-        for (const idx of idxs) {
-            positions.push({ word, idx });
-        }
-    }
-    positions.sort((a, b) => a.idx - b.idx);
-    return positions.map((p) => p.word).join(' ');
-}
-
 // ==============================
-// 21. RESEARCH ג€” SOURCE 4: SEMANTIC SCHOLAR
+// 23. RESEARCH — SOURCE 4: SEMANTIC SCHOLAR
 // ==============================
 
 const SEMANTIC_SCHOLAR_API = 'https://api.semanticscholar.org/graph/v1/paper/search';
@@ -1648,9 +1615,7 @@ async function fetchFromSemanticScholar(query, limit) {
         const url = `${SEMANTIC_SCHOLAR_API}?query=${encodeURIComponent(cleanQuery)}&limit=${limit}&fields=${fields}`;
 
         const headers = { 'Accept': 'application/json' };
-        if (CONFIG.semanticScholarKey) {
-            headers['x-api-key'] = CONFIG.semanticScholarKey;
-        }
+        if (CONFIG.semanticScholarKey) headers['x-api-key'] = CONFIG.semanticScholarKey;
 
         const response = await fetchWithTimeout(url, { method: 'GET', headers }, CONFIG.researchTimeoutMs);
         if (!response.ok) return [];
@@ -1693,7 +1658,7 @@ async function fetchFromSemanticScholar(query, limit) {
 }
 
 // ==============================
-// 22. RESEARCH ג€” SOURCE 5: CROSSREF
+// 24. RESEARCH — SOURCE 5: CROSSREF
 // ==============================
 
 const CROSSREF_API = 'https://api.crossref.org/works';
@@ -1745,7 +1710,7 @@ async function fetchFromCrossRef(query, limit) {
 }
 
 // ==============================
-// 23. RESEARCH ג€” SOURCE 6: DOAJ
+// 25. RESEARCH — SOURCE 6: DOAJ
 // ==============================
 
 const DOAJ_API = 'https://doaj.org/api/search/articles';
@@ -1798,17 +1763,14 @@ async function fetchFromDOAJ(query, limit) {
 }
 
 // ==============================
-// 24. RESEARCH ג€” SOURCE 7: bioRxiv
+// 26. RESEARCH — SOURCE 7: BIORXIV
 // ==============================
-
-const BIORXIV_API = 'https://api.biorxiv.org/details/biorxiv';
 
 async function fetchFromBioRxiv(query, limit) {
     const cleanQuery = String(query).trim().toLowerCase().slice(0, 200);
     if (!cleanQuery) return [];
 
     try {
-        // bioRxiv ׳׳ ׳×׳•׳׳ ׳‘׳—׳™׳₪׳•׳© ׳—׳•׳₪׳©׳™ ׳˜׳•׳‘ - ׳ ׳ ׳¡׳” ׳“׳¨׳ search ׳©׳׳”׳
         const url = `https://api.biorxiv.org/details/biorxiv/2020-01-01/2026-12-31/${limit}`;
         const response = await fetchWithTimeout(url, { method: 'GET' }, CONFIG.researchTimeoutMs);
         if (!response.ok) {
@@ -1819,7 +1781,6 @@ async function fetchFromBioRxiv(query, limit) {
         const data = await response.json();
         const results = data?.collection || [];
 
-        // ׳¡׳ ׳ ׳×׳•׳¦׳׳•׳× ׳¨׳׳•׳•׳ ׳˜׳™׳•׳×
         const queryWords = cleanQuery.split(/\s+/).filter((w) => w.length > 2);
         const filtered = results.filter((item) => {
             const combined = `${item.title || ''} ${item.abstract || ''}`.toLowerCase();
@@ -1827,15 +1788,13 @@ async function fetchFromBioRxiv(query, limit) {
         });
 
         const papers = filtered.slice(0, limit).map((item) => {
-            const authors = item.authors || '';
             const doi = item.doi || '';
-
             return createPaperObject({
                 id: doi,
                 source: 'bioRxiv',
                 title: item.title || '',
                 abstract: item.abstract || '',
-                authors,
+                authors: item.authors || '',
                 year: (item.date || '').substring(0, 4),
                 journal: 'bioRxiv (Preprint)',
                 citedBy: 0,
@@ -1856,7 +1815,7 @@ async function fetchFromBioRxiv(query, limit) {
 }
 
 // ==============================
-// 25. RESEARCH ג€” SOURCE 8: CORE
+// 27. RESEARCH — SOURCE 8: CORE
 // ==============================
 
 const CORE_API = 'https://api.core.ac.uk/v3/search/works';
@@ -1923,7 +1882,170 @@ async function fetchFromCORE(query, limit) {
 }
 
 // ==============================
-// 26. RESEARCH ג€” AGGREGATOR
+// 28. RESEARCH — SOURCE 9: MEDRXIV (NEW)
+// ==============================
+
+async function fetchFromMedRxiv(query, limit) {
+    const cleanQuery = String(query).trim().toLowerCase().slice(0, 200);
+    if (!cleanQuery) return [];
+
+    try {
+        const url = `https://api.biorxiv.org/details/medrxiv/2020-01-01/2026-12-31/${limit}`;
+        const response = await fetchWithTimeout(url, { method: 'GET' }, CONFIG.researchTimeoutMs);
+        if (!response.ok) {
+            recordSourceHit('medRxiv', 0);
+            return [];
+        }
+
+        const data = await response.json();
+        const results = data?.collection || [];
+
+        const queryWords = cleanQuery.split(/\s+/).filter((w) => w.length > 2);
+        const filtered = results.filter((item) => {
+            const combined = `${item.title || ''} ${item.abstract || ''}`.toLowerCase();
+            return queryWords.some((w) => combined.includes(w));
+        });
+
+        const papers = filtered.slice(0, limit).map((item) => {
+            const doi = item.doi || '';
+            return createPaperObject({
+                id: doi,
+                source: 'medRxiv',
+                title: item.title || '',
+                abstract: item.abstract || '',
+                authors: item.authors || '',
+                year: (item.date || '').substring(0, 4),
+                journal: 'medRxiv (Preprint)',
+                citedBy: 0,
+                doi,
+                url: doi ? `https://doi.org/${stripDoiPrefix(doi)}` : '',
+                openAccess: true,
+            });
+        });
+
+        recordSourceHit('medRxiv', papers.length);
+        log('info', `medRxiv: ${papers.length} papers`);
+        return papers;
+    } catch (err) {
+        log('warn', `medRxiv failed: ${err.message}`);
+        recordSourceHit('medRxiv', 0);
+        return [];
+    }
+}
+
+// ==============================
+// 29. RESEARCH — SOURCE 10: BASE (NEW)
+// ==============================
+
+async function fetchFromBASE(query, limit) {
+    const cleanQuery = String(query).trim().slice(0, 200);
+    if (!cleanQuery) return [];
+
+    try {
+        const url = `https://api.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi?func=PerformSearch&query=${encodeURIComponent(cleanQuery)}&format=json&hits=${limit}`;
+        const response = await fetchWithTimeout(url, { method: 'GET' }, CONFIG.researchTimeoutMs);
+        if (!response.ok) {
+            recordSourceHit('BASE', 0);
+            return [];
+        }
+
+        const text = await response.text();
+        let data = null;
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            log('warn', `BASE: response not JSON`);
+            recordSourceHit('BASE', 0);
+            return [];
+        }
+
+        const results = data?.response?.docs || [];
+
+        const papers = results.map((item) => {
+            const authors = Array.isArray(item.dccreator)
+                ? item.dccreator.join(', ')
+                : (item.dccreator || '');
+            const year = item.dcyear || '';
+            const title = Array.isArray(item.dctitle) ? item.dctitle[0] : (item.dctitle || '');
+
+            return createPaperObject({
+                id: item.id || '',
+                source: 'BASE',
+                title,
+                abstract: item.dcdescription || '',
+                authors,
+                year,
+                journal: item.dcsource || '',
+                citedBy: 0,
+                doi: item.dcdoi || '',
+                url: item.dclink || (item.dcdoi ? `https://doi.org/${stripDoiPrefix(item.dcdoi)}` : ''),
+                openAccess: Boolean(item.dcoa),
+            });
+        });
+
+        recordSourceHit('BASE', papers.length);
+        log('info', `BASE: ${papers.length} papers`);
+        return papers;
+    } catch (err) {
+        log('warn', `BASE failed: ${err.message}`);
+        recordSourceHit('BASE', 0);
+        return [];
+    }
+}
+
+// ==============================
+// 30. RESEARCH — SOURCE 11: SCIELO (NEW)
+// ==============================
+
+async function fetchFromSciELO(query, limit) {
+    const cleanQuery = String(query).trim().slice(0, 200);
+    if (!cleanQuery) return [];
+
+    try {
+        const url = `https://search.scielo.org/?q=${encodeURIComponent(cleanQuery)}&lang=en&count=${limit}&from=0&output=site&format=json`;
+        const response = await fetchWithTimeout(url, { method: 'GET' }, CONFIG.researchTimeoutMs);
+        if (!response.ok) {
+            recordSourceHit('SciELO', 0);
+            return [];
+        }
+
+        const data = await response.json();
+        const results = data?.response?.docs || data?.docs || [];
+
+        const papers = results.slice(0, limit).map((item) => {
+            const authors = Array.isArray(item.au)
+                ? item.au.join(', ')
+                : (item.au || '');
+            const doi = item.doi || '';
+            const id = item.id || doi;
+
+            return createPaperObject({
+                id,
+                source: 'SciELO',
+                title: item.ti || '',
+                abstract: item.ab || '',
+                authors,
+                year: item.py || '',
+                journal: item.ta || item.journal_title || '',
+                citedBy: 0,
+                doi,
+                url: doi ? `https://doi.org/${stripDoiPrefix(doi)}` : (item.url || ''),
+                openAccess: true,
+            });
+        });
+
+        recordSourceHit('SciELO', papers.length);
+        log('info', `SciELO: ${papers.length} papers`);
+        return papers;
+    } catch (err) {
+        log('warn', `SciELO failed: ${err.message}`);
+        recordSourceHit('SciELO', 0);
+        return [];
+    }
+}
+
+// ==============================
+// 31. RESEARCH — AGGREGATOR
 // ==============================
 
 function deduplicatePapers(papers) {
@@ -1953,7 +2075,6 @@ function scorePaperRelevance(paper, query) {
 
     let score = 0;
 
-    // Title match ג€” ׳§׳¨׳™׳˜׳™
     if (title.includes(q)) {
         score += 500;
     } else {
@@ -1966,10 +2087,9 @@ function scorePaperRelevance(paper, query) {
         }
     }
 
-    // Abstract density
     if (abstract) {
         try {
-            const esc = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const esc = escapeRegex(q);
             const matches = abstract.match(new RegExp(esc, 'g')) || [];
             score += Math.min(matches.length * 8, 40);
         } catch (e) {
@@ -1977,7 +2097,6 @@ function scorePaperRelevance(paper, query) {
         }
     }
 
-    // Study type boost
     if (title.includes('meta-analysis') || title.includes('meta analysis')) {
         score += 80;
     } else if (title.includes('systematic review')) {
@@ -1990,7 +2109,6 @@ function scorePaperRelevance(paper, query) {
         score += 40;
     }
 
-    // Health keywords in title
     const healthKeywords = [
         'health', 'benefit', 'risk', 'effect', 'impact', 'nutrition',
         'diet', 'human', 'weight', 'diabetes', 'cholesterol', 'protein',
@@ -2004,7 +2122,6 @@ function scorePaperRelevance(paper, query) {
         else if (abstract.includes(kw)) score += 2;
     }
 
-    // Off-topic penalty
     const offTopicKeywords = [
         'endometriosis', 'breast cancer', 'bariatric', 'sleep apnea',
         'obstructive', 'ohmic', 'listeria', 'clostridioides', 'biofilm',
@@ -2016,17 +2133,14 @@ function scorePaperRelevance(paper, query) {
         if (title.includes(kw)) score -= 250;
     }
 
-    // Citation boost (capped)
     score += Math.min(paper.citedBy || 0, 500) / 20;
-
-    // Open access boost (small)
     if (paper.openAccess) score += 5;
 
     return score;
 }
 
 async function searchAllSources(query, limitPerSource) {
-    log('info', `Research aggregator starting: "${query}"`);
+    log('info', `Research aggregator starting: "${query}" (11 sources)`);
 
     const results = await Promise.allSettled([
         fetchFromEuropePMC(query, limitPerSource),
@@ -2037,11 +2151,12 @@ async function searchAllSources(query, limitPerSource) {
         fetchFromDOAJ(query, limitPerSource),
         fetchFromBioRxiv(query, limitPerSource),
         fetchFromCORE(query, limitPerSource),
+        fetchFromMedRxiv(query, limitPerSource),
+        fetchFromBASE(query, limitPerSource),
+        fetchFromSciELO(query, limitPerSource),
     ]);
 
     const allPapers = [];
-    const sourceSummary = [];
-
     for (const result of results) {
         if (result.status === 'fulfilled' && Array.isArray(result.value)) {
             allPapers.push(...result.value);
@@ -2049,7 +2164,7 @@ async function searchAllSources(query, limitPerSource) {
     }
 
     metrics.totalPapersFetched += allPapers.length;
-    log('info', `Total fetched: ${allPapers.length} papers from 8 sources`);
+    log('info', `Total fetched: ${allPapers.length} papers from 11 sources`);
 
     const unique = deduplicatePapers(allPapers);
     log('info', `After dedup: ${unique.length} papers`);
@@ -2060,13 +2175,13 @@ async function searchAllSources(query, limitPerSource) {
 }
 
 // ==============================
-// 27. RESEARCH ג€” ANALYSIS WITH AI
+// 32. RESEARCH — AI ANALYSIS
 // ==============================
 
 function buildFallbackSummary(query, englishQuery, papers) {
     const top = papers.slice(0, 5);
     const list = top.map((p, i) => {
-        const citations = p.citedBy ? ` ג€¢ ${p.citedBy} ׳¦׳™׳˜׳•׳˜׳™׳` : '';
+        const citations = p.citedBy ? ` • ${p.citedBy} ציטוטים` : '';
         const year = p.year ? ` (${p.year})` : '';
         const source = p.source ? ` [${p.source}]` : '';
         return `${i + 1}. **"${truncate(p.title, 120)}"**${year}${citations}${source}`;
@@ -2075,15 +2190,10 @@ function buildFallbackSummary(query, englishQuery, papers) {
     const wasTranslated = englishQuery && englishQuery !== query;
 
     return {
-        verdict: 'ג ן¸ ׳¡׳™׳›׳•׳ AI ׳׳ ׳–׳׳™׳ ׳›׳¨׳’׳¢',
-        summary: `׳׳¦׳׳×׳™ ${papers.length} ׳׳—׳§׳¨׳™׳ ׳¨׳׳•׳•׳ ׳˜׳™׳™׳ ׳¢׳ "${query}"${wasTranslated ? ` (׳—׳™׳₪׳•׳©: "${englishQuery}")` : ''}.
-
-׳”׳ ׳” ׳”׳׳—׳§׳¨׳™׳ ׳”׳׳•׳‘׳™׳׳™׳:
-
-${list}
-
-נ’¡ ׳ ׳¡׳” ׳©׳•׳‘ ׳‘׳¢׳•׳“ ׳“׳§׳” ׳›׳“׳™ ׳׳§׳‘׳ ׳¡׳™׳›׳•׳ AI ׳׳׳ ׳¢׳ ׳×׳•׳‘׳ ׳•׳× ׳•׳׳™׳×׳•׳¡.`,
+        verdict: '⚠️ סיכום AI לא זמין כרגע',
+        summary: `מצאתי ${papers.length} מחקרים רלוונטיים על "${query}"${wasTranslated ? ` (חיפוש: "${englishQuery}")` : ''}.\n\nהנה המחקרים המובילים:\n\n${list}\n\n💡 נסה שוב בעוד דקה כדי לקבל סיכום AI מלא עם תובנות ומיתוס.`,
         myth: '',
+        limitations: '',
         fallback: true,
         wasTranslated,
     };
@@ -2095,45 +2205,19 @@ async function analyzeResearchWithAI(query, englishQuery, papers) {
     const papersText = topPapers.map((p, i) => {
         const cite = p.citedBy ? ` [${p.citedBy} citations]` : '';
         const source = p.source ? ` [${p.source}]` : '';
-        const snippet = truncate(p.abstract || '׳׳ ׳–׳׳™׳', CONFIG.researchAbstractSnippetLength);
-        return `[${i + 1}] "${p.title}" (${p.year})${cite}${source}\n׳×׳§׳¦׳™׳¨: ${snippet}\n`;
+        const snippet = truncate(p.abstract || 'לא זמין', CONFIG.researchAbstractSnippetLength);
+        return `[${i + 1}] "${p.title}" (${p.year})${cite}${source}\nתקציר: ${snippet}\n`;
     }).join('\n');
 
     const wasTranslated = englishQuery && englishQuery !== query;
 
-    const prompt = `׳׳×׳” ׳׳“׳¢׳-׳¢׳ ׳‘׳›׳™׳¨. ׳”׳©׳׳׳” ׳©׳׳™: "${query}"${wasTranslated ? `\n(׳—׳™׳₪׳©׳×׳™ ׳‘׳׳׳’׳¨׳™ ׳׳—׳§׳¨׳™׳ ׳‘׳™׳ ׳׳׳•׳׳™׳™׳ ׳¢׳ ׳”׳׳•׳ ׳—: "${englishQuery}")` : ''}
-
-׳”׳ ׳” ${topPapers.length} ׳”׳׳—׳§׳¨׳™׳ ׳”׳¨׳׳•׳•׳ ׳˜׳™׳™׳ ׳‘׳™׳•׳×׳¨ ׳©׳ ׳׳¦׳׳•:
-
-${papersText}
-
----
-
-׳¢׳ ׳” ׳‘׳׳‘׳ ׳” ׳”׳–׳” ׳‘׳“׳™׳•׳§, ׳‘׳¢׳‘׳¨׳™׳×, ׳‘׳׳™ ׳”׳§׳“׳׳•׳×, ׳‘׳׳™ ׳׳¨׳›׳׳•׳× ׳׳™׳•׳×׳¨׳•׳×:
-
-[VERDICT]
-׳›׳ / ׳׳ / ׳×׳׳•׳™ / ׳׳ ׳‘׳¨׳•׳¨ ג€” ׳׳©׳₪׳˜ ׳׳—׳“ ׳—׳“ ׳•׳—׳“-׳׳©׳׳¢׳™.
-[/VERDICT]
-
-[SUMMARY]
-3-4 ׳׳©׳₪׳˜׳™׳ ׳׳‘׳•׳¡׳¡׳™׳ **׳¨׳§** ׳¢׳ ׳”׳׳—׳§׳¨׳™׳ ׳©׳׳׳¢׳׳”. ׳×׳ ׳׳¡׳₪׳¨׳™׳ ׳¡׳₪׳¦׳™׳₪׳™׳™׳ ׳׳ ׳™׳©. ׳׳ ׳”׳׳—׳§׳¨׳™׳ ׳׳ ׳¢׳•׳ ׳™׳ ׳™׳©׳™׳¨׳•׳× ג€” ׳׳׳•׳¨ ׳׳× ׳–׳” ׳‘׳׳₪׳•׳¨׳©.
-[/SUMMARY]
-
-[MYTH]
-׳׳™׳×׳•׳¡ ׳׳—׳“ ׳ ׳₪׳•׳¥ ׳¢׳ ׳”׳ ׳•׳©׳ + ׳”׳׳׳× ׳©׳׳—׳§׳¨׳™׳ ׳׳¨׳׳™׳. 2-3 ׳׳©׳₪׳˜׳™׳.
-[/MYTH]
-
-[LIMITATIONS]
-׳׳©׳₪׳˜ ׳׳—׳“: ׳׳” ׳”׳׳—׳§׳¨׳™׳ ׳”׳׳׳” **׳׳** ׳׳•׳׳¨׳™׳, ׳׳• ׳׳” ׳¢׳•׳“ ׳¦׳¨׳™׳ ׳׳—׳§׳•׳¨.
-[/LIMITATIONS]
-
-׳¡׳’׳ ׳•׳: ׳™׳©׳™׳¨, ׳׳“׳¢׳™, ׳׳‘׳•׳¡׳¡ ׳¨׳׳™׳•׳×. ׳¢׳‘׳¨׳™׳×.`;
+    const prompt = `אתה מדען-על בכיר. השאלה שלי: "${query}"${wasTranslated ? `\n(חיפשתי במאגרי מחקרים בינלאומיים עם המונח: "${englishQuery}")` : ''}\n\nהנה ${topPapers.length} המחקרים הרלוונטיים ביותר שנמצאו:\n\n${papersText}\n\n---\n\nענה במבנה הזה בדיוק, בעברית, בלי הקדמות, בלי מרכאות מיותרות:\n\n[VERDICT]\nכן / לא / תלוי / לא ברור — משפט אחד חד וחד-משמעי.\n[/VERDICT]\n\n[SUMMARY]\n3-4 משפטים מבוססים רק על המחקרים שלמעלה. תן מספרים ספציפיים אם יש. אם המחקרים לא עונים ישירות — אמור את זה במפורש.\n[/SUMMARY]\n\n[MYTH]\nמיתוס אחד נפוץ על הנושא + האמת שמחקרים מראים. 2-3 משפטים.\n[/MYTH]\n\n[LIMITATIONS]\nמשפט אחד: מה המחקרים האלה לא אומרים, או מה עוד צריך לחקור.\n[/LIMITATIONS]\n\nסגנון: ישיר, מדעי, מבוסס ראיות. עברית.`;
 
     const { reply } = await callGemini({
-        systemInstruction: '׳׳×׳” ׳׳“׳¢׳-׳¢׳. ׳×׳ ׳×׳©׳•׳‘׳•׳× ׳׳“׳•׳™׳§׳•׳×, ׳׳‘׳•׳¡׳¡׳•׳× ׳¨׳׳™׳•׳×, ׳‘׳¢׳‘׳¨׳™׳×.',
+        systemInstruction: 'אתה מדען-על. תן תשובות מדויקות, מבוססות ראיות, בעברית.',
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         temperature: 0.4,
-        maxOutputTokens: 1500,
+        maxOutputTokens: 2500,
         timeoutMs: CONFIG.geminiTimeoutMs,
         retries: CONFIG.defaultRetries,
     });
@@ -2144,7 +2228,7 @@ ${papersText}
     const limitationsMatch = reply.match(/\[LIMITATIONS\]([\s\S]*?)\[\/LIMITATIONS\]/i);
 
     return {
-        verdict: verdictMatch ? verdictMatch[1].trim() : '׳׳ ׳‘׳¨׳•׳¨',
+        verdict: verdictMatch ? verdictMatch[1].trim() : 'לא ברור',
         summary: summaryMatch ? summaryMatch[1].trim() : reply,
         myth: mythMatch ? mythMatch[1].trim() : '',
         limitations: limitationsMatch ? limitationsMatch[1].trim() : '',
@@ -2152,7 +2236,7 @@ ${papersText}
         wasTranslated,
     };
 }// ==============================
-// 28. EXPRESS SETUP
+// 33. EXPRESS SETUP
 // ==============================
 
 const app = express();
@@ -2179,7 +2263,7 @@ app.use((req, res, next) => {
     res.on('finish', () => {
         const duration = Date.now() - start;
         if (req.path.startsWith('/api/')) {
-            log('info', `${req.method} ${req.path} ג†’ ${res.statusCode} (${duration}ms)`);
+            log('info', `${req.method} ${req.path} → ${res.statusCode} (${duration}ms)`);
         }
     });
     next();
@@ -2191,7 +2275,7 @@ const apiRateLimiter = rateLimit({
     max: CONFIG.rateLimitMax,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { reply: '׳׳“׳•׳, ׳™׳•׳×׳¨ ׳׳“׳™ ׳‘׳§׳©׳•׳× ׳‘׳–׳׳ ׳§׳¦׳¨.' },
+    message: { reply: 'אדון, יותר מדי בקשות בזמן קצר.' },
 });
 
 const visionRateLimiter = rateLimit({
@@ -2199,7 +2283,7 @@ const visionRateLimiter = rateLimit({
     max: CONFIG.visionRateLimitMax,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { reply: '׳׳“׳•׳, ׳™׳•׳×׳¨ ׳׳“׳™ ׳‘׳§׳©׳•׳× ׳ ׳™׳×׳•׳— ׳×׳׳•׳ ׳”.' },
+    message: { reply: 'אדון, יותר מדי בקשות ניתוח תמונה.' },
 });
 
 const researchRateLimiter = rateLimit({
@@ -2207,11 +2291,11 @@ const researchRateLimiter = rateLimit({
     max: CONFIG.researchRateLimitMax,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { reply: '׳׳“׳•׳, ׳™׳•׳×׳¨ ׳׳“׳™ ׳‘׳§׳©׳•׳× ׳׳—׳§׳¨.' },
+    message: { reply: 'אדון, יותר מדי בקשות מחקר.' },
 });
 
 // ==============================
-// 29. ROUTES ג€” ROOT
+// 34. ROUTES — ROOT
 // ==============================
 
 app.get('/', (req, res) => {
@@ -2219,7 +2303,7 @@ app.get('/', (req, res) => {
 });
 
 // ==============================
-// 30. ROUTES ג€” HEALTH & METRICS
+// 35. ROUTES — HEALTH & METRICS
 // ==============================
 
 app.get('/api/health', (req, res) => {
@@ -2240,7 +2324,9 @@ app.get('/api/health', (req, res) => {
             totalYoutubeRequests: metrics.totalYoutubeRequests,
             totalTiktokRequests: metrics.totalTiktokRequests,
             totalResearchRequests: metrics.totalResearchRequests,
+            totalResearchChatRequests: metrics.totalResearchChatRequests,
             totalTranslationRequests: metrics.totalTranslationRequests,
+            totalNutritionRequests: metrics.totalNutritionRequests,
             totalPapersFetched: metrics.totalPapersFetched,
             totalRateLimitHits: metrics.totalRateLimitHits,
             totalHighDemandHits: metrics.totalHighDemandHits,
@@ -2277,7 +2363,7 @@ app.get('/api/metrics', (req, res) => {
 });
 
 // ==============================
-// 31. ROUTES ג€” KNOWLEDGE
+// 36. ROUTES — KNOWLEDGE
 // ==============================
 
 app.get('/api/knowledge', (req, res) => {
@@ -2312,20 +2398,20 @@ app.post('/api/knowledge/upload', (req, res) => {
         const { name, content } = req.body || {};
 
         if (!name || typeof name !== 'string') {
-            return res.status(400).json({ error: '׳—׳¡׳¨ ׳©׳ ׳§׳•׳‘׳¥' });
+            return res.status(400).json({ error: 'חסר שם קובץ' });
         }
         if (!content || typeof content !== 'string') {
-            return res.status(400).json({ error: '׳—׳¡׳¨ ׳×׳•׳›׳ ׳׳§׳•׳‘׳¥' });
+            return res.status(400).json({ error: 'חסר תוכן לקובץ' });
         }
 
         const safeName = path.basename(name).replace(/[^\p{L}\p{N}\-_. ]/gu, '_');
 
         if (!/\.(txt|md)$/i.test(safeName)) {
-            return res.status(400).json({ error: '׳¨׳§ ׳§׳‘׳¦׳™ .txt ׳׳• .md ׳ ׳×׳׳›׳™׳' });
+            return res.status(400).json({ error: 'רק קבצי .txt או .md נתמכים' });
         }
 
         if (Buffer.byteLength(content, 'utf8') > CONFIG.knowledgeMaxFileSizeBytes) {
-            return res.status(413).json({ error: '׳”׳§׳•׳‘׳¥ ׳’׳“׳•׳ ׳׳“׳™' });
+            return res.status(413).json({ error: 'הקובץ גדול מדי' });
         }
 
         const fullPath = path.join(CONFIG.knowledgeDir, safeName);
@@ -2340,7 +2426,7 @@ app.post('/api/knowledge/upload', (req, res) => {
             totalChunks: knowledge.chunks.length,
         });
     } catch (err) {
-        res.status(500).json({ error: '׳”׳¢׳׳׳” ׳ ׳›׳©׳׳”: ' + err.message });
+        res.status(500).json({ error: 'העלאה נכשלה: ' + err.message });
     }
 });
 
@@ -2349,20 +2435,20 @@ app.delete('/api/knowledge/:name', (req, res) => {
         const safeName = path.basename(req.params.name || '');
 
         if (!safeName || !/\.(txt|md)$/i.test(safeName)) {
-            return res.status(400).json({ error: '׳©׳ ׳§׳•׳‘׳¥ ׳׳ ׳×׳§׳™׳' });
+            return res.status(400).json({ error: 'שם קובץ לא תקין' });
         }
 
         const fullPath = path.join(CONFIG.knowledgeDir, safeName);
 
         if (!fs.existsSync(fullPath)) {
-            return res.status(404).json({ error: '׳”׳§׳•׳‘׳¥ ׳׳ ׳ ׳׳¦׳' });
+            return res.status(404).json({ error: 'הקובץ לא נמצא' });
         }
 
         const resolved = path.resolve(fullPath);
         const baseDir = path.resolve(CONFIG.knowledgeDir);
 
         if (!resolved.startsWith(baseDir + path.sep)) {
-            return res.status(400).json({ error: '׳ ׳×׳™׳‘ ׳׳ ׳—׳•׳§׳™' });
+            return res.status(400).json({ error: 'נתיב לא חוקי' });
         }
 
         fs.unlinkSync(fullPath);
@@ -2375,7 +2461,7 @@ app.delete('/api/knowledge/:name', (req, res) => {
             totalChunks: knowledge.chunks.length,
         });
     } catch (err) {
-        res.status(500).json({ error: '׳׳—׳™׳§׳” ׳ ׳›׳©׳׳”: ' + err.message });
+        res.status(500).json({ error: 'מחיקה נכשלה: ' + err.message });
     }
 });
 
@@ -2389,12 +2475,12 @@ app.post('/api/knowledge/reload', (req, res) => {
             vocab: knowledge.vocab.size,
         });
     } catch (err) {
-        res.status(500).json({ error: '׳˜׳¢׳™׳ ׳” ׳׳—׳“׳© ׳ ׳›׳©׳׳”', message: err.message });
+        res.status(500).json({ error: 'טעינה מחדש נכשלה', message: err.message });
     }
 });
 
 // ==============================
-// 32. ROUTES ג€” ASK
+// 37. ROUTES — ASK
 // ==============================
 
 app.post('/api/ask', apiRateLimiter, async (req, res, next) => {
@@ -2408,7 +2494,7 @@ app.post('/api/ask', apiRateLimiter, async (req, res, next) => {
         if (!rawQuery || typeof rawQuery !== 'string' || rawQuery.trim() === '') {
             metrics.totalErrors += 1;
             recordError('Empty prompt');
-            return res.status(400).json({ reply: '׳׳“׳•׳, ׳׳ ׳”׳×׳§׳‘׳׳” ׳©׳׳׳” ׳×׳§׳™׳ ׳” ׳׳¢׳™׳‘׳•׳“.' });
+            return res.status(400).json({ reply: 'אדון, לא התקבלה שאלה תקינה לעיבוד.' });
         }
 
         const userQuery = rawQuery.trim();
@@ -2417,7 +2503,7 @@ app.post('/api/ask', apiRateLimiter, async (req, res, next) => {
             metrics.totalErrors += 1;
             recordError('Prompt too long');
             return res.status(413).json({
-                reply: `׳׳“׳•׳, ׳”׳©׳׳׳” ׳׳¨׳•׳›׳” ׳׳“׳™ (׳׳§׳¡׳™׳׳•׳ ${CONFIG.maxPromptLength} ׳×׳•׳•׳™׳).`,
+                reply: `אדון, השאלה ארוכה מדי (מקסימום ${CONFIG.maxPromptLength} תווים).`,
             });
         }
 
@@ -2430,7 +2516,7 @@ app.post('/api/ask', apiRateLimiter, async (req, res, next) => {
 
         if (matchedChunks.length > 0) {
             metrics.totalKnowledgeHits += 1;
-            log('info', `Knowledge hit ג€” ${matchedChunks.length} chunks`);
+            log('info', `Knowledge hit — ${matchedChunks.length} chunks`);
         }
 
         const { reply, coreLatencyMs, attempts } = await callGeminiWithRetry(
@@ -2460,7 +2546,7 @@ app.post('/api/ask', apiRateLimiter, async (req, res, next) => {
 });
 
 // ==============================
-// 33. ROUTES ג€” ANALYZE (Analytics)
+// 38. ROUTES — ANALYZE (Analytics)
 // ==============================
 
 app.post('/api/analyze', apiRateLimiter, async (req, res, next) => {
@@ -2471,7 +2557,7 @@ app.post('/api/analyze', apiRateLimiter, async (req, res, next) => {
         const videos = req.body?.videos;
 
         if (!Array.isArray(videos) || videos.length === 0) {
-            return res.status(400).json({ reply: '׳׳™׳ ׳ ׳×׳•׳ ׳™׳ ׳׳ ׳™׳×׳•׳—' });
+            return res.status(400).json({ reply: 'אין נתונים לניתוח' });
         }
 
         const totals = videos.reduce((acc, v) => {
@@ -2537,121 +2623,121 @@ app.post('/api/analyze', apiRateLimiter, async (req, res, next) => {
             const vr = v.views ? ((v.likes || 0) / v.views * 100).toFixed(2) : '0';
             const cr = v.views ? ((v.comments || 0) / v.views * 100).toFixed(3) : '0';
             const title = truncate(v.title, 80);
-            return `${i + 1}. [${v.platform || 'youtube'}] "${title}" | ${v.date || 'ג€”'} | ${v.duration || 0}s | ${(v.views || 0).toLocaleString()} ׳¦׳₪׳™׳•׳× | ${v.likes || 0} ׳׳™׳™׳§׳™׳ (${vr}%) | ${v.comments || 0} ׳×׳’׳•׳‘׳•׳× (${cr}%)`;
+            return `${i + 1}. [${v.platform || 'youtube'}] "${title}" | ${v.date || '—'} | ${v.duration || 0}s | ${(v.views || 0).toLocaleString()} צפיות | ${v.likes || 0} לייקים (${vr}%) | ${v.comments || 0} תגובות (${cr}%)`;
         }).join('\n');
 
         const platformBlock = Object.entries(platformStats).map(([name, s]) => {
             const avgViews = Math.round(s.views / s.count);
             const pr = s.views ? (s.likes / s.views * 100).toFixed(2) : 0;
             const cr = s.views ? (s.comments / s.views * 100).toFixed(3) : 0;
-            return `**${name}**: ${s.count} ׳¡׳¨׳˜׳•׳ ׳™׳ | ${s.views.toLocaleString()} ׳¦׳₪׳™׳•׳× | ׳׳׳•׳¦׳¢ ${avgViews} ׳¦׳₪׳™׳•׳×/׳¡׳¨׳˜׳•׳ | ׳™׳—׳¡ ׳׳™׳™׳§׳™׳ ${pr}% | ׳™׳—׳¡ ׳×׳’׳•׳‘׳•׳× ${cr}%`;
+            return `**${name}**: ${s.count} סרטונים | ${s.views.toLocaleString()} צפיות | ממוצע ${avgViews} צפיות/סרטון | יחס לייקים ${pr}% | יחס תגובות ${cr}%`;
         }).join('\n');
 
         const durationBlock = [
-            `- **׳§׳¦׳¨׳™׳ (׳¢׳“ 10s)**: ${durationBuckets.short.length} ׳¡׳¨׳˜׳•׳ ׳™׳, ׳׳׳•׳¦׳¢ ${durationBuckets.short.length ? Math.round(durationBuckets.short.reduce((s, v) => s + (Number(v.views) || 0), 0) / durationBuckets.short.length) : 0} ׳¦׳₪׳™׳•׳×/׳¡׳¨׳˜׳•׳`,
-            `- **׳‘׳™׳ ׳•׳ ׳™׳™׳ (11-20s)**: ${durationBuckets.medium.length} ׳¡׳¨׳˜׳•׳ ׳™׳, ׳׳׳•׳¦׳¢ ${durationBuckets.medium.length ? Math.round(durationBuckets.medium.reduce((s, v) => s + (Number(v.views) || 0), 0) / durationBuckets.medium.length) : 0} ׳¦׳₪׳™׳•׳×/׳¡׳¨׳˜׳•׳`,
-            `- **׳׳¨׳•׳›׳™׳ (21s+)**: ${durationBuckets.long.length} ׳¡׳¨׳˜׳•׳ ׳™׳, ׳׳׳•׳¦׳¢ ${durationBuckets.long.length ? Math.round(durationBuckets.long.reduce((s, v) => s + (Number(v.views) || 0), 0) / durationBuckets.long.length) : 0} ׳¦׳₪׳™׳•׳×/׳¡׳¨׳˜׳•׳`,
+            `- **קצרים (עד 10s)**: ${durationBuckets.short.length} סרטונים, ממוצע ${durationBuckets.short.length ? Math.round(durationBuckets.short.reduce((s, v) => s + (Number(v.views) || 0), 0) / durationBuckets.short.length) : 0} צפיות/סרטון`,
+            `- **בינוניים (11-20s)**: ${durationBuckets.medium.length} סרטונים, ממוצע ${durationBuckets.medium.length ? Math.round(durationBuckets.medium.reduce((s, v) => s + (Number(v.views) || 0), 0) / durationBuckets.medium.length) : 0} צפיות/סרטון`,
+            `- **ארוכים (21s+)**: ${durationBuckets.long.length} סרטונים, ממוצע ${durationBuckets.long.length ? Math.round(durationBuckets.long.reduce((s, v) => s + (Number(v.views) || 0), 0) / durationBuckets.long.length) : 0} צפיות/סרטון`,
         ].join('\n');
 
         const topBlock = top5.map((v, i) => {
             const vr = v.views ? ((v.likes || 0) / v.views * 100).toFixed(2) : '0';
-            return `${i + 1}. [${v.platform || 'youtube'}] "${truncate(v.title, 80)}" ג€” ${(v.views || 0).toLocaleString()} ׳¦׳₪׳™׳•׳× | ${v.likes || 0} ׳׳™׳™׳§׳™׳ (${vr}%) | ${v.comments || 0} ׳×׳’׳•׳‘׳•׳× | ${v.duration || 0}s`;
+            return `${i + 1}. [${v.platform || 'youtube'}] "${truncate(v.title, 80)}" — ${(v.views || 0).toLocaleString()} צפיות | ${v.likes || 0} לייקים (${vr}%) | ${v.comments || 0} תגובות | ${v.duration || 0}s`;
         }).join('\n');
 
         const bottomBlock = bottom5.map((v, i) => {
             const vr = v.views ? ((v.likes || 0) / v.views * 100).toFixed(2) : '0';
-            return `${i + 1}. [${v.platform || 'youtube'}] "${truncate(v.title, 80)}" ג€” ${(v.views || 0).toLocaleString()} ׳¦׳₪׳™׳•׳× | ${v.likes || 0} ׳׳™׳™׳§׳™׳ (${vr}%) | ${v.duration || 0}s`;
+            return `${i + 1}. [${v.platform || 'youtube'}] "${truncate(v.title, 80)}" — ${(v.views || 0).toLocaleString()} צפיות | ${v.likes || 0} לייקים (${vr}%) | ${v.duration || 0}s`;
         }).join('\n');
 
         const engagementBlock = engagementChamps.map((v, i) => {
             const vr = ((v.likes || 0) / (v.views || 1) * 100).toFixed(2);
-            return `${i + 1}. [${v.platform || 'youtube'}] "${truncate(v.title, 80)}" ג€” ${vr}% ׳™׳—׳¡ ׳׳™׳™׳§׳™׳ (${v.likes}/${v.views})`;
+            return `${i + 1}. [${v.platform || 'youtube'}] "${truncate(v.title, 80)}" — ${vr}% יחס לייקים (${v.likes}/${v.views})`;
         }).join('\n');
 
         const commentBlock = commentChamps.length
             ? commentChamps.map((v, i) => {
                 const cr = ((v.comments / v.views) * 100).toFixed(3);
-                return `${i + 1}. "${truncate(v.title, 80)}" ג€” ${v.comments} ׳×׳’׳•׳‘׳•׳× (${cr}% ׳-${v.views} ׳¦׳₪׳™׳•׳×)`;
+                return `${i + 1}. "${truncate(v.title, 80)}" — ${v.comments} תגובות (${cr}% מ-${v.views} צפיות)`;
             }).join('\n')
-            : '׳׳™׳ ׳¡׳¨׳˜׳•׳ ׳™׳ ׳¢׳ ׳×׳’׳•׳‘׳•׳×.';
+            : 'אין סרטונים עם תגובות.';
 
-        const prompt = `׳׳×׳” ׳׳ ׳׳™׳¡׳˜ ׳×׳•׳›׳ ׳׳’׳¨׳¡׳™׳‘׳™ ׳•׳׳“׳•׳™׳§. ׳׳×׳” ׳׳ ׳×׳— ׳ ׳×׳•׳ ׳™ ׳‘׳™׳¦׳•׳¢׳™׳ ׳©׳ ׳™׳•׳¦׳¨ ׳×׳•׳›׳ ׳§׳׳™׳¡׳˜׳ ׳™׳§׳¡.
-׳”׳׳˜׳¨׳” ׳©׳׳: **׳׳×׳× ׳׳• ׳×׳•׳‘׳ ׳•׳× ׳©׳™׳¢׳–׳¨׳• ׳׳• ׳׳™׳™׳¦׳¨ ׳×׳•׳›׳ ׳•׳™׳¨׳׳׳™ ׳™׳•׳×׳¨ ג€” ׳׳ ׳׳׳˜׳£ ׳׳’׳•.**
+        const prompt = `אתה אנליסט תוכן אגרסיבי ומדויק. אתה מנתח נתוני ביצועים של יוצר תוכן קליסטניקס.
+המטרה שלך: לתת לו תובנות שיעזרו לו לייצר תוכן ויראלי יותר — לא ללטף אגו.
 
-## נ“ ׳”׳ ׳×׳•׳ ׳™׳ ׳”׳׳׳׳™׳
+## 📊 הנתונים המלאים
 
-### ׳˜׳‘׳׳× ׳›׳ ׳”׳¡׳¨׳˜׳•׳ ׳™׳ (׳׳׳•׳™׳ ׳׳₪׳™ ׳¦׳₪׳™׳•׳×)
+### טבלת כל הסרטונים (ממוין לפי צפיות)
 ${detailedTable}
 
-### ׳¡׳™׳›׳•׳ ׳›׳׳׳™
-- ׳¡׳”"׳› ׳¡׳¨׳˜׳•׳ ׳™׳: ${totals.count}
-- ׳¡׳”"׳› ׳¦׳₪׳™׳•׳×: ${totals.views.toLocaleString()}
-- ׳¡׳”"׳› ׳׳™׳™׳§׳™׳: ${totals.likes.toLocaleString()} (׳™׳—׳¡: ${ratio}%)
-- ׳¡׳”"׳› ׳×׳’׳•׳‘׳•׳×: ${totals.comments} (׳™׳—׳¡: ${commentRatio}%)
-- ׳¡׳”"׳› ׳©׳™׳×׳•׳₪׳™׳: ${totals.shares}
-- ׳¡׳”"׳› ׳׳ ׳•׳™׳™׳ ׳—׳“׳©׳™׳: ${totals.subscribers}
-- **׳—׳¦׳™׳•׳ ׳¦׳₪׳™׳•׳×**: ${medianViews.toLocaleString()}
+### סיכום כללי
+- סה"כ סרטונים: ${totals.count}
+- סה"כ צפיות: ${totals.views.toLocaleString()}
+- סה"כ לייקים: ${totals.likes.toLocaleString()} (יחס: ${ratio}%)
+- סה"כ תגובות: ${totals.comments} (יחס: ${commentRatio}%)
+- סה"כ שיתופים: ${totals.shares}
+- סה"כ מנויים חדשים: ${totals.subscribers}
+- חציון צפיות: ${medianViews.toLocaleString()}
 
-### ׳₪׳™׳׳•׳— ׳׳₪׳™ ׳₪׳׳˜׳₪׳•׳¨׳׳”
+### פילוח לפי פלטפורמה
 ${platformBlock}
 
-### ׳₪׳™׳׳•׳— ׳׳₪׳™ ׳׳•׳¨׳ ׳¡׳¨׳˜׳•׳
+### פילוח לפי אורך סרטון
 ${durationBlock}
 
-### 5 ׳”׳¡׳¨׳˜׳•׳ ׳™׳ ׳”׳׳¦׳׳™׳—׳™׳ ׳‘׳™׳•׳×׳¨ (Top 5)
+### 5 הסרטונים המצליחים ביותר (Top 5)
 ${topBlock}
 
-### 5 ׳”׳¡׳¨׳˜׳•׳ ׳™׳ ׳”׳—׳׳©׳™׳ ׳‘׳™׳•׳×׳¨ (Bottom 5)
+### 5 הסרטונים החלשים ביותר (Bottom 5)
 ${bottomBlock}
 
-### ׳”׳¡׳¨׳˜׳•׳ ׳™׳ ׳¢׳ ׳™׳—׳¡ ׳”׳׳¢׳•׳¨׳‘׳•׳× ׳”׳’׳‘׳•׳” ׳‘׳™׳•׳×׳¨
+### הסרטונים עם יחס המעורבות הגבוה ביותר
 ${engagementBlock}
 
-### ׳”׳¡׳¨׳˜׳•׳ ׳™׳ ׳¢׳ ׳”׳›׳™ ׳”׳¨׳‘׳” ׳×׳’׳•׳‘׳•׳×
+### הסרטונים עם הכי הרבה תגובות
 ${commentBlock}
 
 ---
 
-## נ¯ ׳”׳׳©׳™׳׳” ׳©׳׳
+## 🎯 המשימה שלך
 
-׳×׳ ׳ ׳™׳×׳•׳— **׳׳׳™׳×׳™, ׳—׳“, ׳•׳‘׳™׳§׳•׳¨׳×׳™**. 
+תן ניתוח אמיתי, חד, וביקורתי.
 
-**׳׳¡׳•׳¨ ׳׳:**
-- ג ׳׳—׳׳™׳ ("׳›׳ ׳”׳›׳‘׳•׳“!", "׳׳¢׳•׳׳”!")
-- ג ׳׳—׳–׳•׳¨ ׳¢׳ ׳”׳ ׳×׳•׳ ׳™׳ ׳‘׳׳™ ׳׳₪׳¨׳©
-- ג ׳׳×׳× ׳¢׳¦׳•׳× ׳’׳ ׳¨׳™׳•׳×
-- ג ׳׳—׳–׳•׳¨ ׳¢׳ ׳׳” ׳©׳”׳׳©׳×׳׳© ׳›׳‘׳¨ ׳™׳•׳“׳¢
+**אסור לך:**
+- לחמיא ("כל הכבוד!", "מעולה!")
+- לחזור על הנתונים בלי לפרש
+- לתת עצות גנריות
+- לחזור על מה שהמשתמש כבר יודע
 
-## נ“ ׳”׳₪׳•׳¨׳׳˜ ׳”׳׳“׳•׳™׳§
+## 📐 הפורמט המדויק
 
-### נ¯ ׳׳” ׳¢׳•׳‘׳“ **׳‘׳׳׳×** (׳•׳׳׳”)
-3 ׳×׳•׳‘׳ ׳•׳× ׳¡׳₪׳¦׳™׳₪׳™׳•׳× ׳•׳׳‘׳•׳¡׳¡׳•׳× ׳׳¡׳₪׳¨׳™׳.
+### 🎯 מה עובד באמת (ולמה)
+3 תובנות ספציפיות ומבוססות מספרים.
 
-### נ”´ ׳”׳‘׳¢׳™׳•׳× ׳”׳׳׳™׳×׳™׳•׳×
-3 ׳‘׳¢׳™׳•׳× ׳§׳•׳ ׳§׳¨׳˜׳™׳•׳×. ׳×׳’׳™׳“ ׳׳× ׳”׳׳׳×.
+### 🔴 הבעיות האמיתיות
+3 בעיות קונקרטיות. תגיד את האמת.
 
-### נ¬ ׳ ׳™׳×׳•׳— ׳”-hook (2 ׳”׳©׳ ׳™׳•׳× ׳”׳¨׳׳©׳•׳ ׳•׳×)
-׳ ׳×׳— ׳׳× ׳”׳¡׳¨׳˜׳•׳ ׳”׳˜׳•׳‘ ׳‘׳™׳•׳×׳¨ ׳׳•׳ ׳”׳’׳¨׳•׳¢ ׳‘׳™׳•׳×׳¨.
+### 🎬 ניתוח ה-hook (2 השניות הראשונות)
+נתח את הסרטון הטוב ביותר מול הגרוע ביותר.
 
-### נ“ ׳”׳₪׳׳˜׳₪׳•׳¨׳׳•׳× ג€” ׳׳׳× ׳§׳©׳”
-׳׳™׳–׳• ׳₪׳׳˜׳₪׳•׳¨׳׳” ׳‘׳–׳‘׳– ׳–׳׳? ׳¢׳ ׳׳¡׳₪׳¨׳™׳ ׳¡׳₪׳¦׳™׳₪׳™׳™׳.
+### 📊 הפלטפורמות — אמת קשה
+איזו פלטפורמה בזבזה זמן? עם מספרים ספציפיים.
 
-### נ”¬ ׳ ׳™׳×׳•׳— ׳›׳•׳×׳¨׳•׳×
-׳׳” ׳¢׳‘׳“ ׳•׳׳” ׳׳? ׳׳” ׳”׳”׳‘׳“׳ ׳‘׳™׳ Top 3 ׳-Bottom 3?
+### 🔬 ניתוח כותרות
+מה עבד ומה לא? מה ההבדל בין Top 3 ל-Bottom 3?
 
-### נ€ 5 ׳›׳•׳×׳¨׳•׳× ׳׳“׳•׳™׳§׳•׳× ׳׳¡׳¨׳˜׳•׳ ׳”׳‘׳
-5 ׳›׳•׳×׳¨׳•׳× ׳¡׳₪׳¦׳™׳₪׳™׳•׳× ׳©׳׳₪׳©׳¨ ׳׳”׳©׳×׳׳© ׳‘׳”׳ ׳׳—׳¨ ׳‘׳‘׳•׳§׳¨.
+### 🚀 5 כותרות מדויקות לסרטון הבא
+5 כותרות ספציפיות שאפשר להשתמש בהן מחר בבוקר.
 
-### ג ן¸ ׳”׳׳׳× ׳©׳׳×׳” ׳׳ ׳¨׳•׳¦׳” ׳׳©׳׳•׳¢
-׳׳©׳”׳• ׳׳—׳“ ׳©׳׳×׳” ׳¢׳•׳©׳” ׳׳ ׳ ׳›׳•׳ ׳•׳׳×׳” ׳׳ ׳©׳ ׳׳‘. ׳‘׳׳™ ׳׳¨׳›׳.
+### ⚠️ האמת שאתה לא רוצה לשמוע
+משהו אחד שאתה עושה לא נכון ואתה לא שם לב. בלי לרכך.
 
-### נ¯ ׳×׳•׳›׳ ׳™׳× ׳₪׳¢׳•׳׳” ׳׳©׳‘׳•׳¢ ׳”׳‘׳
-3 ׳₪׳¢׳•׳׳•׳× ׳§׳•׳ ׳§׳¨׳˜׳™׳•׳× ׳׳¢׳©׳•׳× ׳‘׳©׳‘׳•׳¢ ׳”׳§׳¨׳•׳‘.
+### 🎯 תוכנית פעולה לשבוע הבא
+3 פעולות קונקרטיות לעשות בשבוע הקרוב.
 
-׳¡׳’׳ ׳•׳: ׳™׳©׳™׳¨, ׳‘׳™׳§׳•׳¨׳×׳™, ׳׳‘׳•׳¡׳¡ ׳׳¡׳₪׳¨׳™׳. ׳¢׳‘׳¨׳™׳×. ׳‘׳׳™ ׳”׳§׳“׳׳•׳×.`;
+סגנון: ישיר, ביקורתי, מבוסס מספרים. עברית. בלי הקדמות.`;
 
         const { reply, coreLatencyMs, attempts } = await callGemini({
-            systemInstruction: '׳׳×׳” ׳׳ ׳׳™׳¡׳˜ ׳×׳•׳›׳ ׳׳’׳¨׳¡׳™׳‘׳™. ׳×׳ ׳ ׳™׳×׳•׳— ׳™׳©׳™׳¨, ׳‘׳™׳§׳•׳¨׳×׳™, ׳׳‘׳•׳¡׳¡ ׳׳¡׳₪׳¨׳™׳.',
+            systemInstruction: 'אתה אנליסט תוכן אגרסיבי. תן ניתוח ישיר, ביקורתי, מבוסס מספרים.',
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             temperature: 0.6,
             maxOutputTokens: 2048,
@@ -2663,7 +2749,7 @@ ${commentBlock}
         metrics.totalSuccess += 1;
         recordLatency(coreLatencyMs);
 
-        log('info', `Analyze OK`, { videos: videos.length, coreLatencyMs, totalRoundTripMs, attempts });
+        log('info', 'Analyze OK', { videos: videos.length, coreLatencyMs, totalRoundTripMs, attempts });
 
         return res.json({
             reply,
@@ -2679,7 +2765,7 @@ ${commentBlock}
 });
 
 // ==============================
-// 34. ROUTES ג€” VISION
+// 39. ROUTES — VISION
 // ==============================
 
 app.post('/api/vision', visionRateLimiter, async (req, res, next) => {
@@ -2691,7 +2777,7 @@ app.post('/api/vision', visionRateLimiter, async (req, res, next) => {
         const { image, mimeType, prompt } = req.body || {};
 
         if (!image || typeof image !== 'string') {
-            return res.status(400).json({ reply: '׳׳“׳•׳, ׳׳ ׳”׳×׳§׳‘׳׳” ׳×׳׳•׳ ׳”.' });
+            return res.status(400).json({ reply: 'אדון, לא התקבלה תמונה.' });
         }
 
         const safeMime = (typeof mimeType === 'string' && /^image\/(jpeg|png|webp)$/i.test(mimeType))
@@ -2700,7 +2786,7 @@ app.post('/api/vision', visionRateLimiter, async (req, res, next) => {
 
         const estimatedBytes = Math.floor((image.length * 3) / 4);
         if (estimatedBytes > CONFIG.maxImageSizeBytes) {
-            return res.status(413).json({ reply: '׳׳“׳•׳, ׳”׳×׳׳•׳ ׳” ׳’׳“׳•׳׳” ׳׳“׳™.' });
+            return res.status(413).json({ reply: 'אדון, התמונה גדולה מדי.' });
         }
 
         const userPrompt = typeof prompt === 'string' ? prompt : '';
@@ -2724,7 +2810,7 @@ app.post('/api/vision', visionRateLimiter, async (req, res, next) => {
 });
 
 // ==============================
-// 35. ROUTES ג€” YOUTUBE
+// 40. ROUTES — YOUTUBE
 // ==============================
 
 app.post('/api/youtube/fetch', apiRateLimiter, async (req, res, next) => {
@@ -2739,7 +2825,7 @@ app.post('/api/youtube/fetch', apiRateLimiter, async (req, res, next) => {
         if (!input || typeof input !== 'string') {
             metrics.totalErrors += 1;
             recordError('Missing YouTube URL/ID');
-            return res.status(400).json({ error: '׳—׳¡׳¨ ׳§׳™׳©׳•׳¨ ׳׳• ׳׳–׳”׳” ׳©׳ ׳¡׳¨׳˜׳•׳' });
+            return res.status(400).json({ error: 'חסר קישור או מזהה של סרטון' });
         }
 
         const videoId = extractYouTubeId(input);
@@ -2747,11 +2833,11 @@ app.post('/api/youtube/fetch', apiRateLimiter, async (req, res, next) => {
         if (!videoId) {
             metrics.totalErrors += 1;
             recordError('Invalid YouTube URL/ID');
-            return res.status(400).json({ error: '׳§׳™׳©׳•׳¨ ׳׳ ׳×׳§׳™׳ ג€” ׳׳ ׳”׳¦׳׳—׳×׳™ ׳׳—׳׳¥ ׳׳–׳”׳” ׳¡׳¨׳˜׳•׳' });
+            return res.status(400).json({ error: 'קישור לא תקין — לא הצלחתי לחלץ מזהה סרטון' });
         }
 
         if (!CONFIG.youtubeApiKey) {
-            return res.status(500).json({ error: 'YOUTUBE_API_KEY ׳׳ ׳׳•׳’׳“׳¨ ׳‘׳©׳¨׳×' });
+            return res.status(500).json({ error: 'YOUTUBE_API_KEY לא מוגדר בשרת' });
         }
 
         const apiUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoId}&key=${CONFIG.youtubeApiKey}`;
@@ -2766,7 +2852,7 @@ app.post('/api/youtube/fetch', apiRateLimiter, async (req, res, next) => {
         }
 
         if (!data.items || data.items.length === 0) {
-            return res.status(404).json({ error: '׳”׳¡׳¨׳˜׳•׳ ׳׳ ׳ ׳׳¦׳ ג€” ׳™׳™׳×׳›׳ ׳©׳”׳•׳ ׳₪׳¨׳˜׳™ ׳׳• ׳ ׳׳—׳§' });
+            return res.status(404).json({ error: 'הסרטון לא נמצא — ייתכן שהוא פרטי או נמחק' });
         }
 
         const video = data.items[0];
@@ -2778,7 +2864,7 @@ app.post('/api/youtube/fetch', apiRateLimiter, async (req, res, next) => {
 
         const result = {
             id: videoId,
-            title: snippet.title || '׳׳׳ ׳›׳•׳×׳¨׳×',
+            title: snippet.title || 'ללא כותרת',
             publishedAt,
             duration: parseISODuration(contentDetails.duration),
             views: parseInt(stats.viewCount, 10) || 0,
@@ -2790,7 +2876,7 @@ app.post('/api/youtube/fetch', apiRateLimiter, async (req, res, next) => {
         metrics.totalSuccess += 1;
         recordLatency(Date.now() - requestStart);
 
-        log('info', `YouTube fetch OK`, { videoId, title: result.title });
+        log('info', 'YouTube fetch OK', { videoId, title: result.title });
 
         return res.json(result);
     } catch (error) {
@@ -2799,7 +2885,7 @@ app.post('/api/youtube/fetch', apiRateLimiter, async (req, res, next) => {
 });
 
 // ==============================
-// 36. ROUTES ג€” TIKTOK
+// 41. ROUTES — TIKTOK
 // ==============================
 
 app.post('/api/tiktok/fetch', apiRateLimiter, async (req, res, next) => {
@@ -2813,7 +2899,7 @@ app.post('/api/tiktok/fetch', apiRateLimiter, async (req, res, next) => {
         if (!url || typeof url !== 'string') {
             metrics.totalErrors += 1;
             recordError('Missing TikTok URL');
-            return res.status(400).json({ error: '׳—׳¡׳¨ ׳§׳™׳©׳•׳¨ TikTok' });
+            return res.status(400).json({ error: 'חסר קישור TikTok' });
         }
 
         const videoId = extractTikTokId(url);
@@ -2821,7 +2907,7 @@ app.post('/api/tiktok/fetch', apiRateLimiter, async (req, res, next) => {
         if (!videoId) {
             metrics.totalErrors += 1;
             recordError('Invalid TikTok URL');
-            return res.status(400).json({ error: '׳§׳™׳©׳•׳¨ TikTok ׳׳ ׳×׳§׳™׳ ג€” ׳׳ ׳”׳¦׳׳—׳×׳™ ׳׳—׳׳¥ ׳׳–׳”׳” ׳¡׳¨׳˜׳•׳' });
+            return res.status(400).json({ error: 'קישור TikTok לא תקין — לא הצלחתי לחלץ מזהה סרטון' });
         }
 
         const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url.trim())}`;
@@ -2845,23 +2931,23 @@ app.post('/api/tiktok/fetch', apiRateLimiter, async (req, res, next) => {
             recordError(`TikTok oEmbed ${response.status}`);
 
             if (response.status === 404) {
-                return res.status(404).json({ error: '׳”׳¡׳¨׳˜׳•׳ ׳׳ ׳ ׳׳¦׳ ג€” ׳™׳™׳×׳›׳ ׳©׳”׳•׳ ׳₪׳¨׳˜׳™ ׳׳• ׳ ׳׳—׳§' });
+                return res.status(404).json({ error: 'הסרטון לא נמצא — ייתכן שהוא פרטי או נמחק' });
             }
             if (response.status === 403 || response.status === 429) {
-                return res.status(429).json({ error: 'TikTok ׳—׳•׳¡׳ ׳‘׳§׳©׳•׳× ׳›׳¨׳’׳¢ ג€” ׳ ׳¡׳” ׳©׳•׳‘ ׳‘׳¢׳•׳“ ׳“׳§׳”' });
+                return res.status(429).json({ error: 'TikTok חוסם בקשות כרגע — נסה שוב בעוד דקה' });
             }
-            return res.status(502).json({ error: 'TikTok ׳׳ ׳–׳׳™׳ ׳›׳¨׳’׳¢ ג€” ׳ ׳¡׳” ׳©׳•׳‘ ׳‘׳¢׳•׳“ ׳“׳§׳”' });
+            return res.status(502).json({ error: 'TikTok לא זמין כרגע — נסה שוב בעוד דקה' });
         }
 
         const data = await response.json();
 
         if (!data || !data.title) {
-            return res.status(404).json({ error: '׳׳ ׳”׳¦׳׳—׳×׳™ ׳׳—׳׳¥ ׳׳™׳“׳¢ ׳׳”׳¡׳¨׳˜׳•׳' });
+            return res.status(404).json({ error: 'לא הצלחתי לחלץ מידע מהסרטון' });
         }
 
         const result = {
             id: videoId,
-            title: data.title || '׳׳׳ ׳›׳•׳×׳¨׳×',
+            title: data.title || 'ללא כותרת',
             author: data.author_name || '',
             authorUrl: data.author_url || '',
             thumbnailUrl: data.thumbnail_url || '',
@@ -2877,7 +2963,7 @@ app.post('/api/tiktok/fetch', apiRateLimiter, async (req, res, next) => {
         metrics.totalSuccess += 1;
         recordLatency(Date.now() - requestStart);
 
-        log('info', `TikTok fetch OK`, { videoId, title: truncate(result.title, 50) });
+        log('info', 'TikTok fetch OK', { videoId, title: truncate(result.title, 50) });
 
         return res.json(result);
     } catch (error) {
@@ -2886,7 +2972,7 @@ app.post('/api/tiktok/fetch', apiRateLimiter, async (req, res, next) => {
 });
 
 // ==============================
-// 37. ROUTES ג€” RESEARCH
+// 42. ROUTES — RESEARCH
 // ==============================
 
 app.post('/api/research', researchRateLimiter, async (req, res, next) => {
@@ -2900,7 +2986,7 @@ app.post('/api/research', researchRateLimiter, async (req, res, next) => {
         if (!query || typeof query !== 'string' || !query.trim()) {
             metrics.totalErrors += 1;
             recordError('Empty research query');
-            return res.status(400).json({ error: '׳—׳¡׳¨׳” ׳©׳׳׳”' });
+            return res.status(400).json({ error: 'חסרה שאלה' });
         }
 
         const cleanQuery = query.trim();
@@ -2908,15 +2994,13 @@ app.post('/api/research', researchRateLimiter, async (req, res, next) => {
         if (cleanQuery.length > CONFIG.maxResearchQueryLength) {
             metrics.totalErrors += 1;
             recordError('Research query too long');
-            return res.status(400).json({ error: `׳”׳©׳׳׳” ׳׳¨׳•׳›׳” ׳׳“׳™ (׳׳§׳¡׳™׳׳•׳ ${CONFIG.maxResearchQueryLength} ׳×׳•׳•׳™׳)` });
+            return res.status(400).json({ error: `השאלה ארוכה מדי (מקסימום ${CONFIG.maxResearchQueryLength} תווים)` });
         }
 
         log('info', `Research query: "${cleanQuery}"`);
 
-        // ׳©׳׳‘ 1: ׳×׳¨׳’׳•׳ ׳׳¢׳‘׳¨׳™׳× ׳׳ ׳¦׳¨׳™׳
         const englishQuery = await translateToEnglish(cleanQuery);
 
-        // ׳©׳׳‘ 2: ׳—׳™׳₪׳•׳© ׳‘׳›׳ 8 ׳”׳׳§׳•׳¨׳•׳× ׳‘׳׳§׳‘׳™׳
         const papers = await searchAllSources(englishQuery, CONFIG.researchMaxPerSource);
 
         if (!papers.length) {
@@ -2924,8 +3008,8 @@ app.post('/api/research', researchRateLimiter, async (req, res, next) => {
                 query: cleanQuery,
                 englishQuery,
                 summary: {
-                    verdict: '׳׳ ׳ ׳׳¦׳׳• ׳׳—׳§׳¨׳™׳',
-                    summary: `׳—׳™׳₪׳©׳×׳™ "${englishQuery}" ׳‘-8 ׳׳׳’׳¨׳™׳ ׳׳“׳¢׳™׳™׳ ׳•׳׳ ׳׳¦׳׳×׳™ ׳׳—׳§׳¨׳™׳ ׳¨׳׳•׳•׳ ׳˜׳™׳™׳. ׳ ׳¡׳” ׳׳ ׳¡׳— ׳׳—׳¨׳× ג€” ׳׳׳©׳ "${englishQuery}" ׳‘׳׳ ׳’׳׳™׳×.`,
+                    verdict: 'לא נמצאו מחקרים',
+                    summary: `חיפשתי "${englishQuery}" ב-11 מאגרים מדעיים ולא מצאתי מחקרים רלוונטיים. נסה לנסח אחרת — למשל "${englishQuery}" באנגלית.`,
                     myth: '',
                     limitations: '',
                     fallback: true,
@@ -2937,12 +3021,11 @@ app.post('/api/research', researchRateLimiter, async (req, res, next) => {
             });
         }
 
-        // ׳©׳׳‘ 3: ׳ ׳™׳×׳•׳— ׳¢׳ AI
         let analysis;
         try {
             analysis = await analyzeResearchWithAI(cleanQuery, englishQuery, papers);
         } catch (aiError) {
-            log('warn', `AI analysis failed ג€” using fallback`, { err: aiError.message });
+            log('warn', 'AI analysis failed — using fallback', { err: aiError.message });
             analysis = buildFallbackSummary(cleanQuery, englishQuery, papers);
         }
 
@@ -2950,7 +3033,7 @@ app.post('/api/research', researchRateLimiter, async (req, res, next) => {
         metrics.totalSuccess += 1;
         recordLatency(totalRoundTripMs);
 
-        log('info', `Research OK`, {
+        log('info', 'Research OK', {
             query: cleanQuery,
             englishQuery,
             totalPapers: papers.length,
@@ -2962,7 +3045,7 @@ app.post('/api/research', researchRateLimiter, async (req, res, next) => {
             query: cleanQuery,
             englishQuery,
             summary: analysis,
-            papers: papers.slice(0, CONFIG.researchFinalLimit),
+            papers,
             totalFound: papers.length,
             sources: [...new Set(papers.map((p) => p.source))],
             searchTimeMs: totalRoundTripMs,
@@ -2973,7 +3056,126 @@ app.post('/api/research', researchRateLimiter, async (req, res, next) => {
 });
 
 // ==============================
-// 38. ROUTES ג€” ANALYTICS CHAT
+// 43. ROUTES — RESEARCH CHAT (AI Analyst)
+// ==============================
+
+app.post('/api/research-chat', apiRateLimiter, async (req, res, next) => {
+    const requestStart = Date.now();
+    metrics.totalRequests += 1;
+    metrics.totalResearchChatRequests += 1;
+
+    try {
+        const { query, papers, history: rawHistory } = req.body || {};
+
+        if (!query || typeof query !== 'string' || !query.trim()) {
+            metrics.totalErrors += 1;
+            recordError('Empty research chat query');
+            return res.status(400).json({ error: 'חסרה שאלה' });
+        }
+
+        if (!Array.isArray(papers) || papers.length === 0) {
+            metrics.totalErrors += 1;
+            recordError('No papers in research chat');
+            return res.status(400).json({ error: 'אין מחקרים לשאול עליהם' });
+        }
+
+        const cleanQuery = query.trim();
+        if (cleanQuery.length > 500) {
+            metrics.totalErrors += 1;
+            recordError('Research chat query too long');
+            return res.status(400).json({ error: 'השאלה ארוכה מדי (מקסימום 500 תווים)' });
+        }
+
+        log('info', `Research chat: "${truncate(cleanQuery, 80)}" (${papers.length} papers available)`);
+
+        const scored = papers.map((p) => ({
+            paper: p,
+            score: scorePaperRelevance(p, cleanQuery),
+        }));
+        scored.sort((a, b) => b.score - a.score);
+        const topPapers = scored.slice(0, CONFIG.researchChatContextLimit).map((s) => s.paper);
+
+        const papersText = topPapers.map((p, i) => {
+            const cite = p.citedBy ? ` [${p.citedBy} citations]` : '';
+            const source = p.source ? ` [${p.source}]` : '';
+            const year = p.year ? ` (${p.year})` : '';
+            const snippet = truncate(p.abstract || 'תקציר לא זמין', 400);
+            return `[${i + 1}] "${p.title}"${year}${cite}${source}\n${snippet}\n`;
+        }).join('\n');
+
+        const userPrompt = `## השאלה שלי:
+${cleanQuery}
+
+## המחקרים הרלוונטיים (${topPapers.length} מתוך ${papers.length} שנמצאו):
+
+${papersText}
+
+---
+
+ענה על השאלה שלי בהתבסס על המחקרים שלמעלה.`;
+
+        const normalizedHistory = Array.isArray(rawHistory)
+            ? rawHistory.map((h) => ({
+                role: h?.role === 'assistant' ? 'jarvis' : 'user',
+                text: h?.content || h?.text || '',
+            }))
+            : [];
+
+        const history = sanitizeHistory(normalizedHistory);
+                const mode = (req.body?.mode === 'papers') ? 'papers' : 'hybrid';
+        const systemPromptToUse = (mode === 'papers')
+            ? RESEARCH_CHAT_SYSTEM_PROMPT
+            : RESEARCH_CHAT_HYBRID_SYSTEM_PROMPT;
+
+
+        const { reply, coreLatencyMs, attempts } = await callGemini({
+                       systemInstruction: systemPromptToUse,
+            contents: buildConversationContents(history, userPrompt),
+            temperature: 0.5,
+            maxOutputTokens: 2048,
+            timeoutMs: CONFIG.geminiTimeoutMs,
+            retries: CONFIG.defaultRetries,
+        });
+
+        const totalRoundTripMs = Date.now() - requestStart;
+        metrics.totalSuccess += 1;
+        recordLatency(coreLatencyMs);
+
+        log('info', 'Research chat OK', {
+            usedPapers: topPapers.length,
+            availablePapers: papers.length,
+            coreLatencyMs,
+            totalRoundTripMs,
+        });
+
+        const usedPapers = topPapers.map((p, i) => ({
+            index: i + 1,
+            title: truncate(p.title, 120),
+            source: p.source || '',
+            year: p.year || '',
+            url: p.url || '',
+            doi: p.doi || '',
+        }));
+
+        return res.json({
+            reply,
+           mode,
+            usedPapers,
+            usedPapersCount: topPapers.length,
+            availablePapersCount: papers.length,
+            latencyMs: coreLatencyMs,
+            roundTripMs: totalRoundTripMs,
+            attempts,
+            timestamp: new Date().toISOString(),
+        });
+
+    } catch (error) {
+        next(error);
+    }
+});
+
+// ==============================
+// 44. ROUTES — ANALYTICS CHAT
 // ==============================
 
 app.post('/api/analytics-chat', apiRateLimiter, async (req, res, next) => {
@@ -2986,7 +3188,7 @@ app.post('/api/analytics-chat', apiRateLimiter, async (req, res, next) => {
         if (!message || typeof message !== 'string' || !message.trim()) {
             metrics.totalErrors += 1;
             recordError('Empty analytics chat message');
-            return res.status(400).json({ reply: '׳׳“׳•׳, ׳׳ ׳”׳×׳§׳‘׳׳” ׳”׳•׳“׳¢׳”.' });
+            return res.status(400).json({ reply: 'אדון, לא התקבלה הודעה.' });
         }
 
         const userMessage = message.trim();
@@ -2995,22 +3197,22 @@ app.post('/api/analytics-chat', apiRateLimiter, async (req, res, next) => {
 
         const analyticsBlock = videos.length
             ? `
-### ׳¡׳™׳›׳•׳ ׳›׳׳׳™
-- ׳¡׳¨׳˜׳•׳ ׳™׳: ${summary.totalVideos}
-- ׳¦׳₪׳™׳•׳×: ${(summary.totalViews || 0).toLocaleString('he-IL')}
-- ׳׳™׳™׳§׳™׳: ${summary.totalLikes || 0}
-- ׳×׳’׳•׳‘׳•׳×: ${summary.totalComments || 0}
-- ׳׳ ׳•׳™׳™׳: ${summary.totalSubscribers || 0}
-- ׳™׳—׳¡ ׳׳™׳™׳§׳™׳: ${summary.ratio || 0}%
-- ׳™׳—׳¡ ׳×׳’׳•׳‘׳•׳×: ${summary.commentRatio || 0}%
+### סיכום כללי
+- סרטונים: ${summary.totalVideos}
+- צפיות: ${(summary.totalViews || 0).toLocaleString('he-IL')}
+- לייקים: ${summary.totalLikes || 0}
+- תגובות: ${summary.totalComments || 0}
+- מנויים: ${summary.totalSubscribers || 0}
+- יחס לייקים: ${summary.ratio || 0}%
+- יחס תגובות: ${summary.commentRatio || 0}%
 
-### ׳₪׳™׳¨׳•׳˜ ׳”׳¡׳¨׳˜׳•׳ ׳™׳ (${videos.length})
+### פירוט הסרטונים (${videos.length})
 ${videos.slice(0, 30).map((v) => {
     const vr = v.views ? ((v.likes || 0) / v.views * 100).toFixed(2) : '0';
-    return `**${truncate(v.title, 80)}** [${v.platform || 'youtube'}] ג€” ${v.views || 0} ׳¦׳₪׳™׳•׳×, ${v.likes || 0} ׳׳™׳™׳§׳™׳ (${vr}%), ${v.comments || 0} ׳×׳’׳•׳‘׳•׳×, ${v.duration || 0}s`;
+    return `**${truncate(v.title, 80)}** [${v.platform || 'youtube'}] — ${v.views || 0} צפיות, ${v.likes || 0} לייקים (${vr}%), ${v.comments || 0} תגובות, ${v.duration || 0}s`;
 }).join('\n')}
 `
-            : '\n### ׳׳™׳ ׳ ׳×׳•׳ ׳™ ׳׳ ׳׳™׳˜׳™׳§׳¡ ׳–׳׳™׳ ׳™׳ ׳›׳¨׳’׳¢.\n';
+            : '\n### אין נתוני אנליטיקס זמינים כרגע.\n';
 
         metrics.totalKnowledgeLookups += 1;
         const personalChunks = searchKnowledge(userMessage);
@@ -3018,10 +3220,10 @@ ${videos.slice(0, 30).map((v) => {
 
         if (personalChunks.length > 0) {
             metrics.totalKnowledgeHits += 1;
-            personalContext = `\n\n### ׳™׳“׳¢ ׳׳™׳©׳™ ׳¨׳׳•׳•׳ ׳˜׳™:\n${personalChunks.map((c) => `- ${c.text}`).join('\n')}`;
+            personalContext = `\n\n### ידע אישי רלוונטי:\n${personalChunks.map((c) => `- ${c.text}`).join('\n')}`;
         }
 
-        const combinedSystemPrompt = `${ANALYTICS_SYSTEM_PROMPT}\n\n## ׳ ׳×׳•׳ ׳™ ׳”׳׳ ׳׳™׳˜׳™׳§׳¡ ׳©׳ ׳”׳׳©׳×׳׳©:\n${analyticsBlock}\n${personalContext}`;
+        const combinedSystemPrompt = `${ANALYTICS_SYSTEM_PROMPT}\n\n## נתוני האנליטיקס של המשתמש:\n${analyticsBlock}\n${personalContext}`;
 
         const normalizedHistory = Array.isArray(rawHistory)
             ? rawHistory.map((h) => ({
@@ -3046,7 +3248,7 @@ ${videos.slice(0, 30).map((v) => {
         metrics.totalSuccess += 1;
         recordLatency(coreLatencyMs);
 
-        log('info', `Analytics chat OK`, {
+        log('info', 'Analytics chat OK', {
             videos: videos.length,
             historyUsed: history.length,
             personalChunks: personalChunks.length,
@@ -3069,167 +3271,13 @@ ${videos.slice(0, 30).map((v) => {
 });
 
 // ==============================
-// 39. ROUTES ג€” MEGA PROMPT
+// 45. ROUTES — NUTRITION ANALYZE
 // ==============================
-
-app.get('/api/mega-prompt', async (req, res, next) => {
-    try {
-        const uptimeSeconds = Math.floor((Date.now() - metrics.startedAt) / 1000);
-        const mem = process.memoryUsage();
-        const now = new Date().toISOString();
-
-        const knowledgeFilesList = Array.from(knowledge.files.values())
-            .map((f) => `- \`knowledge/${f.name}\` ג€” ${f.chunks} chunks, ${f.chars} ׳×׳•׳•׳™׳`)
-            .join('\n');
-
-        const megaPrompt = `# נ¯ J.A.R.V.I.S ג€” PROJECT MEGA-PROMPT
-# ׳ ׳•׳¦׳¨ ׳׳•׳˜׳•׳׳˜׳™׳×: ${now}
-# Uptime: ${formatUptime(uptimeSeconds)} | Memory: ${(mem.rss / 1024 / 1024).toFixed(1)} MB
-
-## נ¯ ׳”׳§׳©׳¨ ׳›׳׳׳™
-
-׳׳ ׳™ ׳׳₪׳×׳— ׳₪׳¨׳•׳™׳§׳˜ J.A.R.V.I.S ג€” ׳¢׳•׳–׳¨ AI ׳׳™׳©׳™ ׳‘׳¢׳‘׳¨׳™׳×, ׳‘׳ ׳•׳™ ׳¢׳ Node.js/Express + Gemini API.
-
-**׳¡׳˜׳׳§ ׳˜׳›׳ ׳•׳׳•׳’׳™:**
-- Backend: Node.js + Express
-- AI: Google Gemini API (׳׳•׳“׳: ${CONFIG.geminiModel})
-- Frontend: Vanilla JS + HTML + CSS
-- ׳׳—׳¡׳•׳: GitHub + Render
-- Environment: ${CONFIG.environment}
-
-## נ¯ Endpoints ׳–׳׳™׳ ׳™׳
-
-### ׳¦'׳׳˜ ׳•-Vision
-- \`POST /api/ask\` ג€” ׳¦'׳׳˜ ׳¢׳ Gemini + history + BM25 knowledge
-- \`POST /api/vision\` ג€” ׳ ׳™׳×׳•׳— ׳×׳׳•׳ ׳•׳×
-- \`POST /api/analytics-chat\` ג€” ׳¦'׳׳˜ ׳¢׳ ׳ ׳×׳•׳ ׳™ Analytics
-
-### ׳ ׳™׳×׳•׳— ׳×׳•׳›׳
-- \`POST /api/analyze\` ג€” ׳ ׳™׳×׳•׳— ׳׳ ׳׳™׳˜׳™ ׳©׳ ׳¡׳¨׳˜׳•׳ ׳™׳
-- \`POST /api/youtube/fetch\` ג€” ׳©׳׳™׳₪׳× ׳ ׳×׳•׳ ׳™ YouTube
-- \`POST /api/tiktok/fetch\` ג€” ׳©׳׳™׳₪׳× ׳ ׳×׳•׳ ׳™ TikTok
-
-### ׳׳—׳§׳¨
-- \`POST /api/research\` ג€” ׳׳—׳§׳¨ ׳-8 ׳׳§׳•׳¨׳•׳× ׳׳“׳¢׳™׳™׳:
-  - Europe PMC, PubMed, OpenAlex, Semantic Scholar
-  - CrossRef, DOAJ, bioRxiv, CORE
-
-### Knowledge Base
-- \`GET /api/knowledge\` ג€” ׳¨׳©׳™׳׳× ׳§׳‘׳¦׳™ ׳™׳“׳¢
-- \`POST /api/knowledge/upload\` ג€” ׳”׳¢׳׳׳× ׳§׳•׳‘׳¥
-- \`DELETE /api/knowledge/:name\` ג€” ׳׳—׳™׳§׳× ׳§׳•׳‘׳¥
-- \`POST /api/knowledge/reload\` ג€” ׳˜׳¢׳™׳ ׳” ׳׳—׳“׳©
-
-### ׳׳¢׳¨׳›׳×
-- \`GET /api/health\` ג€” ׳׳˜׳¨׳™׳§׳•׳× ׳׳•׳¨׳—׳‘׳•׳×
-- \`GET /api/metrics\` ג€” ׳׳˜׳¨׳™׳§׳•׳× ׳׳§׳•׳—
-- \`GET /api/mega-prompt\` ג€” ׳׳¡׳׳ ׳–׳”
-
-## נ“ Knowledge Base
-
-${knowledgeFilesList || '- ג ן¸ ׳׳™׳ ׳§׳‘׳¦׳™ ׳™׳“׳¢'}
-
-**׳¡׳™׳›׳•׳:**
-- ׳§׳‘׳¦׳™׳: ${knowledge.files.size}
-- Chunks: ${knowledge.chunks.length}
-- ׳׳•׳¦׳¨ ׳׳™׳׳™׳: ${knowledge.vocab.size}
-- ׳׳•׳¨׳ ׳׳¡׳׳ ׳׳׳•׳¦׳¢: ${Math.round(knowledge.avgDocLength)} ׳˜׳•׳§׳ ׳™׳
-
-## נ“ ׳׳˜׳¨׳™׳§׳•׳× ׳—׳™׳•׳× (${now})
-
-\`\`\`json
-${JSON.stringify({
-    uptime: uptimeSeconds,
-    environment: CONFIG.environment,
-    model: CONFIG.geminiModel,
-    totalRequests: metrics.totalRequests,
-    totalSuccess: metrics.totalSuccess,
-    totalErrors: metrics.totalErrors,
-    totalVisionRequests: metrics.totalVisionRequests,
-    totalYoutubeRequests: metrics.totalYoutubeRequests,
-    totalTiktokRequests: metrics.totalTiktokRequests,
-    totalResearchRequests: metrics.totalResearchRequests,
-    totalTranslationRequests: metrics.totalTranslationRequests,
-    totalPapersFetched: metrics.totalPapersFetched,
-    totalKnowledgeLookups: metrics.totalKnowledgeLookups,
-    totalKnowledgeHits: metrics.totalKnowledgeHits,
-    totalRateLimitHits: metrics.totalRateLimitHits,
-    totalHighDemandHits: metrics.totalHighDemandHits,
-    totalHistoryMessagesSent: metrics.totalHistoryMessagesSent,
-    lastLatencyMs: metrics.lastLatencyMs,
-    avgLatencyMs: metrics.avgLatencyMs,
-    perSourceHits: metrics.perSourceHits,
-    knowledgeFiles: knowledge.files.size,
-    knowledgeChunks: knowledge.chunks.length,
-    knowledgeVocab: knowledge.vocab.size,
-}, null, 2)}
-\`\`\`
-
-## נ”§ ׳×׳›׳•׳ ׳•׳× ׳׳×׳§׳“׳׳•׳×
-
-### BM25 Search
-- K1 = ${CONFIG.bm25K1}
-- B = ${CONFIG.bm25B}
-- Top Chunks = ${CONFIG.knowledgeTopChunks}
-- Min Score = ${CONFIG.knowledgeMinScore}
-
-### Retry Logic
-- Retries ׳‘׳¨׳™׳¨׳× ׳׳—׳“׳: ${CONFIG.defaultRetries}
-- Retries ׳-Vision: ${CONFIG.visionRetries}
-- ׳”׳©׳”׳™׳” ׳¢׳ 429: ${CONFIG.retryOn429DelayMs}ms
-- ׳”׳©׳”׳™׳” ׳¢׳ 503 (High Demand): ${CONFIG.retryOn503DelayMs}ms
-
-### Rate Limits
-- API ׳›׳׳׳™: ${CONFIG.rateLimitMax} ׳‘׳§׳©׳•׳× / ׳“׳§׳”
-- Vision: ${CONFIG.visionRateLimitMax} ׳‘׳§׳©׳•׳× / ׳“׳§׳”
-- Research: ${CONFIG.researchRateLimitMax} ׳‘׳§׳©׳•׳× / ׳“׳§׳”
-
-### Research Aggregator
-- ${8} ׳׳§׳•׳¨׳•׳× ׳׳“׳¢׳™׳™׳
-- ${CONFIG.researchMaxPerSource} ׳׳—׳§׳¨׳™׳ ׳׳›׳ ׳׳§׳•׳¨
-- ${CONFIG.researchFinalLimit} ׳׳—׳§׳¨׳™׳ ׳¡׳•׳₪׳™׳™׳
-- Deduplication by DOI + Title
-- Scoring ׳׳₪׳™ ׳¨׳׳•׳•׳ ׳˜׳™׳•׳× (Title match, Study type, Health keywords)
-
-### ׳×׳¨׳’׳•׳ ׳׳•׳˜׳•׳׳˜׳™
-- ׳¢׳‘׳¨׳™׳× ג†’ ׳׳ ׳’׳׳™׳× ׳׳“׳¢׳™׳×
-- ׳׳•׳“׳: ${CONFIG.geminiModel}
-- Timeout: ${CONFIG.geminiTranslationTimeoutMs}ms
-
-## נ¯ ׳”׳׳©׳™׳׳” ׳”׳‘׳׳”
-
-׳׳‘׳ ׳•׳× ׳׳׳©׳§׳™׳ ׳—׳“׳©׳™׳:
-1. ׳׳¢׳¨׳›׳× ׳×׳–׳•׳ ׳” ג€” ׳ ׳™׳×׳•׳— ׳׳” ׳׳›׳׳× ׳”׳™׳•׳
-2. ׳׳¢׳¨׳›׳× ׳׳™׳׳•׳ ג€” ׳׳¢׳§׳‘ ׳×׳¨׳’׳™׳׳™ ׳§׳׳™׳¡׳˜׳ ׳™׳§׳¡
-3. ׳”׳×׳¨׳׳•׳× ג€” ׳¡׳™׳›׳•׳ ׳™׳•׳׳™ + ׳×׳–׳›׳•׳¨׳•׳×
-
----
-
-*׳ ׳•׳¦׳¨ ׳׳•׳˜׳•׳׳˜׳™׳× ׳¢׳ ׳™׳“׳™ GET /api/mega-prompt.*
-*׳”׳¢׳×׳§ ׳׳× ׳›׳ ׳”׳˜׳§׳¡׳˜ ׳”׳–׳” ׳•׳©׳׳— ׳-AI ׳—׳“׳© ׳›׳“׳™ ׳׳”׳׳©׳™׳ ׳׳× ׳”׳₪׳¨׳•׳™׳§׳˜.*`;
-
-        res.type('text/plain; charset=utf-8').send(megaPrompt);
-    } catch (err) {
-        next(err);
-    }
-});
-// ==============================
-// NUTRITION ג€” Analyze endpoint
-// ==============================
-
-const NUTRITION_SYSTEM_PROMPT = `׳׳×׳” ׳×׳–׳•׳ ׳׳™ ׳׳§׳¦׳•׳¢׳™. ׳׳×׳” ׳׳ ׳×׳— ׳׳¨׳•׳—׳•׳× ׳‘׳¢׳‘׳¨׳™׳× ׳•׳׳—׳–׳™׳¨ ׳ ׳×׳•׳ ׳™׳ ׳×׳–׳•׳ ׳×׳™׳™׳ ׳׳“׳•׳™׳§׳™׳ ׳‘׳₪׳•׳¨׳׳˜ JSON.
-
-## ׳›׳׳׳™׳:
-1. ׳”׳™׳” ׳¨׳™׳׳׳™ ׳‘׳׳¡׳₪׳¨׳™׳ ג€” ׳”׳©׳×׳׳© ׳‘׳׳׳’׳¨׳™ ׳׳™׳“׳¢ ׳×׳–׳•׳ ׳×׳™׳™׳ ׳׳§׳•׳‘׳׳™׳.
-2. ׳׳ ׳™׳© ׳¡׳₪׳§ ג€” ׳×׳ ׳”׳¢׳¨׳›׳” ׳©׳׳¨׳ ׳™׳×.
-3. ׳׳ ׳׳ ׳–׳™׳”׳™׳× ׳׳׳›׳ ג€” ׳”׳—׳–׳¨ ׳¢׳¨׳›׳™׳ 0 ׳•׳¦׳™׳™׳ ׳‘׳©׳ "׳׳ ׳–׳•׳”׳”".
-4. ׳”׳©׳×׳׳© ׳‘׳©׳׳•׳× ׳‘׳¢׳‘׳¨׳™׳× ׳׳׳׳›׳׳™׳, ׳•׳™׳˜׳׳™׳ ׳™׳, ׳•׳׳™׳ ׳¨׳׳™׳.
-5. ׳׳—׳•׳–׳™׳ ׳©׳ ׳•׳™׳˜׳׳™׳ ׳™׳/׳׳™׳ ׳¨׳׳™׳ = ׳׳—׳•׳– ׳׳”-RDA ׳”׳™׳•׳׳™.
-6. ׳”׳—׳–׳¨ **׳¨׳§** JSON ׳×׳§׳™׳, ׳‘׳׳™ ׳˜׳§׳¡׳˜ ׳ ׳•׳¡׳£.`;
 
 app.post('/api/nutrition/analyze', apiRateLimiter, async (req, res, next) => {
     const requestStart = Date.now();
     metrics.totalRequests += 1;
+    metrics.totalNutritionRequests += 1;
 
     try {
         const { meals } = req.body || {};
@@ -3237,7 +3285,7 @@ app.post('/api/nutrition/analyze', apiRateLimiter, async (req, res, next) => {
         if (!meals) {
             metrics.totalErrors += 1;
             recordError('Missing meals in nutrition request');
-            return res.status(400).json({ error: '׳—׳¡׳¨׳•׳× ׳׳¨׳•׳—׳•׳× ׳׳ ׳™׳×׳•׳—' });
+            return res.status(400).json({ error: 'חסרות ארוחות לניתוח' });
         }
 
         const mealsArray = Array.isArray(meals) ? meals : [meals];
@@ -3253,7 +3301,7 @@ app.post('/api/nutrition/analyze', apiRateLimiter, async (req, res, next) => {
         if (cleanMeals.length === 0) {
             metrics.totalErrors += 1;
             recordError('Empty meals array after cleanup');
-            return res.status(400).json({ error: '׳׳™׳ ׳׳¨׳•׳—׳•׳× ׳׳ ׳™׳×׳•׳—' });
+            return res.status(400).json({ error: 'אין ארוחות לניתוח' });
         }
 
         log('info', `Nutrition analysis: ${cleanMeals.length} meals`);
@@ -3262,23 +3310,23 @@ app.post('/api/nutrition/analyze', apiRateLimiter, async (req, res, next) => {
             .map((m, i) => `${i + 1}. ${m}`)
             .join('\n');
 
-        const userPrompt = `׳ ׳×׳— ׳׳× ׳”׳׳¨׳•׳—׳•׳× ׳”׳‘׳׳•׳×:
+        const userPrompt = `נתח את הארוחות הבאות:
 
 ${mealsList}
 
-׳”׳—׳–׳¨ JSON ׳¢׳ ׳”׳׳‘׳ ׳” ׳”׳–׳” ׳‘׳“׳™׳•׳§:
+החזר JSON עם המבנה הזה בדיוק:
 
 {
-  "totalCalories": <number, ׳§׳׳•׳¨׳™׳•׳× ׳¡׳”"׳›>,
-  "totalProtein": <number, ׳’׳¨׳ ׳—׳׳‘׳•׳ ׳¡׳”"׳›>,
-  "totalCarbs": <number, ׳’׳¨׳ ׳₪׳—׳׳™׳׳•׳× ׳¡׳”"׳›>,
-  "totalFat": <number, ׳’׳¨׳ ׳©׳•׳׳ ׳¡׳”"׳›>,
-  "totalSugar": <number, ׳’׳¨׳ ׳¡׳•׳›׳¨ ׳¡׳”"׳›>,
-  "totalFiber": <number, ׳’׳¨׳ ׳¡׳™׳‘׳™׳ ׳¡׳”"׳›>,
+  "totalCalories": <number, קלוריות סה"כ>,
+  "totalProtein": <number, גרם חלבון סה"כ>,
+  "totalCarbs": <number, גרם פחמימות סה"כ>,
+  "totalFat": <number, גרם שומן סה"כ>,
+  "totalSugar": <number, גרם סוכר סה"כ>,
+  "totalFiber": <number, גרם סיבים סה"כ>,
   "items": [
     {
-      "name": "<׳©׳ ׳”׳׳׳›׳ ׳‘׳¢׳‘׳¨׳™׳×>",
-      "amount": "<׳›׳׳•׳×: ׳׳׳©׳ '2 ׳‘׳™׳¦׳™׳', '200 ׳’׳¨׳ ׳¢׳•׳£'>",
+      "name": "<שם המאכל בעברית>",
+      "amount": "<כמות: למשל '2 ביצים', '200 גרם עוף'>",
       "calories": <number>,
       "protein": <number>,
       "carbs": <number>,
@@ -3288,28 +3336,28 @@ ${mealsList}
     }
   ],
   "vitamins": [
-    { "name": "<׳©׳ ׳”׳•׳™׳˜׳׳™׳ ׳‘׳¢׳‘׳¨׳™׳×: ׳׳׳©׳ '׳•׳™׳˜׳׳™׳ C'>", "percent": <number, ׳׳—׳•׳– RDA ׳™׳•׳׳™>, "source": "<׳׳׳™׳–׳” ׳׳׳›׳>" }
+    { "name": "<שם הויטמין בעברית: למשל 'ויטמין C'>", "percent": <number, אחוז RDA יומי>, "source": "<מאיזה מאכל>" }
   ],
   "minerals": [
-    { "name": "<׳©׳ ׳”׳׳™׳ ׳¨׳ ׳‘׳¢׳‘׳¨׳™׳×: ׳׳׳©׳ '׳‘׳¨׳–׳'>", "percent": <number, ׳׳—׳•׳– RDA ׳™׳•׳׳™>, "source": "<׳׳׳™׳–׳” ׳׳׳›׳>" }
+    { "name": "<שם המינרל בעברית: למשל 'ברזל'>", "percent": <number, אחוז RDA יומי>, "source": "<מאיזה מאכל>" }
   ],
   "aminoAcids": [
-    { "name": "<׳©׳ ׳—׳•׳׳¦׳× ׳”׳׳׳™׳ ׳•: ׳׳׳©׳ 'Leucine'>", "present": <true/false> }
+    { "name": "<שם חומצת האמינו: למשל 'Leucine'>", "present": <true/false> }
   ],
-  "insights": "<׳׳©׳₪׳˜ ׳׳—׳“ ׳§׳¦׳¨: ׳”׳×׳•׳‘׳ ׳” ׳”׳›׳™ ׳—׳©׳•׳‘׳” ׳¢׳ ׳”׳׳¨׳•׳—׳” ׳”׳–׳•>"
+  "insights": "<משפט אחד קצר: התובנה הכי חשובה על הארוחה הזו>"
 }
 
-׳—׳©׳•׳‘:
-- ׳›׳ ׳”׳׳¡׳₪׳¨׳™׳ ׳—׳™׳™׳‘׳™׳ ׳׳”׳™׳•׳× ׳׳¡׳₪׳¨׳™׳™׳ (׳‘׳׳™ ׳™׳—׳™׳“׳•׳×).
-- ׳׳ ׳׳׳›׳ ׳׳ ׳–׳•׳”׳” ג€” ׳”׳©׳×׳׳© ׳‘-"׳׳ ׳–׳•׳”׳”" ׳›׳©׳, ׳¢׳ ׳¢׳¨׳›׳™ 0.
-- vitamins ׳•-minerals ג€” ׳¨׳§ ׳׳׳” ׳©׳‘׳•׳׳˜׳™׳ (percent >= 5).
-- aminoAcids ג€” 9 ׳—׳•׳׳¦׳•׳× ׳—׳™׳•׳ ׳™׳•׳×: Histidine, Isoleucine, Leucine, Lysine, Methionine, Phenylalanine, Threonine, Tryptophan, Valine.`;
+חשוב:
+- כל המספרים חייבים להיות מספריים (בלי יחידות).
+- אם מאכל לא זוהה — השתמש ב-"לא זוהה" כשם, עם ערכי 0.
+- vitamins ו-minerals — רק אלה שבולטים (percent >= 5).
+- aminoAcids — 9 חומצות חיוניות: Histidine, Isoleucine, Leucine, Lysine, Methionine, Phenylalanine, Threonine, Tryptophan, Valine.`;
 
         const { data, coreLatencyMs, attempts } = await callGeminiJSON({
             systemInstruction: NUTRITION_SYSTEM_PROMPT,
             userPrompt,
             temperature: 0.3,
-               maxOutputTokens: 8192,
+            maxOutputTokens: 8192,
             timeoutMs: CONFIG.geminiTimeoutMs,
             retries: CONFIG.defaultRetries,
         });
@@ -3318,7 +3366,7 @@ ${mealsList}
         metrics.totalSuccess += 1;
         recordLatency(coreLatencyMs);
 
-        log('info', `Nutrition OK`, {
+        log('info', 'Nutrition OK', {
             meals: cleanMeals.length,
             items: Array.isArray(data.items) ? data.items.length : 0,
             coreLatencyMs,
@@ -3338,16 +3386,164 @@ ${mealsList}
         next(error);
     }
 });
+
 // ==============================
-// 40. 404 HANDLER
+// 46. ROUTES — MEGA PROMPT
 // ==============================
 
-app.use((req, res) => {
-    res.status(404).json({ reply: '׳׳“׳•׳, ׳”׳ ׳×׳™׳‘ ׳”׳׳‘׳•׳§׳© ׳׳™׳ ׳• ׳§׳™׳™׳.' });
+app.get('/api/mega-prompt', async (req, res, next) => {
+    try {
+        const uptimeSeconds = Math.floor((Date.now() - metrics.startedAt) / 1000);
+        const mem = process.memoryUsage();
+        const now = new Date().toISOString();
+
+        const knowledgeFilesList = Array.from(knowledge.files.values())
+            .map((f) => `- knowledge/${f.name} — ${f.chunks} chunks, ${f.chars} תווים`)
+            .join('\n');
+
+        const metricsSnapshot = {
+            uptime: uptimeSeconds,
+            environment: CONFIG.environment,
+            model: CONFIG.geminiModel,
+            totalRequests: metrics.totalRequests,
+            totalSuccess: metrics.totalSuccess,
+            totalErrors: metrics.totalErrors,
+            totalVisionRequests: metrics.totalVisionRequests,
+            totalYoutubeRequests: metrics.totalYoutubeRequests,
+            totalTiktokRequests: metrics.totalTiktokRequests,
+            totalResearchRequests: metrics.totalResearchRequests,
+            totalResearchChatRequests: metrics.totalResearchChatRequests,
+            totalTranslationRequests: metrics.totalTranslationRequests,
+            totalNutritionRequests: metrics.totalNutritionRequests,
+            totalPapersFetched: metrics.totalPapersFetched,
+            totalKnowledgeLookups: metrics.totalKnowledgeLookups,
+            totalKnowledgeHits: metrics.totalKnowledgeHits,
+            totalRateLimitHits: metrics.totalRateLimitHits,
+            totalHighDemandHits: metrics.totalHighDemandHits,
+            totalHistoryMessagesSent: metrics.totalHistoryMessagesSent,
+            lastLatencyMs: metrics.lastLatencyMs,
+            avgLatencyMs: metrics.avgLatencyMs,
+            perSourceHits: metrics.perSourceHits,
+            knowledgeFiles: knowledge.files.size,
+            knowledgeChunks: knowledge.chunks.length,
+            knowledgeVocab: knowledge.vocab.size,
+        };
+
+        const sections = [
+            '# J.A.R.V.I.S — PROJECT MEGA-PROMPT',
+            `# נוצר אוטומטית: ${now}`,
+            `# Uptime: ${formatUptime(uptimeSeconds)} | Memory: ${(mem.rss / 1024 / 1024).toFixed(1)} MB`,
+            '',
+            '## הקשר כללי',
+            '',
+            'אני מפתח פרויקט J.A.R.V.I.S — עוזר AI אישי בעברית, בנוי על Node.js/Express + Gemini API.',
+            '',
+            '**סטאק טכנולוגי:**',
+            '- Backend: Node.js + Express',
+            `- AI: Google Gemini API (מודל: ${CONFIG.geminiModel})`,
+            '- Frontend: Vanilla JS + HTML + CSS',
+            '- אחסון: GitHub + Render',
+            `- Environment: ${CONFIG.environment}`,
+            '',
+            '## Endpoints זמינים',
+            '',
+            '### צ\'אט ו-Vision',
+            '- POST /api/ask — צ\'אט עם Gemini + history + BM25 knowledge',
+            '- POST /api/vision — ניתוח תמונות',
+            '- POST /api/analytics-chat — צ\'אט על נתוני Analytics',
+            '',
+            '### ניתוח תוכן',
+            '- POST /api/analyze — ניתוח אנליטי של סרטונים',
+            '- POST /api/youtube/fetch — שליפת נתוני YouTube',
+            '- POST /api/tiktok/fetch — שליפת נתוני TikTok',
+            '',
+            '### מחקר',
+            '- POST /api/research — מחקר מ-11 מקורות מדעיים',
+            '- POST /api/research-chat — צ\'אט AI על מחקרים',
+            '',
+            '### תזונה',
+            '- POST /api/nutrition/analyze — ניתוח ארוחות ל-JSON מובנה',
+            '',
+            '### Knowledge Base',
+            '- GET /api/knowledge — רשימת קבצי ידע',
+            '- POST /api/knowledge/upload — העלאת קובץ',
+            '- DELETE /api/knowledge/:name — מחיקת קובץ',
+            '- POST /api/knowledge/reload — טעינה מחדש',
+            '',
+            '### מערכת',
+            '- GET /api/health — מטריקות מורחבות',
+            '- GET /api/metrics — מטריקות לקוח',
+            '- GET /api/mega-prompt — מסמך זה',
+            '',
+            '## Knowledge Base',
+            '',
+            knowledgeFilesList || '- אין קבצי ידע',
+            '',
+            `**סיכום:**`,
+            `- קבצים: ${knowledge.files.size}`,
+            `- Chunks: ${knowledge.chunks.length}`,
+            `- אוצר מילים: ${knowledge.vocab.size}`,
+            `- אורך מסמך ממוצע: ${Math.round(knowledge.avgDocLength)} טוקנים`,
+            '',
+            `## מטריקות חיות (${now})`,
+            '',
+            '```json',
+            JSON.stringify(metricsSnapshot, null, 2),
+            '```',
+            '',
+            '## תכונות מתקדמות',
+            '',
+            '### BM25 Search',
+            `- K1 = ${CONFIG.bm25K1}`,
+            `- B = ${CONFIG.bm25B}`,
+            `- Top Chunks = ${CONFIG.knowledgeTopChunks}`,
+            `- Min Score = ${CONFIG.knowledgeMinScore}`,
+            '',
+            '### Retry Logic',
+            `- Retries ברירת מחדל: ${CONFIG.defaultRetries}`,
+            `- Retries ל-Vision: ${CONFIG.visionRetries}`,
+            `- השהיה על 429: ${CONFIG.retryOn429DelayMs}ms`,
+            `- השהיה על 503 (High Demand): ${CONFIG.retryOn503DelayMs}ms`,
+            '',
+            '### Rate Limits',
+            `- API כללי: ${CONFIG.rateLimitMax} בקשות / דקה`,
+            `- Vision: ${CONFIG.visionRateLimitMax} בקשות / דקה`,
+            `- Research: ${CONFIG.researchRateLimitMax} בקשות / דקה`,
+            '',
+            '### Research Aggregator',
+            '- 11 מקורות מדעיים',
+            `- ${CONFIG.researchMaxPerSource} מחקרים לכל מקור`,
+            `- ${CONFIG.researchFinalLimit} מחקרים סופיים`,
+            '- Deduplication by DOI + Title',
+            '- Scoring לפי רלוונטיות (Title match, Study type, Health keywords)',
+            '',
+            '### תרגום אוטומטי',
+            '- עברית → אנגלית מדעית',
+            `- מודל: ${CONFIG.geminiModel}`,
+            `- Timeout: ${CONFIG.geminiTranslationTimeoutMs}ms`,
+            '',
+            '---',
+            '',
+            '*נוצר אוטומטית על ידי GET /api/mega-prompt.*'
+        ];
+
+        const megaPrompt = sections.join('\n');
+        res.type('text/plain; charset=utf-8').send(megaPrompt);
+    } catch (err) {
+        next(err);
+    }
 });
 
 // ==============================
-// 41. GLOBAL ERROR HANDLER
+// 47. 404 HANDLER
+// ==============================
+
+app.use((req, res) => {
+    res.status(404).json({ reply: 'אדון, הנתיב המבוקש אינו קיים.' });
+});
+
+// ==============================
+// 48. GLOBAL ERROR HANDLER
 // ==============================
 
 app.use((err, req, res, next) => {
@@ -3357,13 +3553,13 @@ app.use((err, req, res, next) => {
 
         if (err.isRateLimit) {
             return res.status(429).json({
-                reply: '׳׳“׳•׳, ׳׳¢׳¨׳›׳•׳× ׳”׳׳™׳‘׳” ׳©׳׳™ ׳”׳’׳™׳¢׳• ׳׳׳›׳¡׳× ׳”׳©׳™׳׳•׳© ׳”׳—׳™׳ ׳׳™׳× ׳׳¨׳’׳¢ ׳–׳”. ׳׳ ׳ ׳”׳׳×׳ ׳›׳—׳¦׳™ ׳“׳§׳” ׳•׳ ׳¡׳” ׳©׳•׳‘.',
+                reply: 'אדון, מערכות הליבה שלי הגיעו למכסת השימוש החינמית לרגע זה. אנא המתן כחצי דקה ונסה שוב.',
                 rateLimited: true,
             });
         }
 
         const status = err.statusCode >= 400 && err.statusCode < 600 ? err.statusCode : 500;
-        return res.status(status).json({ reply: `׳׳“׳•׳, ${err.message}` });
+        return res.status(status).json({ reply: `אדון, ${err.message}` });
     }
 
     if (err instanceof ResearchError) {
@@ -3379,29 +3575,29 @@ app.use((err, req, res, next) => {
 
     log('error', 'Unhandled error', err);
     recordError(err.message || 'Unknown error');
-    return res.status(500).json({ reply: '׳׳“׳•׳, ׳׳™׳¨׳¢׳” ׳×׳§׳׳” ׳‘׳׳×׳™ ׳¦׳₪׳•׳™׳” ׳‘׳׳¢׳¨׳›׳×.' });
+    return res.status(500).json({ reply: 'אדון, אירעה תקלה בלתי צפויה במערכת.' });
 });
 
 // ==============================
-// 42. STARTUP
+// 49. STARTUP
 // ==============================
 
 loadKnowledgeBase();
 
 const server = app.listen(CONFIG.port, () => {
-    log('info', `ג¡ J.A.R.V.I.S Neural Kernel V5.0 running`);
-    log('info', `נ Server: http://localhost:${CONFIG.port}`);
-    log('info', `נ₪– Model: ${CONFIG.geminiModel}`);
-    log('info', `נ Environment: ${CONFIG.environment}`);
-    log('info', `נ§  Knowledge: ${knowledge.files.size} files, ${knowledge.chunks.length} chunks, ${knowledge.vocab.size} vocab`);
-    log('info', `נ“÷ YouTube API: ${CONFIG.youtubeApiKey ? 'configured' : 'NOT configured'}`);
-    log('info', `נ”¬ Research sources: 8 (Europe PMC, PubMed, OpenAlex, Semantic Scholar, CrossRef, DOAJ, bioRxiv, CORE)`);
-    log('info', `נ”‘ CORE API: ${CONFIG.coreApiKey ? 'configured' : 'NOT configured (source disabled)'}`);
-    log('info', `נ”‘ Semantic Scholar API: ${CONFIG.semanticScholarKey ? 'configured' : 'public tier'}`);
+    log('info', 'J.A.R.V.I.S Neural Kernel V6.0 running');
+    log('info', `Server: http://localhost:${CONFIG.port}`);
+    log('info', `Model: ${CONFIG.geminiModel}`);
+    log('info', `Environment: ${CONFIG.environment}`);
+    log('info', `Knowledge: ${knowledge.files.size} files, ${knowledge.chunks.length} chunks, ${knowledge.vocab.size} vocab`);
+    log('info', `YouTube API: ${CONFIG.youtubeApiKey ? 'configured' : 'NOT configured'}`);
+    log('info', 'Research sources: 11 (Europe PMC, PubMed, OpenAlex, Semantic Scholar, CrossRef, DOAJ, bioRxiv, CORE, medRxiv, BASE, SciELO)');
+    log('info', `CORE API: ${CONFIG.coreApiKey ? 'configured' : 'NOT configured (source disabled)'}`);
+    log('info', `Semantic Scholar API: ${CONFIG.semanticScholarKey ? 'configured' : 'public tier'}`);
 });
 
 // ==============================
-// 43. GRACEFUL SHUTDOWN
+// 50. GRACEFUL SHUTDOWN
 // ==============================
 
 let isShuttingDown = false;
@@ -3410,17 +3606,17 @@ function shutdown(signal) {
     if (isShuttingDown) return;
     isShuttingDown = true;
 
-    console.log(`\n${signal} ׳”׳×׳§׳‘׳, ׳¡׳•׳’׳¨ ׳׳× ׳”׳©׳¨׳× ׳‘׳¦׳•׳¨׳” ׳׳¡׳•׳“׳¨׳×...`);
+    console.log(`\n${signal} התקבל, סוגר את השרת בצורה מסודרת...`);
 
     const forceExit = setTimeout(() => {
-        console.error('ג ן¸ Timeout ג€” ׳׳׳׳¥ ׳™׳¦׳™׳׳”');
+        console.error('Timeout — מאלץ יציאה');
         process.exit(1);
     }, 10000);
 
     forceExit.unref();
 
     server.close(() => {
-        console.log('ג… ׳”׳©׳¨׳× ׳ ׳¡׳’׳¨ ׳‘׳”׳¦׳׳—׳”.');
+        console.log('השרת נסגר בהצלחה.');
         clearTimeout(forceExit);
         process.exit(0);
     });

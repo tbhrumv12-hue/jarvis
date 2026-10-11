@@ -142,6 +142,10 @@
         }
 
         renderPapers(data.papers || []);
+                window.jarvisResearch = window.jarvisResearch || {};
+        window.jarvisResearch.papers = data.papers || [];
+        window.jarvisResearch.query = state.query || '';
+        window.jarvisResearch.ready = true;
 
         const statsText = $('#stats-text');
         if (statsText) {

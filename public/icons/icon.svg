@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <defs>
+    <radialGradient id="core" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#6fe0d5"/>
+      <stop offset="60%" stop-color="#4dd0c4"/>
+      <stop offset="100%" stop-color="#2a8a80"/>
+    </radialGradient>
+    <linearGradient id="ring" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d4af37"/>
+      <stop offset="100%" stop-color="#e8c860"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="192" height="192" rx="42" fill="#0a0e1a"/>
+
+  <circle cx="96" cy="96" r="66" fill="none" stroke="url(#ring)" stroke-width="6" opacity="0.9"/>
+  <circle cx="96" cy="96" r="48" fill="none" stroke="#4dd0c4" stroke-width="4.5" opacity="0.6" stroke-dasharray="12 9"/>
+
+  <circle cx="96" cy="96" r="27" fill="url(#core)"/>
+  <circle cx="96" cy="96" r="12" fill="#e8ecf5" opacity="0.95"/>
+
+  <line x1="96" y1="12" x2="96" y2="36" stroke="#4dd0c4" stroke-width="6" stroke-linecap="round"/>
+  <line x1="96" y1="156" x2="96" y2="180" stroke="#4dd0c4" stroke-width="6" stroke-linecap="round"/>
+  <line x1="12" y1="96" x2="36" y2="96" stroke="#4dd0c4" stroke-width="6" stroke-linecap="round"/>
+  <line x1="156" y1="96" x2="180" y2="96" stroke="#4dd0c4" stroke-width="6" stroke-linecap="round"/>
+</svg>

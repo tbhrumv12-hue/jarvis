@@ -4,10 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#0a0e1a">
+    <meta name="description" content="J.A.R.V.I.S — Research Engine מבוסס מחקרים אמיתיים">
     <title>J.A.R.V.I.S // RESEARCH</title>
+
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
+    <link rel="apple-touch-icon" href="/icons/icon.svg">
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
     <link rel="stylesheet" href="/css/research.css">
 </head>
 <body class="research-page">
@@ -16,47 +22,49 @@
 
         <!-- === Header === -->
         <header class="research-header">
-            <a href="/" class="back-btn" aria-label="חזור">←</a>
+            <button type="button" id="btn-clear" class="icon-btn" title="נקה תוצאות" aria-label="נקה תוצאות">🗑️</button>
+            <button type="button" id="btn-research-chat" class="chat-btn" title="AI מנתח את המחקרים" aria-label="AI מנתח">
+                <span class="chat-btn-icon">🤖</span>
+                <span class="chat-btn-text">AI מנתח</span>
+            </button>
             <div class="brand">
                 <h1>J.A.R.V.I.S // RESEARCH</h1>
                 <p class="subtitle">🔬 מחקר מבוסס מחקרים אמיתיים</p>
             </div>
-            <div class="header-actions">
-                <button type="button" id="btn-clear" class="icon-btn" title="נקה תוצאות">🗑️</button>
-            </div>
+            <a href="/" class="back-btn" aria-label="חזור">←</a>
         </header>
 
         <!-- === Search === -->
         <section class="search-section">
-            <div class="search-box">
-                <span class="search-icon">🔍</span>
-                <input 
-                    type="text" 
-                    id="search-input" 
-                    class="search-input" 
-                    placeholder="שאל משהו... למשל: cottage cheese, creatine, intermittent fasting"
-                    autocomplete="off"
-                    maxlength="300"
-                    autofocus
-                >
+            <div class="search-form">
                 <button type="button" id="search-btn" class="search-btn">חפש</button>
+                <input
+                    type="text"
+                    id="search-input"
+                    class="search-input"
+                    placeholder="שאל משהו... למשל: fasting"
+                    maxlength="300"
+                    autocomplete="off"
+                    aria-label="שאלת מחקר"
+                >
             </div>
 
             <div class="examples-row">
-                <span class="examples-label">דוגמאות:</span>
-                <button type="button" class="example-chip" data-query="cottage cheese health">🧀 קוטג'</button>
+                <span class="example-label">דוגמאות:</span>
                 <button type="button" class="example-chip" data-query="creatine supplementation">💪 קריאטין</button>
                 <button type="button" class="example-chip" data-query="intermittent fasting">⏱️ צום לסירוגין</button>
-                <button type="button" class="example-chip" data-query="protein intake muscle">🍗 חלבון ושריר</button>
+                <button type="button" class="example-chip" data-query="protein intake muscle">🥩 חלבון ושריר</button>
                 <button type="button" class="example-chip" data-query="sleep testosterone">😴 שינה וטסטוסטרון</button>
+                <button type="button" class="example-chip" data-query="cottage cheese health">🧀 קוטג'</button>
+                <button type="button" class="example-chip" data-query="dark chocolate 95 percent">🍫 שוקולד 95%</button>
             </div>
         </section>
 
         <!-- === Loading === -->
         <section id="loading" class="loading-section" hidden>
             <div class="loading-spinner"></div>
-            <p class="loading-text">מחפש ב-40 מיליון מחקרים...</p>
-            <p class="loading-subtext">זה יכול לקחת 20-40 שניות</p>
+            <p class="loading-text">מחפש ב-11 מאגרים מדעיים...</p>
+            <p class="loading-subtext">זה יכול לקחת 15-25 שניות</p>
         </section>
 
         <!-- === Error === -->
@@ -68,40 +76,30 @@
         <!-- === Results === -->
         <section id="results" class="results-section" hidden>
 
-            <!-- Verdict -->
-            <div class="verdict-card" id="verdict-card">
-                <span class="verdict-label">השורה התחתונה</span>
-                <p class="verdict-text" id="verdict-text">—</p>
-            </div>
-
-            <!-- Summary -->
-            <div class="info-card">
-                <div class="info-header">
-                    <span class="info-icon">📊</span>
-                    <span class="info-title">סיכום</span>
+            <div class="summary-block">
+                <div class="verdict-box">
+                    <div class="verdict-label">🎯 פסיקה</div>
+                    <div id="verdict-text" class="verdict-text">—</div>
                 </div>
-                <p class="info-text" id="summary-text">—</p>
-            </div>
 
-            <!-- Myth -->
-            <div class="info-card myth-card" id="myth-card">
-                <div class="info-header">
-                    <span class="info-icon">⚠️</span>
-                    <span class="info-title">מיתוס</span>
+                <div class="summary-box">
+                    <div class="summary-label">📋 סיכום</div>
+                    <div id="summary-text" class="summary-text">—</div>
                 </div>
-                <p class="info-text" id="myth-text">—</p>
-            </div>
 
-            <!-- Papers -->
-            <div class="papers-section">
-                <div class="papers-header">
-                    <h2 class="papers-title">🔬 מחקרים מרכזיים</h2>
-                    <span class="papers-count" id="papers-count">(0)</span>
+                <div id="myth-card" class="myth-box" hidden>
+                    <div class="myth-label">⚠️ מיתוס נפוץ</div>
+                    <div id="myth-text" class="myth-text"></div>
                 </div>
-                <div id="papers-list" class="papers-list"></div>
             </div>
 
-            <!-- Stats -->
+            <div class="papers-header">
+                <h2 class="papers-title">📚 מחקרים מרכזיים</h2>
+                <span id="papers-count" class="papers-count">(0)</span>
+            </div>
+
+            <div id="papers-list" class="papers-list"></div>
+
             <div class="stats-row" id="stats-row">
                 <span id="stats-text">—</span>
             </div>
@@ -115,12 +113,62 @@
 
         <!-- === Footer === -->
         <footer class="research-footer">
-            <span>J.A.R.V.I.S // Research v1.0</span>
-            <span>מבוסס על Europe PMC (40M מחקרים)</span>
+            <span>J.A.R.V.I.S // Research v1.1</span>
+            <span>מבוסס על 11 מאגרים מדעיים</span>
         </footer>
 
     </div>
 
+    <!-- === Research Chat Modal === -->
+    <div id="research-chat-modal" class="chat-modal" hidden>
+        <div class="chat-modal-overlay" data-close-chat></div>
+        <div class="chat-modal-content" role="dialog" aria-modal="true" aria-labelledby="chat-modal-title">
+            <header class="chat-modal-header">
+                <div class="chat-modal-title-wrap">
+                    <span class="chat-modal-icon">🤖</span>
+                    <div>
+                        <h3 id="chat-modal-title">AI מנתח</h3>
+                        <p class="chat-modal-subtitle">
+                            <span id="chat-papers-count">0</span> מחקרים זמינים
+                        </p>
+                                                <div class="chat-mode-toggle" role="group" aria-label="מצב תשובה">
+                            <button type="button" class="chat-mode-btn active" data-mode="hybrid">🧠 AI + מחקרים</button>
+                            <button type="button" class="chat-mode-btn" data-mode="papers">📚 מחקרים בלבד</button>
+                        </div>
+                    </div>
+                </div>
+                <button type="button" class="chat-modal-close" data-close-chat aria-label="סגור">✕</button>
+            </header>
+
+            <div class="chat-modal-body">
+                <div id="chat-messages" class="chat-messages">
+                    <div class="chat-empty-state">
+                        <span class="chat-empty-icon">💬</span>
+                        <p class="chat-empty-title">שאל אותי על המחקרים</p>
+                        <p class="chat-empty-text">
+                            לדוגמה: "מה המחקרים אומרים על מינון?" או "האם זה בטוח לצעירים?"
+                        </p>
+                    </div>
+                </div>
+
+                <form id="chat-form" class="chat-form" autocomplete="off">
+                    <input
+                        type="text"
+                        id="chat-input"
+                        class="chat-input"
+                        placeholder="שאל שאלה על המחקרים..."
+                        maxlength="500"
+                        aria-label="הודעת צ'אט"
+                    >
+                    <button type="submit" id="chat-send" class="chat-send" aria-label="שלח">
+                        <span class="chat-send-icon">↑</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <script src="/js/research.js" defer></script>
+    <script src="/js/research-chat.js" defer></script>
 </body>
 </html>
