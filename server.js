@@ -94,7 +94,7 @@ const CONFIG = {
     bm25K1: Number(process.env.BM25_K1) || 1.5,
     bm25B: Number(process.env.BM25_B) || 0.75,
 
-    researchMaxPerSource: Number(process.env.RESEARCH_MAX_PER_SOURCE) || 50,
+   researchMaxPerSource: Number(process.env.RESEARCH_MAX_PER_SOURCE) || 150,
     researchFinalLimit: Number(process.env.RESEARCH_FINAL_LIMIT) || 30,
     researchAnalysisTopPapers: Number(process.env.RESEARCH_ANALYSIS_TOP_PAPERS) || 15,
     researchAbstractSnippetLength: Number(process.env.RESEARCH_ABSTRACT_SNIPPET_LENGTH) || 350,
@@ -1481,12 +1481,14 @@ async function fetchFromEuropePMC(query, limit) {
 
 const PUBMED_ESEARCH_API = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi';
 const PUBMED_ESUMMARY_API = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi';
+const PUBMED_EFETCH_API = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi';
 
 async function fetchFromPubMed(query, limit) {
     const cleanQuery = String(query).trim().slice(0, 200);
     if (!cleanQuery) return [];
 
     try {
+        // Step 1: Search — get PMIDs
         const searchUrl = `${PUBMED_ESEARCH_API}?db=pubmed&term=${encodeURIComponent(cleanQuery)}&retmax=${limit}&retmode=json&sort=relevance`;
         const searchRes = await fetchWithTimeout(searchUrl, { method: 'GET' }, CONFIG.researchTimeoutMs);
         if (!searchRes.ok) return [];
@@ -1499,44 +1501,114 @@ async function fetchFromPubMed(query, limit) {
             return [];
         }
 
-        const summaryUrl = `${PUBMED_ESUMMARY_API}?db=pubmed&id=${ids.join(',')}&retmode=json`;
-        const summaryRes = await fetchWithTimeout(summaryUrl, { method: 'GET' }, CONFIG.researchTimeoutMs);
-        if (!summaryRes.ok) return [];
+        // Step 2: Fetch — get full records WITH abstracts (XML)
+        const fetchUrl = `${PUBMED_EFETCH_API}?db=pubmed&id=${ids.join(',')}&retmode=xml&rettype=abstract`;
+        const fetchRes = await fetchWithTimeout(fetchUrl, { method: 'GET' }, CONFIG.researchTimeoutMs);
+        if (!fetchRes.ok) return [];
 
-        const summaryData = await summaryRes.json();
-        const results = summaryData?.result || {};
-
-        const papers = ids
-            .map((id) => {
-                const item = results[id];
-                if (!item) return null;
-
-                return createPaperObject({
-                    id,
-                    source: 'PubMed',
-                    title: item.title || '',
-                    abstract: '',
-                    authors: Array.isArray(item.authors)
-                        ? item.authors.map((a) => a.name).join(', ')
-                        : '',
-                    year: (item.pubdate || '').substring(0, 4),
-                    journal: item.fulljournalname || item.source || '',
-                    citedBy: 0,
-                    doi: '',
-                    url: `https://pubmed.ncbi.nlm.nih.gov/${id}/`,
-                    openAccess: false,
-                });
-            })
-            .filter(Boolean);
+        const xmlText = await fetchRes.text();
+        const papers = parsePubMedXML(xmlText);
 
         recordSourceHit('PubMed', papers.length);
-        log('info', `PubMed: ${papers.length} papers`);
+        log('info', `PubMed: ${papers.length} papers (with abstracts)`);
         return papers;
     } catch (err) {
         log('warn', `PubMed failed: ${err.message}`);
         recordSourceHit('PubMed', 0);
         return [];
     }
+}
+
+function parsePubMedXML(xmlText) {
+    if (!xmlText || typeof xmlText !== 'string') return [];
+
+    const papers = [];
+    // Split by <PubmedArticle> blocks
+    const articleRegex = /<PubmedArticle>([\s\S]*?)<\/PubmedArticle>/g;
+    let match;
+
+    while ((match = articleRegex.exec(xmlText)) !== null) {
+        const block = match[1];
+
+        try {
+            const pmidMatch = block.match(/<PMID[^>]*>(\d+)<\/PMID>/);
+            const pmid = pmidMatch ? pmidMatch[1] : '';
+
+            const titleMatch = block.match(/<ArticleTitle[^>]*>([\s\S]*?)<\/ArticleTitle>/);
+            const title = titleMatch ? stripXmlTags(titleMatch[1]) : '';
+
+            // Abstract can have multiple sections
+            const abstractParts = [];
+            const abstractRegex = /<AbstractText[^>]*>([\s\S]*?)<\/AbstractText>/g;
+            let abstractMatch;
+            while ((abstractMatch = abstractRegex.exec(block)) !== null) {
+                const part = stripXmlTags(abstractMatch[1]);
+                if (part) abstractParts.push(part);
+            }
+            const abstract = abstractParts.join(' ');
+
+            const journalMatch = block.match(/<Journal>[\s\S]*?<Title>([\s\S]*?)<\/Title>/);
+            const journal = journalMatch ? stripXmlTags(journalMatch[1]) : '';
+
+            const yearMatch = block.match(/<PubDate>[\s\S]*?<Year>(\d{4})<\/Year>/);
+            const year = yearMatch ? yearMatch[1] : '';
+
+            // Authors
+            const authors = [];
+            const authorRegex = /<Author[^>]*>[\s\S]*?<LastName>([\s\S]*?)<\/LastName>[\s\S]*?(?:<ForeName>([\s\S]*?)<\/ForeName>)?[\s\S]*?<\/Author>/g;
+            let authorMatch;
+            while ((authorMatch = authorRegex.exec(block)) !== null) {
+                const lastName = authorMatch[1] || '';
+                const foreName = authorMatch[2] || '';
+                if (lastName) {
+                    authors.push(`${foreName} ${lastName}`.trim());
+                }
+            }
+
+            // DOI
+            const doiMatch = block.match(/<ArticleId IdType="doi">([\s\S]*?)<\/ArticleId>/);
+            const doi = doiMatch ? doiMatch[1].trim() : '';
+
+            if (!pmid || !title) continue;
+
+            papers.push(createPaperObject({
+                id: pmid,
+                source: 'PubMed',
+                title,
+                abstract,
+                authors: authors.join(', '),
+                year,
+                journal,
+                citedBy: 0,
+                doi,
+                url: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
+                openAccess: false,
+            }));
+        } catch (parseErr) {
+            log('warn', `PubMed XML parse error for one article: ${parseErr.message}`);
+        }
+    }
+
+    return papers;
+}
+
+function stripXmlTags(xml) {
+    if (!xml) return '';
+    return String(xml)
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
+            try { return String.fromCharCode(parseInt(hex, 16)); } catch (e) { return ''; }
+        })
+        .replace(/&#(\d+);/g, (_, dec) => {
+            try { return String.fromCharCode(parseInt(dec, 10)); } catch (e) { return ''; }
+        })
+        .replace(/\s+/g, ' ')
+        .trim();
 }
 
 // ==============================
