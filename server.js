@@ -3460,6 +3460,320 @@ ${mealsList}
 });
 
 // ==============================
+// 46. ROUTES — TRAINING
+// ==============================
+
+const TRAINING_GENERATE_SYSTEM_PROMPT = `אתה מאמן קליסטניקס מומחה. תפקידך: לתכנן אימון מותאם אישית על בסיס הבקשה של המשתמש.
+
+## הפרופיל של המשתמש:
+- גיל 15 וחמישה חודשים
+- קליסטניקס, 4-5 אימונים בשבוע
+- מטרה: Full Planche + Front Lever + Handstand + שליטה טכנית אבסולוטית
+- עיקרון: איכות מעל כמות, דפוסי תנועה נקיים, אפס "לסחוב חזרות"
+
+## כללים מוחלטים:
+1. החזר **רק JSON תקין**. בלי טקסט, בלי הסברים, בלי markdown.
+2. כל תרגיל חייב להיות עם: name, category, sets, reps, rest, note
+3. category חייב להיות אחד מ: "skill", "strength", "core"
+4. סדר התרגילים: skill → strength → core
+5. מנוחה בין סטים: 2-2.5 דקות לתרגילי skill, 1.5-2 לתרגילי strength
+6. **אל תכלול Full Planche** אם הבקשה לא מבקשת — זה מסוכן לגיל הזה
+7. אם mode = "short" — 5-6 תרגילים סה"כ, ממוקד על מטרה אחת
+8. אם mode = "long" — 8-11 תרגילים, משלב push + pull + skill + core
+9. אם יום עם עייפות — המלץ על פחות נפח
+10. היה ספציפי: "3x8" לא "כמה סטים"
+
+## סכמת JSON:
+{
+  "title": "שם האימון בעברית (קצר)",
+  "summary": "משפט אחד: מה האימון מפתח",
+  "durationMinutes": 45,
+  "exercises": [
+    {
+      "name": "Planche Lean",
+      "category": "skill",
+      "sets": 4,
+      "reps": "8 שניות",
+      "rest": "2 דק׳",
+      "note": "שמור אגן נעול, כתפיים קדימה"
+    }
+  ]
+}`;
+
+const TRAINING_ANALYZE_SYSTEM_PROMPT = `אתה מאמן קליסטניקס אנליטי. תפקידך: לנתח את היסטוריית האימונים של המשתמש ולתת תובנות מעשיות.
+
+## כללי התנהגות:
+1. ענה בעברית, ישיר, מבוסס מספרים. אפס "יאס-מן".
+2. זהה דפוסים: יותר מדי push? חוסר איזון? יותר מדי עומס?
+3. תן התקדמות מדידה: "Planche Lean: 8s → 12s"
+4. התראות: "4 אימונים ב-3 ימים — שים לב לעומס-יתר"
+5. המלץ על הצעד הבא: איזה תרגיל להתמקד בו בשבוע הבא
+6. אם יש חוסר איזון — אמור במפורש: "יותר מדי push, חסר pull"
+7. השתמש ב-Markdown: **מודגש**, רשימות, כותרות (##)
+
+## פורמט פלט:
+## 📊 סיכום תקופה
+## 📈 התקדמות בולטת
+## ⚠️ התראות
+## 🎯 המלצות לשבוע הבא
+
+אורך: 4 פסקאות מקסימום. היה תמציתי ומעשי.`;
+
+// ==============================
+// 47. ROUTES — TRAINING COACH
+// ==============================
+
+const TRAINING_COACH_SYSTEM_PROMPT = `אתה מאמן קליסטניקס מומחה בגובה העיניים. אתה עונה על שאלות של מתבגר בן 15 וחמישה חודשים שמתאמן בקליסטניקס 4-5 פעמים בשבוע ומטרתו Full Planche + Front Lever.
+
+## כללי התנהגות:
+1. ענה בעברית, ישיר, חד, מקצועי. אפס "יאס-מן" ואפס קלישאות.
+2. כשאתה מסביר על תרגיל ספציפי או טכניקה — תן 3-5 משפטים של הסבר טכני.
+3. אם רלוונטי — תגיד בסוף: "🎥 סרטוני הדגמה זמינים למטה". המערכת תוסיף אותם.
+4. אם שואל על תרגיל ספציפי — תן:
+   - מה התרגיל (משפט)
+   - איך עושים נכון (2-3 משפטים)
+   - טעויות נפוצות (2-3)
+   - אזהרות בטיחות לגיל 15 אם רלוונטי
+5. אם שואל על בטיחות — היה זהיר. Full Planche בגיל 15 מסוכן.
+6. אם שואל על מנוחה / סטים / חזרות — תן מספרים ספציפיים.
+7. אם שואל משהו לא קשור לקליסטניקס — אמור: "אני מאמן קליסטניקס, לא יכול לעזור עם זה".
+8. השתמש ב-Markdown: **מודגש**, רשימות עם -, קוד עם \`\`.
+9. אורך: 3-6 פסקאות קצרות.
+10. לעולם אל תמציא קישורים ליוטיוב — המערכת תוסיף אותם אוטומטית.
+
+## שפה: עברית בלבד.`;
+
+app.post('/api/training/coach', apiRateLimiter, async (req, res, next) => {
+    const requestStart = Date.now();
+    metrics.totalRequests += 1;
+
+    try {
+        const { query, history: rawHistory } = req.body || {};
+
+        if (!query || typeof query !== 'string' || query.trim().length < 2) {
+            metrics.totalErrors += 1;
+            recordError('Empty coach query');
+            return res.status(400).json({ error: 'חסרה שאלה' });
+        }
+
+        const cleanQuery = query.trim();
+        if (cleanQuery.length > 500) {
+            metrics.totalErrors += 1;
+            recordError('Coach query too long');
+            return res.status(400).json({ error: 'השאלה ארוכה מדי (מקסימום 500 תווים)' });
+        }
+
+        log('info', `Training coach: "${truncate(cleanQuery, 80)}"`);
+
+        const wantsVideo = /סרטון|וידאו|youtube|יוטיוב|הדגמה|איך עושים|איך לעשות|טכניקה/i.test(cleanQuery);
+
+        const geminiPromise = (async () => {
+            const normalizedHistory = Array.isArray(rawHistory)
+                ? rawHistory.map((h) => ({
+                    role: h?.role === 'assistant' ? 'jarvis' : 'user',
+                    text: h?.content || h?.text || '',
+                }))
+                : [];
+
+            const history = sanitizeHistory(normalizedHistory);
+
+            const userPrompt = wantsVideo
+                ? `${cleanQuery}\n\n(המשתמש רוצה סרטון הדגמה. תגיד בסוף: "🎥 סרטוני הדגמה זמינים למטה")`
+                : cleanQuery;
+
+            return callGemini({
+                systemInstruction: TRAINING_COACH_SYSTEM_PROMPT,
+                contents: buildConversationContents(history, userPrompt),
+                temperature: 0.5,
+                maxOutputTokens: 1800,
+                timeoutMs: CONFIG.geminiTimeoutMs,
+                retries: CONFIG.defaultRetries,
+            });
+        })();
+
+        const youtubePromise = wantsVideo
+            ? searchYouTubeVideos(cleanQuery, 4).catch((err) => {
+                log('warn', 'YouTube search failed in coach:', err.message);
+                return [];
+            })
+            : Promise.resolve([]);
+
+        const [geminiResult, videos] = await Promise.all([geminiPromise, youtubePromise]);
+
+        const totalRoundTripMs = Date.now() - requestStart;
+        metrics.totalSuccess += 1;
+        recordLatency(geminiResult.coreLatencyMs);
+
+        log('info', 'Training coach OK', {
+            coreLatencyMs: geminiResult.coreLatencyMs,
+            totalRoundTripMs,
+            videos: videos.length,
+            wantsVideo,
+            attempts: geminiResult.attempts,
+        });
+
+        return res.json({
+            reply: geminiResult.reply,
+            videos,
+            latencyMs: geminiResult.coreLatencyMs,
+            roundTripMs: totalRoundTripMs,
+            attempts: geminiResult.attempts,
+            timestamp: new Date().toISOString(),
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+async function searchYouTubeVideos(query, maxResults = 4) {
+    if (!CONFIG.youtubeApiKey) {
+        log('warn', 'YouTube search skipped — no API key');
+        return [];
+    }
+
+    const cleanQuery = String(query || '').trim().slice(0, 200);
+    if (!cleanQuery) return [];
+
+    try {
+        const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(cleanQuery)}&type=video&maxResults=${maxResults}&key=${CONFIG.youtubeApiKey}&relevanceLanguage=he&safeSearch=moderate`;
+        const searchRes = await fetchWithTimeout(searchUrl, { method: 'GET' }, CONFIG.youtubeTimeoutMs);
+        if (!searchRes.ok) {
+            log('warn', `YouTube search failed: ${searchRes.status}`);
+            return [];
+        }
+
+        const searchData = await searchRes.json();
+        if (searchData.error) {
+            log('warn', `YouTube API error: ${searchData.error.message}`);
+            return [];
+        }
+
+        const items = searchData?.items || [];
+        if (!items.length) return [];
+
+        const videoIds = items
+            .map((it) => it?.id?.videoId)
+            .filter(Boolean);
+
+        if (!videoIds.length) return [];
+
+        const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=statistics,contentDetails&id=${videoIds.join(',')}&key=${CONFIG.youtubeApiKey}`;
+        const detailsRes = await fetchWithTimeout(detailsUrl, { method: 'GET' }, CONFIG.youtubeTimeoutMs);
+
+        let statsById = {};
+        if (detailsRes.ok) {
+            try {
+                const detailsData = await detailsRes.json();
+                for (const v of (detailsData?.items || [])) {
+                    statsById[v.id] = v.statistics || {};
+                }
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        const videos = items.map((item) => {
+            const videoId = item?.id?.videoId || '';
+            const snippet = item?.snippet || {};
+            const stats = statsById[videoId] || {};
+
+            const thumbs = snippet.thumbnails || {};
+            const thumb = thumbs.medium?.url || thumbs.default?.url || thumbs.high?.url || '';
+
+            return {
+                id: videoId,
+                title: snippet.title || 'ללא כותרת',
+                channel: snippet.channelTitle || '',
+                thumbnail: thumb,
+                url: videoId ? `https://www.youtube.com/watch?v=${videoId}` : '',
+                views: parseInt(stats.viewCount, 10) || 0,
+            };
+        }).filter((v) => v.id && v.url);
+
+        log('info', `YouTube search: ${videos.length} videos for "${truncate(cleanQuery, 60)}"`);
+        return videos;
+    } catch (err) {
+        log('warn', `YouTube search error: ${err.message}`);
+        return [];
+    }
+}
+
+
+app.post('/api/training/analyze', apiRateLimiter, async (req, res, next) => {
+    const requestStart = Date.now();
+    metrics.totalRequests += 1;
+
+    try {
+        const { days } = req.body || {};
+
+        if (!Array.isArray(days) || days.length === 0) {
+            metrics.totalErrors += 1;
+            recordError('Empty training days');
+            return res.status(400).json({ error: 'אין היסטוריית אימונים לניתוח' });
+        }
+
+        const recentDays = days.slice(0, 10);
+
+        const daysText = recentDays.map((d) => {
+            const workouts = Array.isArray(d.workouts) ? d.workouts : [];
+            const workoutLines = workouts.map((w) => {
+                const exercises = Array.isArray(w.exercises) ? w.exercises : [];
+                const exLines = exercises.map((ex) => {
+                    const actual = ex.actual ? ` (בפועל: ${ex.actual})` : '';
+                    const done = ex.done ? '✅' : '⬜';
+                    return `    ${done} ${ex.name} — ${ex.sets}x${ex.reps}${actual}`;
+                }).join('\n');
+                return `  • ${w.title} (${w.durationMinutes || 0} דק׳, ${w.time || ''})\n${exLines}`;
+            }).join('\n');
+            return `📅 ${d.date}:\n${workoutLines || '  (אין אימונים)'}`;
+        }).join('\n\n');
+
+        const totalWorkouts = recentDays.reduce((sum, d) => sum + (d.workouts?.length || 0), 0);
+
+        log('info', `Training analyze: ${recentDays.length} days, ${totalWorkouts} workouts`);
+
+        const userPrompt = `## היסטוריית אימונים (${recentDays.length} ימים אחרונים, סה"כ ${totalWorkouts} אימונים):
+
+${daysText}
+
+## המשימה:
+נתח את ההתקדמות לפי הפורמט שהוגדר. היה ספציפי ומבוסס מספרים.`;
+
+        const { reply, coreLatencyMs, attempts } = await callGemini({
+            systemInstruction: TRAINING_ANALYZE_SYSTEM_PROMPT,
+            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+            temperature: 0.4,
+            maxOutputTokens: 2000,
+            timeoutMs: CONFIG.geminiTimeoutMs,
+            retries: CONFIG.defaultRetries,
+        });
+
+        const totalRoundTripMs = Date.now() - requestStart;
+        metrics.totalSuccess += 1;
+        recordLatency(coreLatencyMs);
+
+        log('info', 'Training analyze OK', {
+            days: recentDays.length,
+            coreLatencyMs,
+            totalRoundTripMs,
+            attempts,
+        });
+
+        return res.json({
+            analysis: reply,
+            daysAnalyzed: recentDays.length,
+            workoutsAnalyzed: totalWorkouts,
+            latencyMs: coreLatencyMs,
+            roundTripMs: totalRoundTripMs,
+            attempts,
+            timestamp: new Date().toISOString(),
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// ==============================
 // 46. ROUTES — MEGA PROMPT
 // ==============================
 

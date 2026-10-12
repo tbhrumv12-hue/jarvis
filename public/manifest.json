@@ -43,6 +43,12 @@
       "short_name": "תזונה",
       "url": "/nutrition.html",
       "icons": [{ "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "אימון",
+      "short_name": "אימון",
+      "url": "/training.html",
+      "icons": [{ "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
     }
   ]
 }
