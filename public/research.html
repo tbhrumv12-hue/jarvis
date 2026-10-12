@@ -123,7 +123,7 @@
     <div id="research-chat-modal" class="chat-modal" hidden>
         <div class="chat-modal-overlay" data-close-chat></div>
         <div class="chat-modal-content" role="dialog" aria-modal="true" aria-labelledby="chat-modal-title">
-            <header class="chat-modal-header">
+                        <header class="chat-modal-header">
                 <div class="chat-modal-title-wrap">
                     <span class="chat-modal-icon">🤖</span>
                     <div>
@@ -131,16 +131,28 @@
                         <p class="chat-modal-subtitle">
                             <span id="chat-papers-count">0</span> מחקרים זמינים
                         </p>
-                                                <div class="chat-mode-toggle" role="group" aria-label="מצב תשובה">
+                        <div class="chat-mode-toggle" role="group" aria-label="מצב תשובה">
                             <button type="button" class="chat-mode-btn active" data-mode="hybrid">🧠 AI + מחקרים</button>
                             <button type="button" class="chat-mode-btn" data-mode="papers">📚 מחקרים בלבד</button>
                         </div>
                     </div>
                 </div>
+                <button type="button" class="chat-modal-action" id="chat-history-toggle" title="היסטוריית שיחות" aria-label="היסטוריית שיחות">📚</button>
+                <button type="button" class="chat-modal-action" id="chat-export" title="ייצוא PDF" aria-label="ייצוא PDF">📄</button>
                 <button type="button" class="chat-modal-close" data-close-chat aria-label="סגור">✕</button>
             </header>
 
             <div class="chat-modal-body">
+                                <aside id="chat-history-sidebar" class="chat-history-sidebar" hidden>
+                    <div class="chat-history-header">
+                        <h4 class="chat-history-title">📚 שיחות שמורות</h4>
+                        <button type="button" id="chat-new" class="chat-new-btn" title="שיחה חדשה">➕ חדשה</button>
+                    </div>
+                    <div id="chat-history-list" class="chat-history-list"></div>
+                    <div class="chat-history-footer">
+                        <span id="chat-history-count">0</span> שיחות
+                    </div>
+                </aside>
                 <div id="chat-messages" class="chat-messages">
                     <div class="chat-empty-state">
                         <span class="chat-empty-icon">💬</span>
@@ -169,6 +181,17 @@
     </div>
 
     <script src="/js/research.js" defer></script>
+        <script src="/js/research-chat-history.js" defer></script>
     <script src="/js/research-chat.js" defer></script>
+        <script>
+        // Register Service Worker for PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then((reg) => console.log('[PWA] SW registered:', reg.scope))
+                    .catch((err) => console.warn('[PWA] SW registration failed:', err));
+            });
+        }
+    </script>
 </body>
 </html>

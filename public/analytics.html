@@ -647,5 +647,15 @@ instagram	2026-09-22	Day 7 — Full Planche	10	700	45	8"></textarea>
     </div>
 
     <script src="/js/analytics.js" defer></script>
+        <script>
+        // Register Service Worker for PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then((reg) => console.log('[PWA] SW registered:', reg.scope))
+                    .catch((err) => console.warn('[PWA] SW registration failed:', err));
+            });
+        }
+    </script>
 </body>
 </html>

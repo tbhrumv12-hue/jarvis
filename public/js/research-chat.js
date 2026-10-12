@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════
-   J.A.R.V.I.S // RESEARCH CHAT — AI Analyst v1.0
-   Free-form Q&A on research papers with explicit citations
+   J.A.R.V.I.S // RESEARCH CHAT — AI Analyst v2.0
+   + Persistent history (JarvisChatHistory integration)
+   + PDF export via print dialog
    ═══════════════════════════════════════════════════════════════════ */
 
 (function () {
@@ -24,7 +25,7 @@
         history: [],
         papers: [],
         query: '',
-       mode: 'hybrid',
+        mode: 'hybrid',
     };
 
     // ─────────────────────────────────────────────────────────────
@@ -45,20 +46,13 @@
     }
 
     function formatMarkdownLight(text) {
-        // Minimal markdown: **bold**, `code`, line breaks, bullet lists
         let html = escapeHtml(text);
 
-        // Bold
         html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-        // Italic
         html = html.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
-        // Inline code
         html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-        // Bullet list items
         html = html.replace(/^\s*[-•]\s+(.+)$/gm, '<span class="chat-bullet">•</span> $1');
-        // Citation references [1], [2]
         html = html.replace(/\[(\d+)\]/g, '<span class="chat-citation">[$1]</span>');
-        // Paragraph breaks
         html = html.replace(/\n{2,}/g, '</p><p>');
         html = html.replace(/\n/g, '<br>');
         return `<p>${html}</p>`;
@@ -88,6 +82,20 @@
     function clearEmptyState() {
         const empty = document.querySelector('.chat-empty-state');
         if (empty) empty.remove();
+    }
+
+    function clearChatUI() {
+        const container = $('chat-messages');
+        if (!container) return;
+        container.innerHTML = `
+            <div class="chat-empty-state">
+                <span class="chat-empty-icon">💬</span>
+                <p class="chat-empty-title">שאל אותי על המחקרים</p>
+                <p class="chat-empty-text">
+                    לדוגמה: "מה המחקרים אומרים על מינון?" או "האם זה בטוח לצעירים?"
+                </p>
+            </div>
+        `;
     }
 
     function renderUserMessage(text) {
@@ -124,7 +132,7 @@
         if (el) el.remove();
     }
 
-       function renderJarvisMessage(reply, usedPapers, latencyMs, mode) {
+    function renderJarvisMessage(reply, usedPapers, latencyMs, mode) {
         const container = $('chat-messages');
         if (!container) return;
         removeLoading();
@@ -166,7 +174,7 @@
         }
 
         const latency = latencyMs ? `<span class="chat-latency">${(latencyMs / 1000).toFixed(1)}s</span>` : '';
-                const modeLabel = mode === 'papers'
+        const modeLabel = mode === 'papers'
             ? '<span class="chat-mode-badge">📚 מחקרים בלבד</span>'
             : '<span class="chat-mode-badge">🧠 AI + מחקרים</span>';
 
@@ -174,7 +182,7 @@
             <div class="chat-bubble">
                 <div class="chat-bubble-body">${bodyHtml}</div>
                 ${sourcesHtml}
-               <div class="chat-meta">${modeLabel} ${latency}</div>
+                <div class="chat-meta">${modeLabel} ${latency}</div>
             </div>
         `;
 
@@ -209,6 +217,61 @@
     }
 
     // ─────────────────────────────────────────────────────────────
+    // Load a past conversation into the UI
+    // ─────────────────────────────────────────────────────────────
+
+    function loadConversationIntoUI(conv) {
+        if (!conv) {
+            // Called with null — reset to empty state
+            state.history = [];
+            clearChatUI();
+            return;
+        }
+
+        // Reset UI
+        clearChatUI();
+        state.history = [];
+
+        // Restore context
+        if (Array.isArray(conv.papers) && conv.papers.length > 0) {
+            state.papers = conv.papers;
+        }
+        if (conv.searchQuery) {
+            state.query = conv.searchQuery;
+        }
+        if (conv.mode) {
+            state.mode = conv.mode;
+            // Update toggle buttons
+            document.querySelectorAll('.chat-mode-btn').forEach((b) => {
+                b.classList.toggle('active', b.getAttribute('data-mode') === conv.mode);
+            });
+        }
+
+        updatePapersCount();
+
+        // Render all messages
+        for (const msg of (conv.messages || [])) {
+            if (msg.role === 'user') {
+                renderUserMessage(msg.content);
+                state.history.push({ role: 'user', content: msg.content });
+            } else if (msg.role === 'assistant') {
+                renderJarvisMessage(
+                    msg.content,
+                    msg.usedPapers,
+                    msg.latencyMs,
+                    msg.mode
+                );
+                state.history.push({ role: 'assistant', content: msg.content });
+            }
+        }
+
+        // Trim history to MAX_HISTORY
+        if (state.history.length > MAX_HISTORY) {
+            state.history = state.history.slice(-MAX_HISTORY);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
     // Open / Close
     // ─────────────────────────────────────────────────────────────
 
@@ -216,7 +279,6 @@
         const modal = $('research-chat-modal');
         if (!modal) return;
 
-        // Sync papers before opening
         if (!syncPapers()) {
             alert('צריך לבצע חיפוש מחקרים לפני השיחה');
             return;
@@ -226,13 +288,16 @@
         state.open = true;
         updatePapersCount();
 
-        // Focus input
+        // Ensure history context
+        if (window.JarvisChatHistory) {
+            window.JarvisChatHistory.ensureActive(state.papers, state.query, state.mode);
+        }
+
         setTimeout(() => {
             const input = $('chat-input');
             if (input) input.focus();
         }, 100);
 
-        // Lock body scroll
         document.body.style.overflow = 'hidden';
     }
 
@@ -268,14 +333,19 @@
             return;
         }
 
-        // Render user message
+        // Ensure we have an active conversation before logging
+        if (window.JarvisChatHistory) {
+            window.JarvisChatHistory.ensureActive(state.papers, state.query, state.mode);
+            window.JarvisChatHistory.addUserMessage(trimmed);
+        }
+
+        // Render
         renderUserMessage(trimmed);
 
-        // Clear input
         const input = $('chat-input');
         if (input) input.value = '';
 
-        // Add to history
+        // Add to in-memory history
         state.history.push({ role: 'user', content: trimmed });
         if (state.history.length > MAX_HISTORY) {
             state.history = state.history.slice(-MAX_HISTORY);
@@ -292,7 +362,7 @@
                     query: trimmed,
                     papers: state.papers,
                     history: state.history.slice(0, -1),
-                      mode: state.mode,
+                    mode: state.mode,
                 }),
             });
 
@@ -316,7 +386,18 @@
                 payload.reply,
                 payload.usedPapers,
                 payload.latencyMs,
+                payload.mode
             );
+
+            // Save to persistent history
+            if (window.JarvisChatHistory) {
+                window.JarvisChatHistory.addAssistantMessage(
+                    payload.reply,
+                    payload.usedPapers,
+                    payload.mode || state.mode,
+                    payload.latencyMs || 0
+                );
+            }
 
             state.history.push({ role: 'assistant', content: payload.reply });
             if (state.history.length > MAX_HISTORY) {
@@ -325,7 +406,6 @@
         } catch (err) {
             console.error('[research-chat] failed:', err);
             renderErrorMessage(err.message || 'שגיאה בשליחת ההודעה');
-            // Rollback the user message from history on failure
             state.history = state.history.slice(0, -1);
         } finally {
             setLoading(false);
@@ -353,13 +433,13 @@
             });
         }
 
-        // Escape key to close
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && state.open) {
                 closeChat();
             }
         });
-                document.querySelectorAll('.chat-mode-btn').forEach((btn) => {
+
+        document.querySelectorAll('.chat-mode-btn').forEach((btn) => {
             btn.addEventListener('click', () => {
                 const newMode = btn.getAttribute('data-mode');
                 if (!newMode) return;
@@ -367,6 +447,13 @@
                 document.querySelectorAll('.chat-mode-btn').forEach((b) => {
                     b.classList.toggle('active', b.getAttribute('data-mode') === newMode);
                 });
+                // Update conversation mode
+                if (window.JarvisChatHistory) {
+                    const conv = window.JarvisChatHistory.getActiveConversation();
+                    if (conv) {
+                        conv.mode = newMode;
+                    }
+                }
                 console.log('[research-chat] mode:', newMode);
             });
         });
@@ -379,6 +466,15 @@
     function init() {
         try {
             bind();
+
+            // Register history callback
+            if (window.JarvisChatHistory) {
+                window.JarvisChatHistory.setOnLoad(loadConversationIntoUI);
+                console.log('[research-chat] history hook registered');
+            } else {
+                console.warn('[research-chat] JarvisChatHistory not found — history disabled');
+            }
+
             console.log('[research-chat] ready');
         } catch (err) {
             console.error('[research-chat] init failed:', err);
