@@ -16,10 +16,14 @@ bower_components/
 .env.development
 *.env
 
-# === Personal knowledge base — NEVER commit ===
+# === Personal knowledge — selectively commit ===
 knowledge/*.txt
 knowledge/*.md
 !knowledge/.gitkeep
+
+# === Public knowledge — always commit ===
+!knowledge/nutrition.txt
+!knowledge/training.txt
 
 # === Backups & broken files ===
 *.backup
@@ -122,4 +126,4 @@ profile.json
 
 # === Optional (uncomment if needed) ===
 # package-lock.json
-# yarn.lock
+# yarn.lock body.json
