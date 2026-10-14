@@ -804,7 +804,8 @@ async function callGemini({
     timeoutMs = CONFIG.geminiTimeoutMs,
     retries = CONFIG.defaultRetries,
 }) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.geminiModel}:generateContent?key=${CONFIG.geminiApiKey}`;
+    const fallback = require('./gemini-fallback');
+    const modelsToTry = fallback.getFallbackModels(CONFIG.geminiModel);
 
     const body = JSON.stringify({
         systemInstruction: { parts: [{ text: systemInstruction }] },
@@ -812,82 +813,136 @@ async function callGemini({
         generationConfig: { temperature, maxOutputTokens },
     });
 
-    let lastError;
+    let lastError = null;
     const coreStart = Date.now();
+    const attemptsLog = [];
 
-    for (let attempt = 0; attempt <= retries; attempt++) {
-        try {
-            const response = await fetchWithTimeout(
-                url,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body,
-                },
-                timeoutMs
-            );
+    for (let modelIdx = 0; modelIdx < modelsToTry.length; modelIdx++) {
+        const currentModel = modelsToTry[modelIdx];
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${CONFIG.geminiApiKey}`;
 
-            const data = await response.json();
+        let modelFailed = false;
 
-            if (data.error) {
-                const rateLimited = isRateLimitError(data, response.status);
-                const highDemand = isHighDemandError(data, response.status);
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            try {
+                const response = await fetchWithTimeout(
+                    url,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body,
+                    },
+                    timeoutMs
+                );
 
-                if (rateLimited && attempt < retries) {
-                    metrics.totalRateLimitHits += 1;
-                    const retryMs = extractRetryDelay(data) || CONFIG.retryOn429DelayMs;
-                    log('warn', `Rate limit — waiting ${Math.round(retryMs / 1000)}s (attempt ${attempt + 1}/${retries + 1})`);
-                    await sleep(retryMs);
-                    continue;
+                const data = await response.json();
+
+                // ── Success ──
+                if (!data.error) {
+                    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (reply) {
+                        if (modelIdx > 0) {
+                            log('info', `Gemini fallback SUCCESS on model: ${currentModel}`, {
+                                attempts: attemptsLog,
+                            });
+                        }
+                        return {
+                            reply: reply.trim(),
+                            coreLatencyMs: Date.now() - coreStart,
+                            attempts: attempt + 1,
+                            modelUsed: currentModel,
+                        };
+                    }
+                    throw new GeminiError('מבנה הנתונים אינו תקין', 502, data);
                 }
 
-                if (highDemand && attempt < retries) {
+                // ── Model not found → try next model immediately ──
+                if (fallback.isModelNotFoundError(data, response.status)) {
+                    log('warn', `Model ${currentModel} not available, trying next`);
+                    attemptsLog.push({ model: currentModel, reason: 'not-found' });
+                    modelFailed = true;
+                    break;
+                }
+
+                // ── High demand / rate limit ──
+                const highDemand = fallback.isHighDemandError(data, response.status);
+
+                if (highDemand) {
                     metrics.totalHighDemandHits += 1;
-                    log('warn', `High demand — waiting ${Math.round(CONFIG.retryOn503DelayMs / 1000)}s (attempt ${attempt + 1}/${retries + 1})`);
-                    await sleep(CONFIG.retryOn503DelayMs);
+
+                    if (attempt < retries) {
+                        const retryMs = Math.min(
+                            extractRetryDelay(data) || CONFIG.retryOn503DelayMs,
+                            8000
+                        );
+                        log('warn', `${currentModel} high demand — retry ${attempt + 1}/${retries} in ${Math.round(retryMs / 1000)}s`);
+                        await sleep(retryMs);
+                        continue;
+                    }
+
+                    // Exhausted retries on this model → move to next model
+                    log('warn', `${currentModel} exhausted retries, trying next model`);
+                    attemptsLog.push({ model: currentModel, reason: 'high-demand' });
+                    modelFailed = true;
+                    break;
+                }
+
+                // ── Rate limit (429) ──
+                if (isRateLimitError(data, response.status)) {
+                    metrics.totalRateLimitHits += 1;
+                    if (attempt < retries) {
+                        const retryMs = Math.min(
+                            extractRetryDelay(data) || CONFIG.retryOn429DelayMs,
+                            10000
+                        );
+                        log('warn', `${currentModel} rate limit — retry in ${Math.round(retryMs / 1000)}s`);
+                        await sleep(retryMs);
+                        continue;
+                    }
+                    attemptsLog.push({ model: currentModel, reason: 'rate-limit' });
+                    modelFailed = true;
+                    break;
+                }
+
+                // ── Other errors ──
+                const isRetryable = response.status >= 500;
+                if (isRetryable && attempt < retries) {
+                    await sleep(backoffDelay(attempt));
                     continue;
                 }
 
-                const isRetryable = response.status >= 500;
-                if (!isRetryable || attempt === retries) {
-                    throw new GeminiError(
-                        data.error.message || 'שגיאה לא ידועה ממערכת הליבה',
-                        response.status >= 400 ? response.status : 502,
-                        data.error,
-                        rateLimited
-                    );
+                lastError = new GeminiError(
+                    data.error.message || 'שגיאה לא ידועה ממערכת הליבה',
+                    response.status >= 400 ? response.status : 502,
+                    data.error
+                );
+                attemptsLog.push({ model: currentModel, reason: 'error', msg: lastError.message });
+                modelFailed = true;
+                break;
+
+            } catch (error) {
+                if (error instanceof GeminiError) {
+                    lastError = error;
+                } else if (error.name === 'AbortError') {
+                    lastError = new GeminiError('תם הזמן הקצוב', 504);
+                } else {
+                    lastError = new GeminiError('תקלת תקשורת זמנית', 502, error.message);
                 }
 
-                lastError = new GeminiError(data.error.message, response.status, null, rateLimited);
+                if (attempt === retries) {
+                    attemptsLog.push({ model: currentModel, reason: 'exception', msg: lastError.message });
+                    modelFailed = true;
+                    break;
+                }
                 await sleep(backoffDelay(attempt));
-                continue;
             }
-
-            const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!reply) {
-                throw new GeminiError('מבנה הנתונים אינו תקין', 502, data);
-            }
-
-            return {
-                reply: reply.trim(),
-                coreLatencyMs: Date.now() - coreStart,
-                attempts: attempt + 1,
-            };
-        } catch (error) {
-            if (error instanceof GeminiError) {
-                lastError = error;
-            } else if (error.name === 'AbortError') {
-                lastError = new GeminiError('תם הזמן הקצוב', 504);
-            } else {
-                lastError = new GeminiError('תקלת תקשורת זמנית', 502, error.message);
-            }
-
-            if (attempt === retries) throw lastError;
-            await sleep(backoffDelay(attempt));
         }
+
+        if (!modelFailed) break;
     }
 
-    throw lastError;
+    log('error', 'All Gemini models failed', { attempts: attemptsLog });
+    throw lastError || new GeminiError('כל המודלים עמוסים כרגע — נסה שוב בעוד דקה', 503);
 }
 
 async function callGeminiWithRetry(userQuery, knowledgeContext = '', history = [], retries = CONFIG.defaultRetries) {
@@ -922,7 +977,8 @@ async function callGeminiJSON({
     timeoutMs = CONFIG.geminiTimeoutMs,
     retries = CONFIG.defaultRetries,
 }) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.geminiModel}:generateContent?key=${CONFIG.geminiApiKey}`;
+    const fallback = require('./gemini-fallback');
+    const modelsToTry = fallback.getFallbackModels(CONFIG.geminiModel);
 
     const body = JSON.stringify({
         systemInstruction: { parts: [{ text: systemInstruction }] },
@@ -937,190 +993,228 @@ async function callGeminiJSON({
         },
     });
 
-    let lastError;
+    let lastError = null;
     const coreStart = Date.now();
+    const attemptsLog = [];
 
-    for (let attempt = 0; attempt <= retries; attempt++) {
-        try {
-            const response = await fetchWithTimeout(
-                url,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body,
-                },
-                timeoutMs
-            );
+    for (let modelIdx = 0; modelIdx < modelsToTry.length; modelIdx++) {
+        const currentModel = modelsToTry[modelIdx];
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${CONFIG.geminiApiKey}`;
 
-            const data = await response.json();
+        let modelFailed = false;
 
-            if (data.error) {
-                const rateLimited = isRateLimitError(data, response.status);
-                const highDemand = isHighDemandError(data, response.status);
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            try {
+                const response = await fetchWithTimeout(
+                    url,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body,
+                    },
+                    timeoutMs
+                );
 
-                if (rateLimited && attempt < retries) {
-                    metrics.totalRateLimitHits += 1;
-                    const retryMs = extractRetryDelay(data) || CONFIG.retryOn429DelayMs;
-                    log('warn', `JSON rate limit — waiting ${Math.round(retryMs / 1000)}s`);
-                    await sleep(retryMs);
-                    continue;
-                }
+                const data = await response.json();
 
-                if (highDemand && attempt < retries) {
-                    metrics.totalHighDemandHits += 1;
-                    log('warn', `JSON high demand — waiting ${Math.round(CONFIG.retryOn503DelayMs / 1000)}s`);
-                    await sleep(CONFIG.retryOn503DelayMs);
-                    continue;
-                }
+                if (data.error) {
+                    if (fallback.isModelNotFoundError(data, response.status)) {
+                        log('warn', `JSON model ${currentModel} not available, trying next`);
+                        attemptsLog.push({ model: currentModel, reason: 'not-found' });
+                        modelFailed = true;
+                        break;
+                    }
 
-                const isRetryable = response.status >= 500;
-                if (!isRetryable || attempt === retries) {
-                    throw new GeminiError(
+                    if (fallback.isHighDemandError(data, response.status)) {
+                        metrics.totalHighDemandHits += 1;
+                        if (attempt < retries) {
+                            const retryMs = Math.min(
+                                extractRetryDelay(data) || CONFIG.retryOn503DelayMs,
+                                8000
+                            );
+                            log('warn', `JSON ${currentModel} high demand — retry in ${Math.round(retryMs / 1000)}s`);
+                            await sleep(retryMs);
+                            continue;
+                        }
+                        attemptsLog.push({ model: currentModel, reason: 'high-demand' });
+                        modelFailed = true;
+                        break;
+                    }
+
+                    if (isRateLimitError(data, response.status)) {
+                        metrics.totalRateLimitHits += 1;
+                        if (attempt < retries) {
+                            const retryMs = Math.min(
+                                extractRetryDelay(data) || CONFIG.retryOn429DelayMs,
+                                10000
+                            );
+                            await sleep(retryMs);
+                            continue;
+                        }
+                        attemptsLog.push({ model: currentModel, reason: 'rate-limit' });
+                        modelFailed = true;
+                        break;
+                    }
+
+                    const isRetryable = response.status >= 500;
+                    if (isRetryable && attempt < retries) {
+                        await sleep(backoffDelay(attempt));
+                        continue;
+                    }
+
+                    lastError = new GeminiError(
                         data.error.message || 'שגיאה לא ידועה ממערכת הליבה',
                         response.status >= 400 ? response.status : 502,
-                        data.error,
-                        rateLimited
+                        data.error
+                    );
+                    attemptsLog.push({ model: currentModel, reason: 'error', msg: lastError.message });
+                    modelFailed = true;
+                    break;
+                }
+
+                const candidate = data?.candidates?.[0];
+                const reply = candidate?.content?.parts?.[0]?.text;
+                const finishReason = candidate?.finishReason || 'UNKNOWN';
+
+                if (!reply) {
+                    throw new GeminiError('מבנה הנתונים אינו תקין — תשובה ריקה', 502, { finishReason });
+                }
+
+                if (finishReason === 'MAX_TOKENS') {
+                    throw new GeminiError(
+                        'תשובת AI נחתכה בגלל מגבלת אורך. נסה לנסח את הבקשה בפחות פריטים.',
+                        502,
+                        { finishReason, replyLength: reply.length }
                     );
                 }
 
-                lastError = new GeminiError(data.error.message, response.status, null, rateLimited);
-                await sleep(backoffDelay(attempt));
-                continue;
-            }
+                if (finishReason === 'SAFETY') {
+                    throw new GeminiError('הבקשה נחסמה על ידי מסנני בטיחות של Gemini', 502, { finishReason });
+                }
 
-            const candidate = data?.candidates?.[0];
-            const reply = candidate?.content?.parts?.[0]?.text;
-            const finishReason = candidate?.finishReason || 'UNKNOWN';
+                if (finishReason === 'RECITATION') {
+                    throw new GeminiError('הבקשה נחסמה על ידי מסנני Gemini', 502, { finishReason });
+                }
 
-            if (!reply) {
-                log('warn', 'Gemini JSON: no reply text', { finishReason });
-                throw new GeminiError('מבנה הנתונים אינו תקין — תשובה ריקה', 502, { finishReason });
-            }
-
-            if (finishReason === 'MAX_TOKENS') {
-                log('warn', `Gemini JSON: truncated by MAX_TOKENS (${reply.length} chars)`);
-                throw new GeminiError(
-                    'תשובת AI נחתכה בגלל מגבלת אורך. נסה לנסח את הארוחה בפחות פריטים.',
-                    502,
-                    { finishReason, replyLength: reply.length }
-                );
-            }
-
-            if (finishReason === 'SAFETY') {
-                log('warn', 'Gemini JSON: blocked by safety');
-                throw new GeminiError('הבקשה נחסמה על ידי מסנני בטיחות של Gemini', 502, { finishReason });
-            }
-
-            if (finishReason === 'RECITATION') {
-                log('warn', 'Gemini JSON: blocked by recitation');
-                throw new GeminiError('הבקשה נחסמה על ידי מסנני Gemini', 502, { finishReason });
-            }
-
-            let parsed = null;
-            let parseErr = null;
-
-            try {
-                parsed = JSON.parse(reply);
-            } catch (e) {
-                parseErr = e;
-            }
-
-            if (!parsed) {
-                const stripped = String(reply)
-                    .replace(/^\s*```(?:json)?\s*/i, '')
-                    .replace(/\s*```\s*$/i, '')
-                    .trim();
+                // ── JSON parsing with multiple salvage attempts ──
+                let parsed = null;
+                let parseErr = null;
 
                 try {
-                    parsed = JSON.parse(stripped);
+                    parsed = JSON.parse(reply);
                 } catch (e) {
                     parseErr = e;
                 }
-            }
 
-            if (!parsed) {
-                const firstBrace = reply.indexOf('{');
-                const lastBrace = reply.lastIndexOf('}');
-                if (firstBrace !== -1 && lastBrace > firstBrace) {
-                    const inner = reply.slice(firstBrace, lastBrace + 1);
+                if (!parsed) {
+                    const stripped = String(reply)
+                        .replace(/^\s*```(?:json)?\s*/i, '')
+                        .replace(/\s*```\s*$/i, '')
+                        .trim();
                     try {
-                        parsed = JSON.parse(inner);
+                        parsed = JSON.parse(stripped);
                     } catch (e) {
                         parseErr = e;
                     }
                 }
-            }
 
-            if (!parsed) {
-                let fixed = String(reply).trim();
-                const firstBrace = fixed.indexOf('{');
-                if (firstBrace !== -1) fixed = fixed.slice(firstBrace);
-
-                fixed = fixed.replace(/,\s*([}\]])/g, '$1');
-
-                const openCurly = (fixed.match(/\{/g) || []).length;
-                const closeCurly = (fixed.match(/\}/g) || []).length;
-                const openSquare = (fixed.match(/\[/g) || []).length;
-                const closeSquare = (fixed.match(/\]/g) || []).length;
-
-                if (openCurly > closeCurly) fixed += '}'.repeat(openCurly - closeCurly);
-                if (openSquare > closeSquare) {
-                    fixed = fixed.replace(/\}\s*$/, '');
-                    fixed += ']'.repeat(openSquare - closeSquare) + '}';
+                if (!parsed) {
+                    const firstBrace = reply.indexOf('{');
+                    const lastBrace = reply.lastIndexOf('}');
+                    if (firstBrace !== -1 && lastBrace > firstBrace) {
+                        const inner = reply.slice(firstBrace, lastBrace + 1);
+                        try {
+                            parsed = JSON.parse(inner);
+                        } catch (e) {
+                            parseErr = e;
+                        }
+                    }
                 }
 
-                try {
-                    parsed = JSON.parse(fixed);
-                    log('warn', 'Gemini JSON: salvaged truncated response');
-                } catch (e) {
-                    parseErr = e;
+                if (!parsed) {
+                    let fixed = String(reply).trim();
+                    const firstBrace = fixed.indexOf('{');
+                    if (firstBrace !== -1) fixed = fixed.slice(firstBrace);
+                    fixed = fixed.replace(/,\s*([}\]])/g, '$1');
+
+                    const openCurly = (fixed.match(/\{/g) || []).length;
+                    const closeCurly = (fixed.match(/\}/g) || []).length;
+                    const openSquare = (fixed.match(/\[/g) || []).length;
+                    const closeSquare = (fixed.match(/\]/g) || []).length;
+
+                    if (openCurly > closeCurly) fixed += '}'.repeat(openCurly - closeCurly);
+                    if (openSquare > closeSquare) {
+                        fixed = fixed.replace(/\}\s*$/, '');
+                        fixed += ']'.repeat(openSquare - closeSquare) + '}';
+                    }
+
+                    try {
+                        parsed = JSON.parse(fixed);
+                        log('warn', 'Gemini JSON: salvaged truncated response');
+                    } catch (e) {
+                        parseErr = e;
+                    }
                 }
-            }
 
-            if (!parsed) {
-                log('error', 'Gemini JSON: all parse attempts failed', {
-                    finishReason,
-                    replyLength: reply.length,
-                    parseError: parseErr?.message,
-                });
-                throw new GeminiError(
-                    'תשובת AI לא בפורמט JSON תקין',
-                    502,
-                    { raw: reply.substring(0, 500), finishReason }
-                );
-            }
-
-            return {
-                data: parsed,
-                coreLatencyMs: Date.now() - coreStart,
-                attempts: attempt + 1,
-            };
-        } catch (error) {
-            if (error instanceof GeminiError) {
-                lastError = error;
-                if (error.statusCode === 502 && /MAX_TOKENS|SAFETY|RECITATION/.test(error.message)) {
-                    throw error;
+                if (!parsed) {
+                    log('error', 'Gemini JSON: all parse attempts failed', {
+                        finishReason,
+                        replyLength: reply.length,
+                        parseError: parseErr?.message,
+                    });
+                    throw new GeminiError(
+                        'תשובת AI לא בפורמט JSON תקין',
+                        502,
+                        { raw: reply.substring(0, 500), finishReason }
+                    );
                 }
-            } else if (error.name === 'AbortError') {
-                lastError = new GeminiError('תם הזמן הקצוב', 504);
-            } else {
-                lastError = new GeminiError('תקלת תקשורת זמנית', 502, error.message);
-            }
 
-            if (attempt === retries) throw lastError;
-            await sleep(backoffDelay(attempt));
+                if (modelIdx > 0) {
+                    log('info', `Gemini JSON fallback SUCCESS on model: ${currentModel}`, {
+                        attempts: attemptsLog,
+                    });
+                }
+
+                return {
+                    data: parsed,
+                    coreLatencyMs: Date.now() - coreStart,
+                    attempts: attempt + 1,
+                    modelUsed: currentModel,
+                };
+
+            } catch (error) {
+                if (error instanceof GeminiError) {
+                    lastError = error;
+                    if (error.statusCode === 502 && /MAX_TOKENS|SAFETY|RECITATION/.test(error.message)) {
+                        throw error;
+                    }
+                } else if (error.name === 'AbortError') {
+                    lastError = new GeminiError('תם הזמן הקצוב', 504);
+                } else {
+                    lastError = new GeminiError('תקלת תקשורת זמנית', 502, error.message);
+                }
+
+                if (attempt === retries) {
+                    attemptsLog.push({ model: currentModel, reason: 'exception', msg: lastError.message });
+                    modelFailed = true;
+                    break;
+                }
+                await sleep(backoffDelay(attempt));
+            }
         }
+
+        if (!modelFailed) break;
     }
 
-    throw lastError;
+    log('error', 'All Gemini JSON models failed', { attempts: attemptsLog });
+    throw lastError || new GeminiError('כל המודלים עמוסים כרגע — נסה שוב בעוד דקה', 503);
 }
-
 // ==============================
 // 15. GEMINI VISION
 // ==============================
-
 async function callGeminiVision(imageBase64, mimeType, userPrompt, retries = CONFIG.visionRetries) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.geminiModel}:generateContent?key=${CONFIG.geminiApiKey}`;
+    const fallback = require('./gemini-fallback');
+    const modelsToTry = fallback.getFallbackModels(CONFIG.geminiModel);
 
     const promptText = userPrompt && userPrompt.trim()
         ? `${VISION_SYSTEM_PROMPT}\n\nהמשתמש שואל: ${userPrompt.trim()}`
@@ -1146,82 +1240,124 @@ async function callGeminiVision(imageBase64, mimeType, userPrompt, retries = CON
         },
     });
 
-    let lastError;
+    let lastError = null;
     const coreStart = Date.now();
+    const attemptsLog = [];
 
-    for (let attempt = 0; attempt <= retries; attempt++) {
-        try {
-            const response = await fetchWithTimeout(
-                url,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body,
-                },
-                CONFIG.geminiVisionTimeoutMs
-            );
+    for (let modelIdx = 0; modelIdx < modelsToTry.length; modelIdx++) {
+        const currentModel = modelsToTry[modelIdx];
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${CONFIG.geminiApiKey}`;
 
-            const data = await response.json();
+        let modelFailed = false;
 
-            if (data.error) {
-                const rateLimited = isRateLimitError(data, response.status);
-                const highDemand = isHighDemandError(data, response.status);
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            try {
+                const response = await fetchWithTimeout(
+                    url,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body,
+                    },
+                    CONFIG.geminiVisionTimeoutMs
+                );
 
-                if (rateLimited && attempt < retries) {
-                    metrics.totalRateLimitHits += 1;
-                    const retryMs = extractRetryDelay(data) || CONFIG.retryOn429DelayMs;
-                    log('warn', `Vision rate limit — waiting ${Math.round(retryMs / 1000)}s`);
-                    await sleep(retryMs);
-                    continue;
-                }
+                const data = await response.json();
 
-                if (highDemand && attempt < retries) {
-                    metrics.totalHighDemandHits += 1;
-                    log('warn', `Vision high demand — waiting ${Math.round(CONFIG.retryOn503DelayMs / 1000)}s`);
-                    await sleep(CONFIG.retryOn503DelayMs);
-                    continue;
-                }
+                if (data.error) {
+                    if (fallback.isModelNotFoundError(data, response.status)) {
+                        log('warn', `Vision model ${currentModel} not available, trying next`);
+                        attemptsLog.push({ model: currentModel, reason: 'not-found' });
+                        modelFailed = true;
+                        break;
+                    }
 
-                const isRetryable = response.status >= 500;
-                if (!isRetryable || attempt === retries) {
-                    throw new GeminiError(
+                    if (fallback.isHighDemandError(data, response.status)) {
+                        metrics.totalHighDemandHits += 1;
+                        if (attempt < retries) {
+                            const retryMs = Math.min(
+                                extractRetryDelay(data) || CONFIG.retryOn503DelayMs,
+                                8000
+                            );
+                            log('warn', `Vision ${currentModel} high demand — retry in ${Math.round(retryMs / 1000)}s`);
+                            await sleep(retryMs);
+                            continue;
+                        }
+                        attemptsLog.push({ model: currentModel, reason: 'high-demand' });
+                        modelFailed = true;
+                        break;
+                    }
+
+                    if (isRateLimitError(data, response.status)) {
+                        metrics.totalRateLimitHits += 1;
+                        if (attempt < retries) {
+                            const retryMs = Math.min(
+                                extractRetryDelay(data) || CONFIG.retryOn429DelayMs,
+                                10000
+                            );
+                            await sleep(retryMs);
+                            continue;
+                        }
+                        attemptsLog.push({ model: currentModel, reason: 'rate-limit' });
+                        modelFailed = true;
+                        break;
+                    }
+
+                    const isRetryable = response.status >= 500;
+                    if (isRetryable && attempt < retries) {
+                        await sleep(backoffDelay(attempt));
+                        continue;
+                    }
+
+                    lastError = new GeminiError(
                         data.error.message || 'שגיאה בניתוח התמונה',
                         response.status >= 400 ? response.status : 502,
-                        data.error,
-                        rateLimited
+                        data.error
                     );
+                    attemptsLog.push({ model: currentModel, reason: 'error', msg: lastError.message });
+                    modelFailed = true;
+                    break;
                 }
 
-                lastError = new GeminiError(data.error.message, response.status, null, rateLimited);
+                const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!reply) {
+                    throw new GeminiError('מבנה הנתונים אינו תקין', 502, data);
+                }
+
+                if (modelIdx > 0) {
+                    log('info', `Vision fallback SUCCESS on model: ${currentModel}`);
+                }
+
+                return {
+                    reply: reply.trim(),
+                    coreLatencyMs: Date.now() - coreStart,
+                    attempts: attempt + 1,
+                    modelUsed: currentModel,
+                };
+
+            } catch (error) {
+                if (error instanceof GeminiError) {
+                    lastError = error;
+                } else if (error.name === 'AbortError') {
+                    lastError = new GeminiError('תם הזמן הקצוב', 504);
+                } else {
+                    lastError = new GeminiError('תקלת תקשורת זמנית', 502, error.message);
+                }
+
+                if (attempt === retries) {
+                    attemptsLog.push({ model: currentModel, reason: 'exception', msg: lastError.message });
+                    modelFailed = true;
+                    break;
+                }
                 await sleep(backoffDelay(attempt));
-                continue;
             }
-
-            const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!reply) {
-                throw new GeminiError('מבנה הנתונים אינו תקין', 502, data);
-            }
-
-            return {
-                reply: reply.trim(),
-                coreLatencyMs: Date.now() - coreStart,
-                attempts: attempt + 1,
-            };
-        } catch (error) {
-            if (error instanceof GeminiError) {
-                lastError = error;
-            } else if (error.name === 'AbortError') {
-                lastError = new GeminiError('תם הזמן הקצוב', 504);
-            } else {
-                lastError = new GeminiError('תקלת תקשורת זמנית', 502, error.message);
-            }
-
-            if (attempt === retries) throw lastError;
-            await sleep(backoffDelay(attempt));
         }
+
+        if (!modelFailed) break;
     }
 
-    throw lastError;
+    log('error', 'All Vision models failed', { attempts: attemptsLog });
+    throw lastError || new GeminiError('כל המודלים עמוסים כרגע — נסה שוב בעוד דקה', 503);
 }
 
 // ==============================
