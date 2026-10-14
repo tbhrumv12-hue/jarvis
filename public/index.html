@@ -19,8 +19,8 @@
     <link rel="stylesheet" href="/css/mobile.css" media="(max-width: 1024px)">
 
     <link rel="manifest" href="/manifest.json">
-   <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
-   <link rel="apple-touch-icon" href="/icons/icon.svg">
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
+    <link rel="apple-touch-icon" href="/icons/icon.svg">
 </head>
 <body>
 
@@ -172,6 +172,7 @@
     <script src="/js/neural.js" defer></script>
     <script src="/js/app.js" defer></script>
 
+    <!-- === Service Worker Registration (single) === -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
@@ -181,15 +182,53 @@
             });
         }
     </script>
-        <script>
-        // Register Service Worker for PWA
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js')
-                    .then((reg) => console.log('[PWA] SW registered:', reg.scope))
-                    .catch((err) => console.warn('[PWA] SW registration failed:', err));
-            });
-        }
+
+    <!-- === Boot Sequence === -->
+    <div id="boot-overlay" class="boot-overlay">
+        <div class="boot-logo">J.A.R.V.I.S</div>
+        <div class="boot-bar">
+            <div class="boot-bar-fill" id="boot-fill"></div>
+        </div>
+        <div class="boot-status" id="boot-status">מאתחל מערכות...</div>
+        <div class="boot-percent" id="boot-percent">0%</div>
+    </div>
+
+    <script>
+        (function() {
+            const overlay = document.getElementById('boot-overlay');
+            const fill = document.getElementById('boot-fill');
+            const status = document.getElementById('boot-status');
+            const percent = document.getElementById('boot-percent');
+
+            if (!overlay) return;
+
+            const steps = [
+                { p: 20, text: 'טוען ליבה נוירולוגית...' },
+                { p: 45, text: 'מאתחל חיישנים...' },
+                { p: 70, text: 'טוען מאגר ידע...' },
+                { p: 90, text: 'מסנכרן מודולים...' },
+                { p: 100, text: 'המערכת מוכנה' }
+            ];
+
+            let idx = 0;
+            const next = () => {
+                if (idx >= steps.length) {
+                    setTimeout(() => {
+                        overlay.classList.add('fade-out');
+                        setTimeout(() => overlay.remove(), 400);
+                    }, 150);
+                    return;
+                }
+                const s = steps[idx];
+                fill.style.width = s.p + '%';
+                status.textContent = s.text;
+                percent.textContent = s.p + '%';
+                idx++;
+                setTimeout(next, 80 + Math.random() * 50);
+            };
+
+            setTimeout(next, 50);
+        })();
     </script>
 </body>
 </html>

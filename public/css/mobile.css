@@ -407,4 +407,104 @@
             height: 100dvh;
         }
     }
+}/* === Mobile: force camera + tts visible at all sizes === */
+@media (max-width: 640px) {
+    #camera-btn,
+    #tts-toggle {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        width: 32px !important;
+        height: 32px !important;
+        font-size: 14px !important;
+        flex-shrink: 0 !important;
+    }
+}/* === Mobile: horizontal scroll for button row === */
+@media (max-width: 640px) {
+    .hud-header .hud-controls,
+    header > div:last-child,
+    .hud-icon-btn {
+        /* target the container */
+    }
+
+    /* Force the button row to be scrollable */
+    [class*="controls"],
+    [class*="hud-icons"],
+    [class*="button-row"] {
+        overflow-x: auto !important;
+        flex-wrap: nowrap !important;
+        scrollbar-width: none !important;
+        -ms-overflow-style: none !important;
+        gap: 6px !important;
+    }
+
+    [class*="controls"]::-webkit-scrollbar,
+    [class*="hud-icons"]::-webkit-scrollbar,
+    [class*="button-row"]::-webkit-scrollbar {
+        display: none !important;
+    }
+
+    #camera-btn,
+    #tts-toggle {
+        display: flex !important;
+        flex-shrink: 0 !important;
+    }
+}/* === HUD Buttons — horizontal scroll on mobile === */
+.hud-buttons {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+}
+
+@media (max-width: 768px) {
+    .hud-buttons {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+        max-width: calc(100vw - 120px);
+        padding-bottom: 2px;
+    }
+    .hud-buttons::-webkit-scrollbar {
+        display: none;
+    }
+    .hud-buttons .hud-icon-btn {
+        flex-shrink: 0;
+    }
+    #camera-btn,
+    #tts-toggle {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+}/* === HUD Buttons — scrollable on mobile === */
+.hud-buttons {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+}
+
+@media (max-width: 768px) {
+    .hud-buttons {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+        max-width: calc(100vw - 130px);
+        padding: 4px 0;
+    }
+    .hud-buttons::-webkit-scrollbar {
+        display: none;
+    }
+    .hud-buttons .hud-icon-btn {
+        flex-shrink: 0;
+    }
+    #camera-btn,
+    #tts-toggle {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
 }

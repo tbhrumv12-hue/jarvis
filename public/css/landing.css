@@ -1,0 +1,301 @@
+/* ═══════════════════════════════════════════════════════
+   J.A.R.V.I.S // LANDING — Entry Page
+   ═══════════════════════════════════════════════════════ */
+
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+:root {
+    --bg-0: #04070d;
+    --bg-1: #0a0e1a;
+    --turquoise: #4dd0c4;
+    --turquoise-soft: #6fe0d5;
+    --turquoise-bright: #8af5ea;
+    --gold: #d4af37;
+    --gold-soft: #e8c860;
+    --text-0: #e8ecf5;
+    --text-1: #a8b2c8;
+    --text-2: #6b7691;
+    --font-display: 'Rajdhani', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+}
+
+html, body {
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg-0);
+    color: var(--text-0);
+    font-family: var(--font-display);
+    -webkit-font-smoothing: antialiased;
+}
+
+body.landing-page {
+    position: relative;
+    background:
+        radial-gradient(ellipse at center top, rgba(77, 208, 196, 0.08), transparent 60%),
+        radial-gradient(ellipse at center bottom, rgba(212, 175, 55, 0.05), transparent 60%),
+        var(--bg-0);
+}
+
+/* === Canvas === */
+#human-canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    pointer-events: none;
+}
+
+/* === UI Overlay === */
+.landing-ui {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 100vh;
+    height: 100dvh;
+    padding: 24px;
+    pointer-events: none;
+}
+
+.landing-ui > * {
+    pointer-events: auto;
+}
+
+/* === Header === */
+.landing-header {
+    text-align: center;
+    padding-top: 20px;
+    animation: fade-in-down 1s ease both;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin-bottom: 8px;
+}
+
+.brand-icon {
+    font-size: 28px;
+    color: var(--turquoise);
+    text-shadow: 0 0 20px var(--turquoise);
+    animation: pulse-icon 3s ease-in-out infinite;
+}
+
+@keyframes pulse-icon {
+    0%, 100% { opacity: 0.8; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.15); }
+}
+
+.landing-header h1 {
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: 8px;
+    color: var(--turquoise);
+    text-shadow: 0 0 24px rgba(77, 208, 196, 0.6);
+    margin: 0;
+}
+
+.subtitle {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    letter-spacing: 4px;
+    color: var(--text-2);
+    margin-top: 4px;
+}
+
+/* === Controls === */
+.landing-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-width: 560px;
+    width: 100%;
+    margin: 0 auto;
+    padding-bottom: 20px;
+    animation: fade-in-up 1s ease 0.3s both;
+}
+
+.landing-form {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 8px;
+    background: rgba(10, 14, 26, 0.75);
+    border: 1px solid rgba(77, 208, 196, 0.3);
+    border-radius: 30px;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 24px rgba(77, 208, 196, 0.1);
+    transition: all 0.3s;
+}
+
+.landing-form:focus-within {
+    border-color: var(--turquoise);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 32px rgba(77, 208, 196, 0.3);
+}
+
+.landing-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 14px 20px;
+    color: var(--text-0);
+    font-family: var(--font-display);
+    font-size: 16px;
+    direction: rtl;
+}
+
+.landing-input::placeholder {
+    color: var(--text-2);
+}
+
+.landing-send {
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    border: none;
+    background: linear-gradient(135deg, var(--turquoise), #3fb8ad);
+    color: var(--bg-0);
+    font-size: 20px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.25s;
+    flex-shrink: 0;
+    box-shadow: 0 4px 16px rgba(77, 208, 196, 0.4);
+}
+
+.landing-send:hover {
+    transform: scale(1.08);
+    box-shadow: 0 6px 24px rgba(77, 208, 196, 0.7);
+}
+
+.landing-send:active {
+    transform: scale(0.95);
+}
+
+.enter-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 12px 24px;
+    background: transparent;
+    border: 1px solid rgba(212, 175, 55, 0.35);
+    border-radius: 30px;
+    color: var(--gold);
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.3s;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.enter-btn:hover {
+    background: rgba(212, 175, 55, 0.08);
+    border-color: var(--gold);
+    box-shadow: 0 0 24px rgba(212, 175, 55, 0.3);
+    transform: translateY(-1px);
+}
+
+.enter-icon {
+    font-size: 16px;
+    animation: pulse-icon 3s ease-in-out infinite;
+}
+
+.enter-arrow {
+    transition: transform 0.3s;
+}
+
+.enter-btn:hover .enter-arrow {
+    transform: translateX(-4px);
+}
+
+/* === Footer === */
+.landing-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding-bottom: 8px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--text-2);
+    animation: fade-in-up 1s ease 0.5s both;
+}
+
+.footer-dot {
+    color: var(--turquoise);
+    opacity: 0.5;
+}
+
+/* === Animations === */
+@keyframes fade-in-down {
+    from { opacity: 0; transform: translateY(-20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-up {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* === Mobile === */
+@media (max-width: 640px) {
+    .landing-ui { padding: 16px; }
+
+    .landing-header h1 {
+        font-size: 26px;
+        letter-spacing: 5px;
+    }
+
+    .brand-icon { font-size: 22px; }
+
+    .subtitle {
+        font-size: 9px;
+        letter-spacing: 3px;
+    }
+
+    .landing-input {
+        font-size: 15px;
+        padding: 12px 16px;
+    }
+
+    .landing-send {
+        width: 42px;
+        height: 42px;
+        font-size: 18px;
+    }
+
+    .enter-btn {
+        font-size: 13px;
+        padding: 10px 18px;
+    }
+
+    .landing-footer {
+        font-size: 9px;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .footer-dot { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+}
