@@ -679,31 +679,26 @@ function loadKnowledgeBase() {
     knowledge.avgDocLength = 0;
     knowledge.vocab = new Set();
 
-    const loadedFromEnv = loadFromEnvironment();
-    if (loadedFromEnv) {
-        knowledge.loadedAt = Date.now();
-        log('info', 'Knowledge base ready (ENV)', {
-            files: knowledge.files.size,
-            chunks: knowledge.chunks.length,
-            vocab: knowledge.vocab.size,
-            avgDocLength: Math.round(knowledge.avgDocLength),
-        });
+    // Load from ENV (existing vars)
+    const envLoaded = loadFromEnvironment();
+
+    // Load from Filesystem (also, always — merges with ENV)
+    const fsLoaded = loadFromFilesystem();
+
+    if (!envLoaded && !fsLoaded) {
+        log('warn', 'Knowledge base is empty — no ENV or filesystem sources');
         return;
     }
 
-    const loadedFromFS = loadFromFilesystem();
-    if (loadedFromFS) {
-        knowledge.loadedAt = Date.now();
-        log('info', 'Knowledge base ready (Filesystem)', {
-            files: knowledge.files.size,
-            chunks: knowledge.chunks.length,
-            vocab: knowledge.vocab.size,
-            avgDocLength: Math.round(knowledge.avgDocLength),
-        });
-        return;
-    }
-
-    log('warn', 'Knowledge base is empty — no ENV or filesystem sources');
+    knowledge.loadedAt = Date.now();
+    log('info', 'Knowledge base ready (merged)', {
+        fromEnv: envLoaded,
+        fromFilesystem: fsLoaded,
+        files: knowledge.files.size,
+        chunks: knowledge.chunks.length,
+        vocab: knowledge.vocab.size,
+        avgDocLength: Math.round(knowledge.avgDocLength),
+    });
 }
 
 // ==============================
