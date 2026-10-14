@@ -19,7 +19,7 @@
         hebrewLangCodes: ['he-IL', 'he'],
         speechLang: 'he-IL',
         speechInterimResults: true,
-        speechContinuous: true,
+        speechContinuous: false,
         speechAutoSendDelayMs: 900,
         speechSafetyTimeoutMs: 8000,
         speechRestartDelayMs: 300,
