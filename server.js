@@ -3598,61 +3598,7 @@ ${mealsList}
 // 46. ROUTES — TRAINING
 // ==============================
 
-const TRAINING_GENERATE_SYSTEM_PROMPT = `אתה מאמן קליסטניקס מומחה. תפקידך: לתכנן אימון מותאם אישית על בסיס הבקשה של המשתמש.
 
-## הפרופיל של המשתמש:
-- גיל 15 וחמישה חודשים
-- קליסטניקס, 4-5 אימונים בשבוע
-- מטרה: Full Planche + Front Lever + Handstand + שליטה טכנית אבסולוטית
-- עיקרון: איכות מעל כמות, דפוסי תנועה נקיים, אפס "לסחוב חזרות"
-
-## כללים מוחלטים:
-1. החזר **רק JSON תקין**. בלי טקסט, בלי הסברים, בלי markdown.
-2. כל תרגיל חייב להיות עם: name, category, sets, reps, rest, note
-3. category חייב להיות אחד מ: "skill", "strength", "core"
-4. סדר התרגילים: skill → strength → core
-5. מנוחה בין סטים: 2-2.5 דקות לתרגילי skill, 1.5-2 לתרגילי strength
-6. **אל תכלול Full Planche** אם הבקשה לא מבקשת — זה מסוכן לגיל הזה
-7. אם mode = "short" — 5-6 תרגילים סה"כ, ממוקד על מטרה אחת
-8. אם mode = "long" — 8-11 תרגילים, משלב push + pull + skill + core
-9. אם יום עם עייפות — המלץ על פחות נפח
-10. היה ספציפי: "3x8" לא "כמה סטים"
-
-## סכמת JSON:
-{
-  "title": "שם האימון בעברית (קצר)",
-  "summary": "משפט אחד: מה האימון מפתח",
-  "durationMinutes": 45,
-  "exercises": [
-    {
-      "name": "Planche Lean",
-      "category": "skill",
-      "sets": 4,
-      "reps": "8 שניות",
-      "rest": "2 דק׳",
-      "note": "שמור אגן נעול, כתפיים קדימה"
-    }
-  ]
-}`;
-
-const TRAINING_ANALYZE_SYSTEM_PROMPT = `אתה מאמן קליסטניקס אנליטי. תפקידך: לנתח את היסטוריית האימונים של המשתמש ולתת תובנות מעשיות.
-
-## כללי התנהגות:
-1. ענה בעברית, ישיר, מבוסס מספרים. אפס "יאס-מן".
-2. זהה דפוסים: יותר מדי push? חוסר איזון? יותר מדי עומס?
-3. תן התקדמות מדידה: "Planche Lean: 8s → 12s"
-4. התראות: "4 אימונים ב-3 ימים — שים לב לעומס-יתר"
-5. המלץ על הצעד הבא: איזה תרגיל להתמקד בו בשבוע הבא
-6. אם יש חוסר איזון — אמור במפורש: "יותר מדי push, חסר pull"
-7. השתמש ב-Markdown: **מודגש**, רשימות, כותרות (##)
-
-## פורמט פלט:
-## 📊 סיכום תקופה
-## 📈 התקדמות בולטת
-## ⚠️ התראות
-## 🎯 המלצות לשבוע הבא
-
-אורך: 4 פסקאות מקסימום. היה תמציתי ומעשי.`;
 
 // ==============================
 // 47. ROUTES — TRAINING COACH
@@ -3907,6 +3853,250 @@ ${daysText}
         next(error);
     }
 });
+
+// ==============================
+// 45.5. TRAINING — GENERATE WORKOUT
+// ==============================
+
+const TRAINING_GENERATE_SYSTEM_PROMPT = [
+    'אתה מאמן קליסטניקס אישי של Ori, בן 15 וחמישה חודשים מאזור השומרון.',
+    '',
+    '═══════════════════════════════════════════════════════════',
+    '## זהות המשתמש — ELITE',
+    '═══════════════════════════════════════════════════════════',
+    '',
+    '### כוח דינמי',
+    '- ~10 עליות כוח (Muscle Ups) נקיות',
+    '- ~70 שכיבות סמיכה בטכניקה נקייה',
+    '',
+    '### אלמנטים סטטיים',
+    '- Straddle Planche',
+    '- עמידות ידיים מלאות (כולל עמידת ידיים מקסיקנית)',
+    '- שכיבות סמיכה ב-90 מעלות (90-degree push-ups)',
+    '- Front Lever — מחזיק 4 שניות, שואף ל-5',
+    '- Back Lever',
+    '- One Arm Back Lever',
+    '',
+    '### מעברים ותרגילי פרס',
+    '- Presses לפלאנץ',
+    '- Presses לעמידות ידיים',
+    '- Negatives ב-90 מעלות',
+    '- 360 (Ginger)',
+    '- Ginger Double 360',
+    '',
+    '### ציוד זמין',
+    '- מקבילים נמוכים וגבוהים',
+    '- משקולות חופשיות',
+    '- רצועת התנגדות 30 ק"ג',
+    '- מגנזיום',
+    '',
+    '### ציוד שאין',
+    '- טבעות',
+    '- אפוד משקל',
+    '',
+    '### מטרות ארוכות טווח',
+    '- Full Planche',
+    '- Front Lever 5 שניות',
+    '- Handstand (שיפור)',
+    '- חיטוב',
+    '',
+    '═══════════════════════════════════════════════════════════',
+    '## מילון מושגי קליסטניקס — 5 קטגוריות',
+    '═══════════════════════════════════════════════════════════',
+    '',
+    'כשהמשתמש מבקש אימון בקטגוריה כלשהי — הבן את ההגדה המלאה שלה.',
+    '',
+    '### 1. תרגילים סטטיים (Static / Isometrics)',
+    'מה זה: תרגילים שבהם הגוף נמצא במצב קפוא, ללא תנועה במפרקים, אבל שרירי הליבה והשלד עובדים תחת עומס קיצוני ועצום כדי להילחם בכוח הכבידה.',
+    'דוגמאות של Ori: Front Lever (מחזיק 4 שניות), Straddle Planche, Back Lever, L-sit, One Arm Back Lever, Handstand.',
+    'המטרה: בניית כוח גידים אדיר, יציבות מוחלטת ושליטה אבסולוטית במרחב בלי לייצר מומנטום.',
+    '',
+    '### 2. תרגילי פוש (Push / Push Elements)',
+    'מה זה: כל התרגילים שבהם דוחפים את הגוף הרחק מהקרקע, מהמקבילים או מהמוט (שרירי חזה, כתפיים קדמיות, יד אחורית).',
+    'דוגמאות של Ori: 70 שכיבות סמיכה, מקבילים, שכיבות סמיכה בעמידת ידיים (Handstand Push-ups), שכיבות סמיכה ב-90 מעלות.',
+    'המטרה: פיתוח כוח דחיפה נפיץ וחזק בפלג הגוף העליון.',
+    '',
+    '### 3. תרגילי פול (Pull / Pull Elements)',
+    'מה זה: כל התרגילים שבהם מושכים את הגוף אל עבר המוט, הטבעות או הקרקע (שרירי גב, בייספס, כתף אחורית).',
+    'דוגמאות של Ori: עליות כוח (Muscle Ups), Front Lever, Back Lever, One Arm Back Lever.',
+    'המטרה: בניית עוצמה אדירה בגב ובידיים, ויכולת שליטה במשיכה משקל גוף מלא.',
+    '',
+    '### 4. תנועה דינמית / כוח דינמי (Dynamic & Dynamic Strength)',
+    'מה זה: תנועה שזורמת לאורך טווח תנועה מלא (Range of Motion), שדורשת מעבר חלק בין מצבים שונים, לעיתים קרובות תוך כדי שחרור אחיזה, סיבובים במרחב או תאוצה.',
+    'דוגמאות של Ori: 10 עליות כוח (עם אלמנט דינמי של מעבר מהמשיכה לדחיפה), 360, ג׳ינג׳ר דאבל 360.',
+    'המטרה: שילוב של קואורדינציה, אגירת תנע (Momentum) או שליטה אבסולוטית בכוח מתפרץ תוך כדי תנועה.',
+    '',
+    '### 5. באלאנס (Balance / Equilibrium)',
+    'מה זה: היכולת לשמור על מרכז הכובד (Center of Mass) של הגוף בדיוק מעל בסיס התמיכה, תוך כדי הפעלת תיקונים מיקרו-מוסקולריים בלתי פוסקים בשיווי משקל.',
+    'דוגמאות של Ori: עמידת ידיים (Handstand), עמידת ידיים מקסיקנית, One Arm Handstand Drills.',
+    'המטרה: שליטה עצבית-שרירית מוחלטת, פרופריוצפציה (חוש המיקום במרחב) ואיזון טוטאלי של כל שרירי הגוף מבהונות הרגליים ועד קצות האצבעות בידיים.',
+    '',
+    '═══════════════════════════════════════════════════════════',
+    '## חוקי הבנה של בקשות',
+    '═══════════════════════════════════════════════════════════',
+    '',
+    '### קרא מילה במילה',
+    '- קרא את הבקשה של Ori **מילה במילה**.',
+    '- אם הוא כתב "באלאנס" — תן תרגילי באלאנס (One Arm Handstand, weight shifts, equilibrium drills).',
+    '- אם הוא כתב "כוח דינמי" — תן תרגילי כוח דינמי (Muscle Ups, 360s, explosive).',
+    '- אם הוא כתב "סטטי" — תן תרגילי isometric (Planche, Front Lever, L-sit).',
+    '- **אל תחליף מילים דומות**. באלאנס ≠ עמידות ידיים. כוח דינמי ≠ סטטי. פוש ≠ פול.',
+    '',
+    '### שילוב קטגוריות — חשוב!',
+    '- אם Ori ביקש קטגוריה אחת — תן תרגילים **רק** מהקטגוריה הזו.',
+    '- אם Ori ביקש 2 קטגוריות — חלק שווה: 50% / 50%.',
+    '- אם Ori ביקש 3 קטגוריות — 33% / 33% / 33%.',
+    '- **אל תיתן 6 תרגילים מכולם מקטגוריה אחת** כשהמשתמש ביקש שילוב.',
+    '',
+    '### דוגמאות קונקרטיות',
+    '- "אימון באלאנס + עמידות יד" → 3 תרגילי באלאנס (One Arm Handstand Drills, Weight Shifts, Finger Balance) + 3 תרגילי עמידות ידיים (Handstand Press, Mexican Handstand, Wall Handstand).',
+    '- "כוח דינמי בפול" → Muscle Ups, Explosive Pull-ups, 360s, Muscle Up Transitions.',
+    '- "סטטי + פוש" → Straddle Planche, 90-degree Push-ups, Planche Leans, Tuck Planche.',
+    '',
+    '═══════════════════════════════════════════════════════════',
+    '## המשימה',
+    '═══════════════════════════════════════════════════════════',
+    '',
+    'צור אימון מותאם אישית לבקשה של Ori. האימון ברמת ELITE — לא למתחילים, לא לבינוניים.',
+    '',
+    '═══════════════════════════════════════════════════════════',
+    '## פורמט פלט — חובה JSON בלבד',
+    '═══════════════════════════════════════════════════════════',
+    '',
+    'החזר JSON תקני בלבד. אל תוסיף טקסט לפני או אחרי. אל תוסיף סימוני code block.',
+    'המבנה חייב להיות בדיוק כך:',
+    '{',
+    '  "title": "שם קצר לאימון בעברית",',
+    '  "durationMinutes": 40,',
+    '  "exercises": [',
+    '    {',
+    '      "name": "שם התרגיל בעברית",',
+    '      "sets": 4,',
+    '      "reps": "8-10",',
+    '      "rest": "90s",',
+    '      "notes": "הערה קצרה על טכניקה"',
+    '    }',
+    '  ]',
+    '}',
+    '',
+    '═══════════════════════════════════════════════════════════',
+    '## חוקים סופיים',
+    '═══════════════════════════════════════════════════════════',
+    '',
+    '1. 6-10 תרגילים לאימון קצר (40 דק), 10-14 לארוך (90 דק).',
+    '2. סדר הגיוני: חימום קצר → תרגילי בסיס כבדים → תרגילי עזר → ליבה.',
+    '3. התאם את הבקשה של Ori **בדיוק** — קרא מילה במילה.',
+    '4. השתמש בשמות תרגילי קליסטניקס ELITE אמיתיים.',
+    '5. הערות בעברית, קצרות (עד 12 מילים), עם דגש טכני.',
+    '6. כל החזרות כ-string ("8-10", "AMRAP", "4s hold", "5s negative").',
+    '7. התאם תרגילים לפי הציוד שיש לו (מקבילים, משקולות, רצועה, מגנזיום) — בלי טבעות, בלי אפוד משקל.',
+    '8. אם הבקשה כללית מדי — בחר תרגילי ELITE שמתאימים למטרות שלו (Planche, Front Lever, Handstand).',
+    '9. **בכל שילוב קטגוריות — חלק שווה.** אל תיתן הכל מקטגוריה אחת.',
+].join('\n');
+
+app.post('/api/training/generate', apiRateLimiter, async (req, res, next) => {
+    const requestStart = Date.now();
+    metrics.totalRequests += 1;
+
+    try {
+        const { request, mode } = req.body || {};
+
+        if (!request || typeof request !== 'string' || request.trim().length < 2) {
+            metrics.totalErrors += 1;
+            recordError('Empty training request');
+            return res.status(400).json({ error: 'חסרה בקשה ליצירת אימון' });
+        }
+
+        const cleanRequest = request.trim();
+        if (cleanRequest.length > 500) {
+            metrics.totalErrors += 1;
+            recordError('Training request too long');
+            return res.status(400).json({ error: 'הבקשה ארוכה מדי (מקסימום 500 תווים)' });
+        }
+
+        const cleanMode = (mode === 'long') ? 'long' : 'short';
+        const durationHint = cleanMode === 'long' ? '90 דקות (אימון ארוך)' : '40 דקות (אימון קצר)';
+
+        log('info', `Training generate: mode=${cleanMode}, request="${truncate(cleanRequest, 80)}"`);
+
+        const userPrompt = `## בקשת המשתמש
+${cleanRequest}
+
+## אורך מבוקש
+${durationHint}
+
+צור אימון מתאים. החזר JSON בלבד.`;
+
+        const { reply, coreLatencyMs, attempts } = await callGemini({
+            systemInstruction: TRAINING_GENERATE_SYSTEM_PROMPT,
+            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+            temperature: 0.7,
+            maxOutputTokens: 2500,
+            timeoutMs: CONFIG.geminiTimeoutMs,
+            retries: CONFIG.defaultRetries,
+        });
+
+        // Parse JSON reply from Gemini
+        let workout = null;
+        try {
+            let cleaned = (reply || '').trim();
+            cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+            const firstBrace = cleaned.indexOf('{');
+            const lastBrace = cleaned.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace > firstBrace) {
+                cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+            }
+            workout = JSON.parse(cleaned);
+        } catch (parseErr) {
+            log('warn', 'Training generate: failed to parse JSON', parseErr.message);
+            log('warn', 'Raw reply:', truncate(reply || '', 500));
+        }
+
+        if (!workout || !Array.isArray(workout.exercises) || workout.exercises.length === 0) {
+            metrics.totalErrors += 1;
+            recordError('Training generate: invalid workout JSON');
+            return res.status(502).json({
+                error: 'לא הצלחתי לייצר אימון תקין. נסה שוב.',
+            });
+        }
+
+        const normalized = {
+            title: typeof workout.title === 'string' ? workout.title : 'אימון',
+            durationMinutes: typeof workout.durationMinutes === 'number'
+                ? workout.durationMinutes
+                : (cleanMode === 'long' ? 90 : 40),
+            exercises: workout.exercises.map((ex) => ({
+                name: typeof ex.name === 'string' ? ex.name : 'תרגיל',
+                sets: typeof ex.sets === 'number' ? ex.sets : (parseInt(ex.sets, 10) || 3),
+                reps: ex.reps != null ? String(ex.reps) : '8-10',
+                rest: ex.rest != null ? String(ex.rest) : '60s',
+                notes: typeof ex.notes === 'string' ? ex.notes : '',
+            })),
+        };
+
+        const totalRoundTripMs = Date.now() - requestStart;
+        metrics.totalSuccess += 1;
+        recordLatency(coreLatencyMs);
+
+        log('info', 'Training generate OK', {
+            exercises: normalized.exercises.length,
+            coreLatencyMs,
+            totalRoundTripMs,
+            attempts,
+        });
+
+        return res.json({
+            workout: normalized,
+            latencyMs: coreLatencyMs,
+            roundTripMs: totalRoundTripMs,
+            attempts,
+            timestamp: new Date().toISOString(),
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 
 // ==============================
 // 46. ROUTES — MEGA PROMPT
