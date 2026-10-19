@@ -17,7 +17,7 @@
         particleCount: 1400,
         particleCountMobile: 700,
 
-        sphereRadiusFrac: 0.42,
+        sphereRadiusFrac: 0.34,
         connectionRadius: 0.20,
         maxNeighbors: 5,
 
@@ -39,7 +39,7 @@
         colorAccent:    { r: 255, g: 225, b: 140 },
         colorDeep:      { r: 70,  g: 150, b: 220 },
     }; 
-    
+
     const state = {
         width: 0,
         height: 0,

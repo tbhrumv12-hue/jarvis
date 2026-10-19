@@ -8,7 +8,15 @@
     .hud-container {
         grid-template-rows: 56px 3px 1fr 30px;
         gap: 8px;
-        padding: 10px;
+        padding-top: max(10px, env(safe-area-inset-top));
+        padding-bottom: max(10px, env(safe-area-inset-bottom));
+        padding-left: max(10px, env(safe-area-inset-left));
+        padding-right: max(10px, env(safe-area-inset-right));
+    }
+
+    .error-banner {
+        min-width: 0;
+        max-width: 100%;
     }
 
     .main-grid {
@@ -47,13 +55,18 @@
     .hud-container {
         grid-template-rows: 48px 2px 1fr auto;
         gap: 6px;
-        padding: 6px;
+        padding-top: max(6px, env(safe-area-inset-top));
+        padding-bottom: max(6px, env(safe-area-inset-bottom));
+        padding-left: max(6px, env(safe-area-inset-left));
+        padding-right: max(6px, env(safe-area-inset-right));
         height: 100dvh;
     }
 
     header {
         padding: 0 10px;
         border-bottom: 1px solid rgba(212, 175, 55, 0.25);
+        overflow: visible;
+        flex-wrap: nowrap;
     }
 
     header::before,
@@ -84,8 +97,17 @@
     }
 
     .hud-stats {
-        gap: 6px;
+        gap: 4px;
         font-size: 0.58rem;
+        display: flex;
+        align-items: center;
+        flex-wrap: nowrap;
+        white-space: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+        max-width: calc(100% - 130px);
     }
 
     .hud-stats .stat-item:nth-child(2),
@@ -112,6 +134,7 @@
         width: 32px;
         height: 32px;
         font-size: 14px;
+        flex-shrink: 0;
     }
 
     .load-bar {
@@ -319,7 +342,8 @@
     }
 
     .error-banner {
-        min-width: auto;
+        min-width: 0;
+        max-width: 100%;
         width: calc(100% - 20px);
         padding: 8px 12px;
         font-size: 0.7rem;
@@ -327,9 +351,9 @@
 
     #tts-toggle,
     #camera-btn {
-        width: 34px;
-        height: 34px;
-        font-size: 15px;
+        width: 32px;
+        height: 32px;
+        font-size: 14px;
     }
 
     .vision-btn {
@@ -419,92 +443,44 @@
         font-size: 14px !important;
         flex-shrink: 0 !important;
     }
-}/* === Mobile: horizontal scroll for button row === */
-@media (max-width: 640px) {
-    .hud-header .hud-controls,
-    header > div:last-child,
-    .hud-icon-btn {
-        /* target the container */
-    }
+}/* === HUD Stats / Buttons — horizontal scroll on mobile === */
+.hud-stats {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+}
 
-    /* Force the button row to be scrollable */
-    [class*="controls"],
-    [class*="hud-icons"],
-    [class*="button-row"] {
+@media (max-width: 768px) {
+    .hud-stats {
         overflow-x: auto !important;
-        flex-wrap: nowrap !important;
+        -webkit-overflow-scrolling: touch !important;
         scrollbar-width: none !important;
         -ms-overflow-style: none !important;
-        gap: 6px !important;
+        max-width: calc(100% - 130px);
+        padding: 2px 0;
+        gap: 4px !important;
+        flex-wrap: nowrap !important;
+        white-space: nowrap !important;
     }
 
-    [class*="controls"]::-webkit-scrollbar,
-    [class*="hud-icons"]::-webkit-scrollbar,
-    [class*="button-row"]::-webkit-scrollbar {
+    .hud-stats::-webkit-scrollbar {
         display: none !important;
     }
 
-    #camera-btn,
-    #tts-toggle {
-        display: flex !important;
+    .hud-stats .hud-icon-btn,
+    .hud-stats .stat-item {
         flex-shrink: 0 !important;
     }
-}/* === HUD Buttons — horizontal scroll on mobile === */
-.hud-buttons {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: nowrap;
-}
 
-@media (max-width: 768px) {
-    .hud-buttons {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-        max-width: calc(100vw - 120px);
-        padding-bottom: 2px;
-    }
-    .hud-buttons::-webkit-scrollbar {
-        display: none;
-    }
-    .hud-buttons .hud-icon-btn {
-        flex-shrink: 0;
-    }
     #camera-btn,
     #tts-toggle {
         display: flex !important;
         visibility: visible !important;
         opacity: 1 !important;
-    }
-}/* === HUD Buttons — scrollable on mobile === */
-.hud-buttons {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: nowrap;
-}
-
-@media (max-width: 768px) {
-    .hud-buttons {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-        max-width: calc(100vw - 130px);
-        padding: 4px 0;
-    }
-    .hud-buttons::-webkit-scrollbar {
-        display: none;
-    }
-    .hud-buttons .hud-icon-btn {
-        flex-shrink: 0;
-    }
-    #camera-btn,
-    #tts-toggle {
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
+        width: 32px !important;
+        height: 32px !important;
+        font-size: 14px !important;
     }
 }

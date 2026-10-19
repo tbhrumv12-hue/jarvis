@@ -2456,6 +2456,7 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public'), {
+    index: false,
     maxAge: '1h',
     etag: true,
 }));
@@ -4091,6 +4092,75 @@ ${durationHint}
             roundTripMs: totalRoundTripMs,
             attempts,
             timestamp: new Date().toISOString(),
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+
+// ==============================
+// 45.7. TRAINING — SAVE WORKOUT
+// ==============================
+
+app.post('/api/training/save', apiRateLimiter, async (req, res, next) => {
+    const requestStart = Date.now();
+    metrics.totalRequests += 1;
+
+    try {
+        const { date, workout } = req.body || {};
+
+        if (!date || typeof date !== 'string') {
+            metrics.totalErrors += 1;
+            recordError('Empty training date');
+            return res.status(400).json({ error: 'חסר תאריך לאימון' });
+        }
+
+        if (!workout || typeof workout !== 'object') {
+            metrics.totalErrors += 1;
+            recordError('Empty training workout');
+            return res.status(400).json({ error: 'חסר אימון לשמירה' });
+        }
+
+        if (!Array.isArray(workout.exercises) || workout.exercises.length === 0) {
+            metrics.totalErrors += 1;
+            recordError('Invalid workout exercises');
+            return res.status(400).json({ error: 'האימון חייב להכיל לפחות תרגיל אחד' });
+        }
+
+        const savedAt = new Date().toISOString();
+
+        log('info', `Training save: date=${date}, exercises=${workout.exercises.length}`);
+
+        const totalRoundTripMs = Date.now() - requestStart;
+        metrics.totalSuccess += 1;
+
+        return res.json({
+            success: true,
+            savedAt: savedAt,
+            roundTripMs: totalRoundTripMs,
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// ==============================
+// 45.8. TRAINING — HISTORY
+// ==============================
+
+app.get('/api/training/history', apiRateLimiter, async (req, res, next) => {
+    metrics.totalRequests += 1;
+
+    try {
+        log('info', 'Training history requested');
+
+        metrics.totalSuccess += 1;
+
+        return res.json({
+            history: [],
+            count: 0,
+            message: 'היסטוריית האימונים נשמרת בדפדפן (localStorage)',
         });
     } catch (error) {
         next(error);
