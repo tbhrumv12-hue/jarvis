@@ -1,468 +1,72 @@
-/* ============================================================
-   J.A.R.V.I.S // MOBILE v1.0
-   התאמה מלאה לטלפונים וטאבלטים
-   ============================================================ */
+/* ═══════════════════════════════════════════════════════════════════
+   J.A.R.V.I.S — Mobile Overrides
+   ═══════════════════════════════════════════════════════════════════ */
 
-/* ===== Tablet (עד 1024px) ===== */
 @media (max-width: 1024px) {
-    .hud-container {
-        grid-template-rows: 56px 3px 1fr 30px;
+
+    /* ─── Base Layout ─── */
+    html, body {
+        height: 100dvh;
+        overflow: hidden;
+        width: 100vw;
+        position: fixed;
+        overscroll-behavior: none;
+    }
+
+    body {
+        -webkit-text-size-adjust: 100%;
+    }
+
+    /* ─── HUD Container (Flex to fill screen) ─── */
+       .hud-container {
+        display: flex;
+        flex-direction: column;
+        height: 100dvh;
         gap: 8px;
         padding-top: max(10px, env(safe-area-inset-top));
         padding-bottom: max(10px, env(safe-area-inset-bottom));
         padding-left: max(10px, env(safe-area-inset-left));
         padding-right: max(10px, env(safe-area-inset-right));
     }
-
-    .error-banner {
-        min-width: 0;
-        max-width: 100%;
-    }
-
-    .main-grid {
-        grid-template-columns: 1fr 260px;
+    /* ─── Header ─── */
+    header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
         gap: 8px;
+        padding: 0 6px;
+        min-height: 44px;
+        border-bottom: 1px solid rgba(212, 175, 55, 0.25);
+        overflow: visible;
+        flex-wrap: nowrap;
+        flex-shrink: 0;
     }
 
     .brand h1 {
         font-size: 0.95rem;
-        letter-spacing: 2px;
-    }
-
-    .hud-stats {
-        gap: 12px;
-        font-size: 0.62rem;
-    }
-}
-
-/* ===== Phone (עד 768px) ===== */
-@media (max-width: 768px) {
-
-    :root {
-        --hud-pad: 6px;
-        --hud-gap: 6px;
-    }
-
-    html, body {
-        height: 100dvh;
-        overflow: hidden;
-    }
-
-    body {
-        font-size: 13px;
-    }
-
-    .hud-container {
-        grid-template-rows: 48px 2px 1fr auto;
-        gap: 6px;
-        padding-top: max(6px, env(safe-area-inset-top));
-        padding-bottom: max(6px, env(safe-area-inset-bottom));
-        padding-left: max(6px, env(safe-area-inset-left));
-        padding-right: max(6px, env(safe-area-inset-right));
-        height: 100dvh;
-    }
-
-    header {
-        padding: 0 10px;
-        border-bottom: 1px solid rgba(212, 175, 55, 0.25);
-        overflow: visible;
-        flex-wrap: nowrap;
-    }
-
-    header::before,
-    header::after {
-        display: none;
-    }
-
-    .brand {
-        gap: 8px;
+        letter-spacing: 1.5px;
+        white-space: nowrap;
     }
 
     .reticle {
-        width: 20px;
-        height: 20px;
+        width: 26px;
+        height: 26px;
     }
 
-    .reticle-dot {
-        inset: 7px;
-    }
-
-    .brand h1 {
-        font-size: 0.75rem;
-        letter-spacing: 1.5px;
-        max-width: 140px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
+    /* ─── HUD Stats / Buttons ─── */
     .hud-stats {
-        gap: 4px;
-        font-size: 0.58rem;
         display: flex;
         align-items: center;
         flex-wrap: nowrap;
-        white-space: nowrap;
+        gap: 4px;
+        font-size: 0.58rem;
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
         scrollbar-width: none;
         -ms-overflow-style: none;
         max-width: calc(100% - 130px);
-    }
-
-    .hud-stats .stat-item:nth-child(2),
-    .hud-stats .stat-item:nth-child(3),
-    .hud-stats .stat-item:nth-child(4) {
-        display: none;
-    }
-
-    .hud-stats .stat-item:first-child {
-        padding-right: 6px;
-        border-right: none;
-    }
-
-    .stat-label {
-        font-size: 0.48rem;
-        letter-spacing: 1px;
-    }
-
-    .stat-value {
-        font-size: 0.62rem;
-    }
-
-    .hud-icon-btn {
-        width: 32px;
-        height: 32px;
-        font-size: 14px;
-        flex-shrink: 0;
-    }
-
-    .load-bar {
-        height: 2px;
-    }
-
-    .main-grid {
-        grid-template-columns: 1fr;
-        grid-template-rows: 1fr auto;
-        gap: 6px;
-    }
-
-    .chat-panel {
-        min-height: 0;
-    }
-
-    .chat-panel::before,
-    .chat-panel::after {
-        display: none;
-    }
-
-    #chat-log {
-        padding: 12px 10px;
-        gap: 10px;
-    }
-
-    .msg {
-        max-width: 92%;
-        padding: 9px 12px;
-        font-size: 0.85rem;
-        line-height: 1.5;
-    }
-
-    .msg-meta {
-        font-size: 0.5rem;
-        letter-spacing: 1px;
-        margin-bottom: 4px;
-    }
-
-    .msg-tag {
-        letter-spacing: 1.5px;
-    }
-
-    .msg-time {
-        display: none;
-    }
-
-    .msg-line {
-        display: none;
-    }
-
-    #chat-form {
-        padding: 8px 8px;
-        gap: 6px;
-        position: sticky;
-        bottom: 0;
-        background: rgba(5, 10, 18, 0.98);
-        z-index: 5;
-    }
-
-    .mic-wrapper {
-        width: 42px;
-        height: 42px;
-    }
-
-    .mic-btn {
-        width: 42px;
-        height: 42px;
-        font-size: 16px;
-    }
-
-    .mic-spectrum {
-        inset: -20px;
-        width: 82px;
-        height: 82px;
-    }
-
-    #user-input {
-        padding: 10px 12px;
-        font-size: 0.9rem;
-        min-height: 42px;
-    }
-
-    #send-btn {
-        padding: 0 14px;
-        height: 42px;
-        font-size: 0.72rem;
-        letter-spacing: 1.5px;
-        min-width: 70px;
-    }
-
-    .mic-status {
-        padding: 6px 12px;
-        margin: 0 8px 6px;
-        font-size: 0.7rem;
-        letter-spacing: 1.5px;
-    }
-
-    .typing-indicator {
-        margin: 0 10px 4px;
-        padding: 8px 12px;
-    }
-
-    .brain-sidebar {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        max-height: 40dvh;
-        padding: 12px;
-        z-index: 10;
-        background: rgba(5, 10, 18, 0.98);
-        border-top: 1px solid var(--gold-border-strong);
-        backdrop-filter: blur(12px);
-        clip-path: none;
-        border-radius: 0;
-        display: none;
-    }
-
-    .brain-sidebar.mobile-visible {
-        display: flex;
-    }
-
-    .brain-sidebar::before,
-    .brain-sidebar::after {
-        display: none;
-    }
-
-    .sidebar-view {
-        gap: 12px;
-    }
-
-    .brain-canvas {
-        max-width: 160px;
-        margin: 0 auto;
-    }
-
-    .camera-frame {
-        max-width: 100%;
-        width: 100%;
-    }
-
-    footer {
-        padding: 0 10px;
-        font-size: 0.55rem;
-        letter-spacing: 1.5px;
-        border-top: 1px solid rgba(212, 175, 55, 0.25);
-        min-height: 24px;
-    }
-
-    .footer-left {
-        display: none;
-    }
-
-    .footer-center {
-        display: flex;
-        gap: 10px;
-        flex: 1;
-        justify-content: center;
-    }
-
-    .sys-stat {
-        font-size: 0.5rem;
-        gap: 4px;
-    }
-
-    .sys-stat:nth-child(3) {
-        display: none;
-    }
-
-    .footer-clock {
-        font-size: 0.6rem;
-    }
-
-    .modal-content {
-        width: 95vw;
-        max-height: 90dvh;
-        clip-path: polygon(
-            10px 0, calc(100% - 10px) 0, 100% 10px,
-            100% calc(100% - 10px), calc(100% - 10px) 100%,
-            10px 100%, 0 calc(100% - 10px), 0 10px
-        );
-    }
-
-    .modal-header {
-        padding: 12px 16px;
-    }
-
-    .modal-header h2 {
-        font-size: 0.9rem;
-        letter-spacing: 2px;
-    }
-
-    .modal-body {
-        padding: 12px 16px 6px;
-    }
-
-    .modal-footer {
-        padding: 10px 16px;
-    }
-
-    .modal-primary-btn {
-        padding: 8px 16px;
-        font-size: 0.7rem;
-    }
-
-    .error-banner {
-        min-width: 0;
-        max-width: 100%;
-        width: calc(100% - 20px);
-        padding: 8px 12px;
-        font-size: 0.7rem;
-    }
-
-    #tts-toggle,
-    #camera-btn {
-        width: 32px;
-        height: 32px;
-        font-size: 14px;
-    }
-
-    .vision-btn {
-        font-size: 0.75rem;
-        padding: 12px 20px;
-        letter-spacing: 1.5px;
-    }
-}
-
-/* ===== Small phone (עד 400px) ===== */
-@media (max-width: 400px) {
-    .brand h1 {
-        font-size: 0.7rem;
-        letter-spacing: 1px;
-        max-width: 110px;
-    }
-
-    .msg {
-        font-size: 0.8rem;
-        padding: 8px 10px;
-    }
-
-    #send-btn {
-        padding: 0 10px;
-        font-size: 0.65rem;
-        min-width: 60px;
-    }
-
-    .mic-wrapper,
-    .mic-btn {
-        width: 38px;
-        height: 38px;
-    }
-}
-
-/* ===== Landscape phone ===== */
-@media (max-width: 900px) and (orientation: landscape) {
-    .hud-container {
-        grid-template-rows: 44px 2px 1fr;
-    }
-
-    .main-grid {
-        grid-template-columns: 1fr 220px;
-    }
-
-    .brain-sidebar {
-        position: relative;
-        max-height: none;
-        display: flex !important;
-    }
-
-    footer {
-        display: none;
-    }
-}
-
-/* ===== PWA mode ===== */
-@media (display-mode: standalone) {
-    .hud-container {
-        padding-top: max(6px, env(safe-area-inset-top));
-        padding-bottom: max(6px, env(safe-area-inset-bottom));
-        padding-left: max(6px, env(safe-area-inset-left));
-        padding-right: max(6px, env(safe-area-inset-right));
-    }
-}
-
-/* ===== 100dvh fix ===== */
-@supports (height: 100dvh) {
-    @media (max-width: 768px) {
-        html, body {
-            height: 100dvh;
-        }
-
-        .hud-container {
-            height: 100dvh;
-        }
-    }
-}/* === Mobile: force camera + tts visible at all sizes === */
-@media (max-width: 640px) {
-    #camera-btn,
-    #tts-toggle {
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        width: 32px !important;
-        height: 32px !important;
-        font-size: 14px !important;
-        flex-shrink: 0 !important;
-    }
-}/* === HUD Stats / Buttons — horizontal scroll on mobile === */
-.hud-stats {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex-wrap: nowrap;
-    white-space: nowrap;
-}
-
-@media (max-width: 768px) {
-    .hud-stats {
-        overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-        scrollbar-width: none !important;
-        -ms-overflow-style: none !important;
-        max-width: calc(100% - 130px);
         padding: 2px 0;
-        gap: 4px !important;
-        flex-wrap: nowrap !important;
-        white-space: nowrap !important;
+        white-space: nowrap;
     }
 
     .hud-stats::-webkit-scrollbar {
@@ -474,6 +78,17 @@
         flex-shrink: 0 !important;
     }
 
+    .hud-icon-btn {
+        width: 32px;
+        height: 32px;
+        font-size: 14px;
+        flex-shrink: 0;
+    }
+
+    .stat-item {
+        display: none; /* Hide stats on mobile to save space, keep buttons */
+    }
+
     #camera-btn,
     #tts-toggle {
         display: flex !important;
@@ -482,5 +97,145 @@
         width: 32px !important;
         height: 32px !important;
         font-size: 14px !important;
+    }
+
+    /* ─── Load Bar ─── */
+    .load-bar {
+        height: 2px;
+        flex-shrink: 0;
+    }
+
+    /* ─── Main Grid (Flex to fill remaining space) ─── */
+    .main-grid {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+        gap: 8px;
+    }
+
+    /* ─── Chat Panel ─── */
+    .chat-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    #chat-log {
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px;
+        font-size: 0.85rem;
+    }
+
+    /* ─── Chat Form (Input Area) ─── */
+    #chat-form {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px;
+        background: rgba(10, 14, 26, 0.85);
+        border-top: 1px solid rgba(77, 208, 196, 0.2);
+        flex-shrink: 0;
+    }
+
+    #user-input {
+        flex: 1;
+        padding: 10px 14px;
+        font-size: 0.9rem;
+        border-radius: 8px;
+    }
+
+    #send-btn {
+        padding: 10px 16px;
+        font-size: 0.85rem;
+        border-radius: 8px;
+    }
+
+    /* ─── Sidebar (Brain) ─── */
+    .brain-sidebar {
+        flex: 0 0 auto;
+        height: 140px;
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    .brain-canvas {
+        height: 100%;
+        width: 100%;
+    }
+
+    .core-status-text,
+    .brain-metrics {
+        display: none; /* Hide text metrics to save vertical space */
+    }
+
+    /* ─── Footer ─── */
+    footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 8px;
+        min-height: 30px;
+        flex-shrink: 0;
+        font-size: 0.55rem;
+        border-top: 1px solid rgba(212, 175, 55, 0.15);
+    }
+
+    .footer-left,
+    .footer-center {
+        display: none; /* Hide footer details to save space */
+    }
+
+    .footer-clock {
+        font-size: 0.65rem;
+        margin: 0 auto;
+    }
+
+    /* ─── Error Banner ─── */
+    .error-banner {
+        min-width: 0;
+        max-width: 100%;
+        width: calc(100% - 20px);
+        font-size: 0.75rem;
+        padding: 8px 12px;
+    }
+
+    /* ─── Modals ─── */
+    .modal-content {
+        width: 92%;
+        max-width: 420px;
+        max-height: 85vh;
+        border-radius: 12px;
+    }
+
+    /* ─── Boot Overlay ─── */
+    .boot-overlay {
+        padding: 20px;
+    }
+
+    .boot-logo {
+        font-size: 2rem;
+    }
+}
+
+/* ─── Very Small Screens (max-width: 380px) ─── */
+@media (max-width: 380px) {
+    .brand h1 {
+        font-size: 0.8rem;
+        letter-spacing: 1px;
+    }
+
+    .hud-icon-btn {
+        width: 28px;
+        height: 28px;
+        font-size: 12px;
+    }
+
+    .brain-sidebar {
+        height: 110px;
     }
 }
