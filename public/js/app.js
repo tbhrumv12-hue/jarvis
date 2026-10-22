@@ -222,6 +222,18 @@
         return trimmed;
     }
 
+    function escapeHtml(str) {
+        if (typeof str !== 'string') return '';
+        return str.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function renderReplyHtml(text) {
+        return escapeHtml(text).replace(
+            /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+            '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
+        );
+    }
+
     // ==============================
     // 5. HISTORY
     // ==============================
@@ -303,7 +315,7 @@
         const body = document.createElement('span');
         body.className = 'body';
         if (opts.typing) body.textContent = '';
-        else body.textContent = text;
+        else body.innerHTML = renderReplyHtml(text);
 
         const actions = document.createElement('span');
         actions.className = 'msg-actions';
@@ -384,7 +396,7 @@
         state.typingActive = true;
 
         if (fullText.length > CONFIG.typingSkipThresholdChars) {
-            node.textContent = fullText;
+            node.innerHTML = renderReplyHtml(fullText);
             state.typingActive = false;
             if (el.chatLog && state.autoScroll) el.chatLog.scrollTop = el.chatLog.scrollHeight;
             return;
@@ -403,6 +415,7 @@
                 clearInterval(state.typingTimer);
                 state.typingTimer = null;
                 state.typingActive = false;
+                node.innerHTML = renderReplyHtml(fullText);
                 if (el.chatLog && state.autoScroll) el.chatLog.scrollTop = el.chatLog.scrollHeight;
             }
         }, delay);

@@ -2455,12 +2455,7 @@ app.use(compression());
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(express.static(path.join(__dirname, 'public'), {
-    index: false,
-    maxAge: '1h',
-    etag: true,
-}));
-
+   
 // === Request Logger ===
 app.use((req, res, next) => {
     const start = Date.now();
@@ -2501,6 +2496,159 @@ const researchRateLimiter = rateLimit({
 // ==============================
 // 34. ROUTES — ROOT
 // ==============================
+// === STATIC FILES ===
+app.use(express.static(path.join(__dirname, 'public'), {
+    index: false,
+    maxAge: '1h',
+    etag: true
+}));
+
+// === BROWSER AUTOMATION ===
+const { exec } = require('child_process');
+
+app.post('/api/browse', apiRateLimiter, async (req, res, next) => {
+    try {
+        const { query } = req.body || {};
+        if (!query || typeof query !== 'string' || query.trim().length < 2) {
+            return res.status(400).json({ error: 'חסרה שאילתת חיפוש' });
+        }
+        const sanitizedQuery = query.trim().replace(/["`$\\]/g, '');
+        log('info', `[Browse] Searching: "${sanitizedQuery}"`);
+        exec(`node browser.js "${sanitizedQuery}"`, { timeout: 30000 }, (err, stdout, stderr) => {
+            if (err) {
+                log('error', '[Browse] Exec failed:', err.message);
+                return res.status(500).json({ error: 'החיפוש נכשל' });
+            }
+            const lines = stdout.split('\n');
+            const results = [];
+            let current = null;
+            for (const line of lines) {
+                const match = line.match(/^(\d+)\.\s+(.+)$/);
+                if (match) {
+                    if (current) results.push(current);
+                    current = { title: match[2].trim(), url: '', snippet: '' };
+                } else if (current && line.trim().startsWith('http')) {
+                    current.url = line.trim();
+                } else if (current && line.trim() && !line.includes('[Browser]')) {
+                    current.snippet += line.trim() + ' ';
+                }
+            }
+            if (current) results.push(current);
+            metrics.totalSuccess += 1;
+            return res.json({ results, query: sanitizedQuery });
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post('/api/browser/action', apiRateLimiter, async (req, res) => {
+    const requestStart = Date.now();
+    metrics.totalRequests += 1;
+
+    let browser = null;
+
+    try {
+        const { url, action, selector, value } = req.body || {};
+
+        // --- ולידציה ---
+        let targetUrl;
+        try {
+            targetUrl = new URL(String(url || ''));
+        } catch (e) {
+            metrics.totalErrors += 1;
+            recordError('Invalid browser action URL');
+            return res.status(400).json({ error: 'כתובת URL לא תקינה' });
+        }
+
+        if (!['http:', 'https:'].includes(targetUrl.protocol)) {
+            metrics.totalErrors += 1;
+            recordError('Blocked browser action protocol');
+            return res.status(400).json({ error: 'נתמכות רק כתובות http/https' });
+        }
+
+        // --- חסימת יעדים פנימיים (SSRF) ---
+        const hostname = targetUrl.hostname.toLowerCase();
+        const isPrivateHost =
+            hostname === 'localhost' ||
+            hostname === '0.0.0.0' ||
+            hostname === '::1' ||
+            /^127\./.test(hostname) ||
+            /^10\./.test(hostname) ||
+            /^192\.168\./.test(hostname) ||
+            /^169\.254\./.test(hostname) ||
+            /^172\.(1[6-9]|2\d|3[01])\./.test(hostname);
+        if (isPrivateHost) {
+            metrics.totalErrors += 1;
+            recordError('Blocked private browser action host');
+            return res.status(400).json({ error: 'לא ניתן לגשת לכתובות פנימיות' });
+        }
+
+        const allowedActions = ['click', 'fill', 'getText'];
+        if (!allowedActions.includes(action)) {
+            metrics.totalErrors += 1;
+            recordError('Invalid browser action');
+            return res.status(400).json({ error: `פעולה לא חוקית. אפשרויות: ${allowedActions.join(', ')}` });
+        }
+
+        if (!selector || typeof selector !== 'string' || !selector.trim()) {
+            metrics.totalErrors += 1;
+            recordError('Missing browser action selector');
+            return res.status(400).json({ error: 'חסר selector' });
+        }
+
+        if (action === 'fill' && typeof value !== 'string') {
+            metrics.totalErrors += 1;
+            recordError('Missing browser action value');
+            return res.status(400).json({ error: 'פעולת fill דורשת value מסוג מחרוזת' });
+        }
+
+        const { chromium } = require('rebrowser-playwright');
+
+        browser = await chromium.launch({ headless: true });
+        const context = await browser.newContext({ locale: 'he-IL' });
+        const page = await context.newPage();
+
+        await page.goto(targetUrl.toString(), { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+        const actionTimeoutMs = 15000;
+        let result;
+
+        if (action === 'click') {
+            await page.click(selector, { timeout: actionTimeoutMs });
+            result = 'clicked';
+        } else if (action === 'fill') {
+            await page.fill(selector, value, { timeout: actionTimeoutMs });
+            result = 'filled';
+        } else {
+            result = await page.locator(selector).first().innerText({ timeout: actionTimeoutMs });
+        }
+
+        const latencyMs = Date.now() - requestStart;
+        metrics.totalSuccess += 1;
+
+        log('info', '[BrowserAction] OK', { action, selector, latencyMs });
+
+        return res.json({
+            success: true,
+            action,
+            selector,
+            result,
+            url: page.url(),
+            title: await page.title(),
+            latencyMs,
+        });
+    } catch (error) {
+        log('error', '[BrowserAction] Failed:', error.message);
+        recordError(`Browser action: ${error.message}`);
+        return res.status(500).json({ error: 'הפעולה בדפדפן נכשלה', message: error.message });
+    } finally {
+        if (browser) {
+            await browser.close().catch(() => {});
+        }
+    }
+});
+
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'landing.html'));
@@ -2513,6 +2661,7 @@ app.get('/app', (req, res) => {
 // ==============================
 // 35. ROUTES — HEALTH & METRICS
 // ==============================
+
 
 app.get('/api/health', (req, res) => {
     try {
@@ -2715,6 +2864,100 @@ app.post('/api/ask', apiRateLimiter, async (req, res, next) => {
             });
         }
 
+        // --- זיהוי בקשת חיפוש ---
+const searchKeywords = ['חפש', 'תחפש', 'מצא', 'תמצא', 'search', 'look up', 'google'];
+const isSearchRequest = searchKeywords.some(kw => userQuery.toLowerCase().includes(kw));
+
+if (isSearchRequest) {
+    log('info', '[Ask] Detected search request:', userQuery);
+    
+    let searchQuery = userQuery;
+    searchKeywords.forEach(kw => {
+        searchQuery = searchQuery.replace(new RegExp(kw, 'gi'), '').trim();
+    });
+    
+    if (searchQuery.length < 2) {
+        return res.json({ reply: 'אדוני, אנא ספק מילת חיפוש מדויקת יותר.' });
+    }
+
+    // --- חיפוש וידאו ב-YouTube (במקום DuckDuckGo) ---
+    const wantsVideo = /סרטון|וידאו|video|youtube|יוטיוב/i.test(searchQuery);
+
+    if (wantsVideo) {
+        const videoQuery = searchQuery
+            .replace(/סרטון|וידאו|video|youtube|יוטיוב/gi, '')
+            .replace(/^על\s+/i, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        log('info', `[Ask] Detected video search: "${videoQuery}"`);
+
+        if (videoQuery.length < 2) {
+            return res.json({ reply: 'אדוני, על איזה נושא לחפש סרטון?' });
+        }
+
+        if (!CONFIG.youtubeApiKey) {
+            recordError('Missing YouTube API key');
+            return res.status(500).json({ reply: 'אדוני, מפתח YouTube API לא מוגדר בשרת.' });
+        }
+
+        const videos = await searchYouTubeVideos(videoQuery, 5);
+
+        if (!videos.length) {
+            return res.json({ reply: 'אדוני, לא נמצאו סרטונים מתאימים ב-YouTube. נסה ניסוח אחר.' });
+        }
+
+        const formatted = videos.map((v, i) => {
+            const views = Number(v.views) || 0;
+            const meta = [v.channel, views ? `${views.toLocaleString()} צפיות` : ''].filter(Boolean).join(' | ');
+            return `${i + 1}. [${v.title}](${v.url})\n${meta}`;
+        }).join('\n\n');
+
+        return res.json({
+            reply: `אדוני, הנה הסרטונים שמצאתי ב-YouTube:\n\n${formatted}`,
+            videos,
+        });
+    }
+
+    
+    try {
+        const { exec } = require('child_process');
+        const results = await new Promise((resolve, reject) => {
+            exec(`node browser.js "${searchQuery}"`, { timeout: 30000 }, (err, stdout, stderr) => {
+                if (err) return reject(err);
+                const lines = stdout.split('\n');
+                const parsed = [];
+                let current = null;
+                for (const line of lines) {
+                    const match = line.match(/^(\d+)\.\s+(.+)$/);
+                    if (match) {
+                        if (current) parsed.push(current);
+                        current = { title: match[2].trim(), url: '', snippet: '' };
+                    } else if (current && line.trim().startsWith('http')) {
+                        current.url = line.trim();
+                    } else if (current && line.trim() && !line.includes('[Browser]')) {
+                        current.snippet += line.trim() + ' ';
+                    }
+                }
+                if (current) parsed.push(current);
+                resolve(parsed);
+            });
+        });
+        
+        if (results.length === 0) {
+            return res.json({ reply: 'אדוני, לא מצאתי תוצאות. נסה ניסוח אחר.' });
+        }
+        
+        const formatted = results.slice(0, 5).map((r, i) => 
+            `${i + 1}. ${r.title}\n${r.url}\n${r.snippet}`
+        ).join('\n\n');
+        
+        return res.json({ reply: `אדוני, הנה מה שמצאתי:\n\n${formatted}` });
+    } catch (err) {
+        log('error', '[Ask] Search failed:', err.message);
+        return res.json({ reply: 'אדוני, החיפוש נכשל. נסה שוב.' });
+    }
+}
         const history = sanitizeHistory(rawHistory);
         metrics.totalHistoryMessagesSent += history.length;
 
@@ -4255,6 +4498,10 @@ app.get('/api/mega-prompt', async (req, res, next) => {
             '- GET /api/health — מטריקות מורחבות',
             '- GET /api/metrics — מטריקות לקוח',
             '- GET /api/mega-prompt — מסמך זה',
+            '',
+            '### דפדפן ואוטומציה',
+            '- POST /api/browse — חיפוש DuckDuckGo דרך browser.js',
+            '- POST /api/browser/action — click / fill / getText בדף אינטרנט',
             '',
             '## Knowledge Base',
             '',

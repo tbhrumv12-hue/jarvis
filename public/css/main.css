@@ -480,6 +480,25 @@ header {
     white-space: pre-wrap;
 }
 
+#chat-log a,
+.msg .body a {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+    color: #4dd0c4 !important;
+    text-decoration: underline !important;
+    text-underline-offset: 3px;
+    transition: color 0.15s ease, text-shadow 0.15s ease;
+}
+
+.msg .body a:hover {
+    color: #64ffda !important;
+    text-shadow: 0 0 8px rgba(100, 255, 218, 0.5);
+}
+
+.msg .body a:active {
+    color: var(--gold-bright) !important;
+}
+
 .msg.jarvis {
     align-self: flex-end;
     background: linear-gradient(135deg,
