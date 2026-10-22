@@ -27,6 +27,10 @@
     --primary-dim: #2a7ea3;
     --primary-bright: #82d8ff;
 
+    /* Turquoise accent (used by the "Turquoise Dominance" overrides) */
+    --turquoise: #4dd0c4;
+    --turquoise-bright: #8af5ea;
+
     --gold: #d4af37;
     --gold-bright: #f4d47c;
     --gold-dim: #8b6f1e;
@@ -1624,7 +1628,7 @@ body::after {
 
 /* === Rotating HUD Rings around Brain Canvas === */
 #neural-canvas {
-    position: relative;
+    position: fixed;
 }
 
 .hud-container .main-grid::before,
@@ -1875,7 +1879,12 @@ header h1 {
     text-shadow: 0 0 12px rgba(77, 208, 196, 0.6) !important;
 }
 
-.brand .reticle span,
+.brand .reticle span {
+    border-color: var(--turquoise) !important;
+    /* rings must stay hollow — only recolor the border */
+    background: transparent !important;
+}
+
 .brand .reticle-dot {
     border-color: var(--turquoise) !important;
     background: var(--turquoise) !important;

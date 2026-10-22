@@ -18,39 +18,63 @@
     }
 
     /* ─── HUD Container (Flex to fill screen) ─── */
-       .hud-container {
+    .hud-container {
         display: flex;
         flex-direction: column;
         height: 100dvh;
-        gap: 8px;
-        padding-top: max(10px, env(safe-area-inset-top));
-        padding-bottom: max(10px, env(safe-area-inset-bottom));
-        padding-left: max(10px, env(safe-area-inset-left));
-        padding-right: max(10px, env(safe-area-inset-right));
+        gap: 6px;
+        padding-top: max(8px, env(safe-area-inset-top));
+        padding-bottom: max(8px, env(safe-area-inset-bottom));
+        padding-left: max(8px, env(safe-area-inset-left));
+        padding-right: max(8px, env(safe-area-inset-right));
     }
     /* ─── Header ─── */
     header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 8px;
-        padding: 0 6px;
-        min-height: 44px;
+        gap: 6px;
+        padding: 2px 6px;
+        min-height: 36px;
         border-bottom: 1px solid rgba(212, 175, 55, 0.25);
         overflow: visible;
         flex-wrap: nowrap;
         flex-shrink: 0;
     }
 
+    .brand {
+        flex: 1 1 auto;
+        min-width: 0;
+        gap: 6px;
+    }
+
     .brand h1 {
-        font-size: 0.95rem;
-        letter-spacing: 1.5px;
+        font-size: 0.72rem;
+        letter-spacing: 0.5px;
+        line-height: 1.1;
+        direction: ltr;
         white-space: nowrap;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .reticle {
-        width: 26px;
-        height: 26px;
+        width: 20px;
+        height: 20px;
+    }
+
+    .reticle-dot {
+        inset: 7px;
+    }
+
+    /* ─── Decorative Corner Brackets ───
+       The bottom-left bracket of each panel sits exactly on top of the
+       first control (TTS toggle in the header, send button in the chat form).
+       Hide those two on phones so the buttons stay fully visible/tappable. */
+    header::after,
+    .chat-panel::after {
+        display: none;
     }
 
     /* ─── HUD Stats / Buttons ─── */
@@ -58,13 +82,14 @@
         display: flex;
         align-items: center;
         flex-wrap: nowrap;
-        gap: 4px;
+        gap: 3px;
         font-size: 0.58rem;
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
         scrollbar-width: none;
         -ms-overflow-style: none;
-        max-width: calc(100% - 130px);
+        flex: 0 0 auto;
+        min-width: 0;
         padding: 2px 0;
         white-space: nowrap;
     }
@@ -79,9 +104,9 @@
     }
 
     .hud-icon-btn {
-        width: 32px;
-        height: 32px;
-        font-size: 14px;
+        width: 28px;
+        height: 28px;
+        font-size: 13px;
         flex-shrink: 0;
     }
 
@@ -94,9 +119,9 @@
         display: flex !important;
         visibility: visible !important;
         opacity: 1 !important;
-        width: 32px !important;
-        height: 32px !important;
-        font-size: 14px !important;
+        width: 28px !important;
+        height: 28px !important;
+        font-size: 13px !important;
     }
 
     /* ─── Load Bar ─── */
@@ -112,12 +137,12 @@
         flex-direction: column;
         min-height: 0;
         overflow: hidden;
-        gap: 8px;
+        gap: 6px;
     }
 
     /* ─── Chat Panel ─── */
     .chat-panel {
-        flex: 1;
+        flex: 3 1 0;
         display: flex;
         flex-direction: column;
         min-height: 0;
@@ -136,36 +161,52 @@
         display: flex;
         align-items: center;
         gap: 6px;
-        padding: 6px;
+        padding: 4px;
         background: rgba(10, 14, 26, 0.85);
         border-top: 1px solid rgba(77, 208, 196, 0.2);
         flex-shrink: 0;
     }
 
+    .mic-wrapper,
+    .mic-btn {
+        width: 38px;
+        height: 38px;
+    }
+
     #user-input {
         flex: 1;
-        padding: 10px 14px;
+        min-width: 0;
+        padding: 8px 12px;
         font-size: 0.9rem;
         border-radius: 8px;
     }
 
     #send-btn {
-        padding: 10px 16px;
-        font-size: 0.85rem;
+        flex-shrink: 0;
+        height: 38px;
+        padding: 0 14px;
+        font-size: 0.8rem;
+        line-height: 1;
+        white-space: nowrap;
         border-radius: 8px;
     }
 
     /* ─── Sidebar (Brain) ─── */
     .brain-sidebar {
-        flex: 0 0 auto;
-        height: 140px;
+        display: flex;
+        flex: 2 1 0;
+        min-height: 140px;
+        padding: 6px;
         border-radius: 12px;
         overflow: hidden;
     }
 
     .brain-canvas {
-        height: 100%;
         width: 100%;
+        height: 100%;
+        max-width: none;
+        aspect-ratio: auto;
+        border-radius: 12px;
     }
 
     .core-status-text,
@@ -225,17 +266,24 @@
 /* ─── Very Small Screens (max-width: 380px) ─── */
 @media (max-width: 380px) {
     .brand h1 {
-        font-size: 0.8rem;
-        letter-spacing: 1px;
+        font-size: 0.66rem;
+        letter-spacing: 0.3px;
     }
 
     .hud-icon-btn {
-        width: 28px;
-        height: 28px;
+        width: 26px;
+        height: 26px;
         font-size: 12px;
     }
 
+    #camera-btn,
+    #tts-toggle {
+        width: 26px !important;
+        height: 26px !important;
+        font-size: 12px !important;
+    }
+
     .brain-sidebar {
-        height: 110px;
+        min-height: 120px;
     }
 }
