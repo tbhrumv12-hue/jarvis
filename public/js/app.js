@@ -19,7 +19,9 @@
         hebrewLangCodes: ['he-IL', 'he'],
         speechLang: 'he-IL',
         speechInterimResults: true,
-        speechContinuous: false,
+        // Chrome/Android: continuous חייב להיות true — עם false הזיהוי מסתיים
+        // אחרי התוצאה הסופית הראשונה, כלומר המיקרופון "מפסיק לקלוט" באמצע משפט.
+        speechContinuous: true,
         speechAutoSendDelayMs: 900,
         speechSafetyTimeoutMs: 8000,
         speechRestartDelayMs: 300,
@@ -818,26 +820,34 @@
 
         rec.onresult = (event) => {
             state.lastSpeechAt = Date.now();
-            let interimText = '';
-            let finalText = '';
 
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-                const t = event.results[i][0].transcript;
-                if (event.results[i].isFinal) finalText += t;
-                else interimText += t;
+            // עם continuous=true ‏event.results מצטבר לאורך כל הסשן, ואירוע חדש
+            // מכיל רק את החלק שהשתנה. לכן מחברים מההתחלה — אחרת משפטים קודמים
+            // נמחקים מה-input לפני השליחה.
+            const finalParts = [];
+            const interimParts = [];
+            for (let i = 0; i < event.results.length; i++) {
+                const t = (event.results[i][0].transcript || '').trim();
+                if (!t) continue;
+                if (event.results[i].isFinal) finalParts.push(t);
+                else interimParts.push(t);
             }
 
-            if (interimText && el.userInput) {
-                el.userInput.value = interimText;
+            const finalText = finalParts.join(' ');
+            const interimText = interimParts.join(' ');
+            const accumulated = `${finalText} ${interimText}`.replace(/\s+/g, ' ').trim();
+
+            if (accumulated && el.userInput) {
+                el.userInput.value = accumulated;
+                if (interimText) el.userInput.classList.add('interim');
             }
 
             if (finalText && el.userInput) {
-                el.userInput.value = finalText;
                 el.userInput.classList.remove('interim');
                 setText(el.micStatusText, 'זוהה — שולח...');
 
                 if (state.autoSendTimer) clearTimeout(state.autoSendTimer);
-                const textToSend = finalText.trim();
+                const textToSend = finalText;
 
                 state.autoSendTimer = setTimeout(() => {
                     state.autoSendTimer = null;
@@ -865,20 +875,22 @@
             const msg = messages[event.error] || `שגיאה: ${event.error}`;
             setText(el.micStatusText, msg);
 
+            // שגיאה קטלנית — לעצור ולא להסתובב בלולאת הפעלות
             if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                state.micManualStop = true;
                 showError(msg);
-            }
-
-            if (event.error === 'no-speech' && state.isListening) {
-                // restart אוטומטי
-                setTimeout(() => {
-                    if (!state.micManualStop && !state.isSending) {
-                        startListening();
-                    }
-                }, CONFIG.speechRestartDelayMs);
+                stopListening();
                 return;
             }
 
+            // שגיאות הפוכות — לא עוצרים כאן! ל-'onend' יש את נתיב ההפעלה-מחדש
+            // היחיד. שני start() במקביל = הרקוגנייזר מת בשקט באנדרואיד.
+            if (event.error === 'no-speech' || event.error === 'aborted' || event.error === 'network') {
+                return;
+            }
+
+            // audio-capture / לא ידוע — אין מיקרופון זמין, עצירה נקייה
+            state.micManualStop = true;
             stopListening();
         };
 
@@ -1002,6 +1014,9 @@
     async function startMicAudioAnalysis() {
         if (!el.micSpectrum) return;
         if (state.micAnalyser) return;
+        // Chrome/Android: getUserMedia נוסף גוזל audio-focus מ-SpeechRecognition
+        // ומפיל אותו מיד עם 'aborted'. מדלגים על ספקטרום הוויזואליה בטלפון.
+        if (CONFIG.isMobile) return;
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             state.micStream = stream;
