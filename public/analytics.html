@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="description" content="J.A.R.V.I.S — Analytics Dashboard">
-    <meta name="theme-color" content="#fafafa">
+    <meta name="theme-color" content="#0a0e1a">
     <title>J.A.R.V.I.S // ANALYTICS</title>
 <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
 <link rel="apple-touch-icon" href="/icons/icon.svg">
@@ -13,9 +13,11 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 
+    <link rel="stylesheet" href="/css/hud-theme.css">
     <link rel="stylesheet" href="/css/analytics.css">
+    <link rel="stylesheet" href="/css/hud-chat.css">
 </head>
-<body class="analytics-page">
+<body class="analytics-page hud-page">
 
     <div class="analytics-container">
 
@@ -77,11 +79,6 @@
                     <span>מגה-פרומפט</span>
                 </button>
 
-                <button type="button" id="btn-ai" class="action-btn turquoise">
-                    <span>🤖</span>
-                    <span>נתח AI</span>
-                </button>
-
                 <div class="action-group">
                     <button type="button" id="btn-export" class="action-btn icon-only" title="ייצוא JSON">
                         <span>📥</span>
@@ -96,7 +93,7 @@
         </header>
 
         <!-- === Summary Cards === -->
-        <section class="summary-section">
+        <section class="summary-section hud-card">
             <h2 class="section-title">📊 סיכום כללי</h2>
             <div class="summary-cards">
                 <div class="sum-card">
@@ -127,7 +124,7 @@
         </section>
 
         <!-- === Platform Comparison === -->
-        <section class="platforms-section">
+        <section class="platforms-section hud-card">
             <h2 class="section-title">🎯 השוואת פלטפורמות</h2>
             <div class="platforms-grid">
                 <div class="platform-card" data-platform="youtube">
@@ -181,7 +178,7 @@
         </section>
 
         <!-- === Filter === -->
-        <section class="filter-section">
+        <section class="filter-section hud-card">
             <div class="filter-row">
                 <label>פלטפורמה:
                     <select id="filter-platform">
@@ -206,22 +203,22 @@
 
         <!-- === Top / Bottom === -->
         <section class="topbottom-section">
-            <div class="tb-column">
+            <div class="tb-column hud-card">
                 <h2 class="section-title">🏆 Top 5 — הצפיות הגבוהות</h2>
                 <div id="top-views" class="tb-list"></div>
             </div>
-            <div class="tb-column">
+            <div class="tb-column hud-card">
                 <h2 class="section-title">❤️ Top 5 — יחס לייקים</h2>
                 <div id="top-likes" class="tb-list"></div>
             </div>
-            <div class="tb-column">
+            <div class="tb-column hud-card">
                 <h2 class="section-title">📉 Bottom 5 — הצפיות הנמוכות</h2>
                 <div id="bottom-views" class="tb-list"></div>
             </div>
         </section>
 
         <!-- === Table === -->
-        <section class="table-section">
+        <section class="table-section hud-card">
             <h2 class="section-title">📋 כל הסרטונים <span id="table-count">(0)</span></h2>
             <div class="table-wrapper">
                 <table class="videos-table">
@@ -248,30 +245,39 @@
             </div>
         </section>
 
-        <!-- === AI Chat === -->
-        <section class="ai-section">
-            <h2 class="section-title">🤖 צ'אט AI — שאל שאלות על הנתונים</h2>
+        <!-- === Floating Analytics Chat === -->
+        <button type="button" id="analytics-chat-fab" class="hud-chat-fab" aria-label="צ'אט אנליטיקס">
+            <span class="hud-chat-fab-icon">💬</span>
+            <span class="hud-chat-fab-pulse"></span>
+        </button>
 
-            <div id="ai-chat" class="ai-chat">
-                <div class="chat-message ai">
-                    <div class="chat-avatar">🤖</div>
-                    <div class="chat-bubble">שלום! אני כאן כדי לנתח את הנתונים שלך.<br><br>נסה לשאול:<br>• מה הסרטון הכי מצליח שלי?<br>• תן לי 3 רעיונות לסרטונים הבאים<br>• תשווה בין הפלטפורמות<br>• איך אני משיג יותר תגובות?</div>
+        <div id="analytics-chat" class="hud-chat-window hud-chat-window--analytics" role="dialog" aria-labelledby="analytics-chat-title" hidden>
+            <header class="hud-chat-header">
+                <div class="hud-chat-header-info">
+                    <span class="hud-chat-header-icon">📊</span>
+                    <div>
+                        <h3 id="analytics-chat-title" class="hud-chat-header-title">צ'אט אנליטיקס</h3>
+                        <p class="hud-chat-header-subtitle">שאל שאלות על הנתונים שלך</p>
+                    </div>
                 </div>
-            </div>
+                <button type="button" id="analytics-chat-close" class="hud-chat-close" aria-label="סגור">✕</button>
+            </header>
+
+            <div id="ai-chat" class="ai-chat"></div>
 
             <div class="chat-suggestions">
-                <button type="button" class="suggestion-chip" data-q="מה הסרטון הכי מצליח שלי?">🏆 הסרטון המצליח</button>
-                <button type="button" class="suggestion-chip" data-q="תן לי 3 רעיונות לסרטונים הבאים על סמך מה שעבד">💡 3 רעיונות</button>
-                <button type="button" class="suggestion-chip" data-q="תשווה בין TikTok ל-YouTube ותגיד לי איפה להתמקד">📊 השוואה</button>
-                <button type="button" class="suggestion-chip" data-q="איך אני משיג יותר תגובות ומעורבות?">💬 יותר תגובות</button>
-                <button type="button" class="suggestion-chip" data-q="מה הטרנד הכי חזק שלי ולמה?">🔥 הטרנד החזק</button>
+                <button type="button" class="suggestion-chip hud-chip" data-q="מה הסרטון הכי מצליח שלי?">🏆 הסרטון המצליח</button>
+                <button type="button" class="suggestion-chip hud-chip" data-q="תן לי 3 רעיונות לסרטונים הבאים על סמך מה שעבד">💡 3 רעיונות</button>
+                <button type="button" class="suggestion-chip hud-chip" data-q="תשווה בין TikTok ל-YouTube ותגיד לי איפה להתמקד">📊 השוואה</button>
+                <button type="button" class="suggestion-chip hud-chip" data-q="איך אני משיג יותר תגובות ומעורבות?">💬 יותר תגובות</button>
+                <button type="button" class="suggestion-chip hud-chip" data-q="מה הטרנד הכי חזק שלי ולמה?">🔥 הטרנד החזק</button>
             </div>
 
             <form class="chat-form" id="chat-form">
                 <textarea class="chat-input" id="chat-input" placeholder="שאל שאלה על הנתונים..." rows="1"></textarea>
                 <button type="submit" class="chat-send">שלח ←</button>
             </form>
-        </section>
+        </div>
 
         <!-- === Footer === -->
         <footer class="analytics-footer">

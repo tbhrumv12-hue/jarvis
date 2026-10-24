@@ -3853,6 +3853,131 @@ ${mealsList}
 });
 
 // ==============================
+// 45.1 ROUTES — NUTRITION CHAT
+// ==============================
+
+const NUTRITION_COACH_SYSTEM_PROMPT = `אתה J.A.R.V.I.S — תזונאי אישי בעברית, בגובה העיניים. אתה עונה על שאלות של מתבגר בן 15 וחמישה חודשים שמתאמן בקליסטניקס 4-5 פעמים בשבוע, במטרה לבנות שריר ולהישאר חטוב.
+
+## כללי התנהגות:
+1. ענה בעברית, ישיר ופרקטי. אפס קלישאות ואפס "יאס-מן".
+2. התבסס קודם כל על נתוני היום שסופקו (קלוריות, חלבון, פחמימות, שומן, סיבים, סוכר, מים, ארוחות) — צטט מספרים אמיתיים.
+3. אם חסר נתון — אמור במפורש שאין נתון, ואל תמציא מספרים.
+4. תן המלצות אוכל קונקרטיות (מה וכמה) שמתאימות לתפריט ישראלי זמין.
+5. אם שואל על תוספים — היה זהיר, הדגש שאוכל עדיף על תוסף, והפנה לרופא/דיאטן לפני התחלה.
+6. אם עולה נושא של ירידה חדה במשקל, הפרעות אכילה או מצב רפואי — אמור בעדינות שזה מחייב איש מקצוע, ואל תיתן המלצות מסוכנות.
+7. אם השואל מבקש תפריט — תן תפריט יומי קצר עם 3-4 ארוחות ומספרים.
+8. השתמש ב-Markdown: **מודגש**, רשימות עם -, קוד עם \`\`.
+9. אורך: 2-5 פסקאות קצרות, בלי חזרות.
+10. אל תמציא קישורים, תוספים, מרשמים או בדיקות דם.
+
+## שפה: עברית בלבד.`;
+
+app.post('/api/nutrition/chat', apiRateLimiter, async (req, res, next) => {
+    const requestStart = Date.now();
+    metrics.totalRequests += 1;
+
+    try {
+        const { query, history: rawHistory, nutrition } = req.body || {};
+
+        if (!query || typeof query !== 'string' || query.trim().length < 2) {
+            metrics.totalErrors += 1;
+            recordError('Empty nutrition chat query');
+            return res.status(400).json({ error: 'חסרה שאלה' });
+        }
+
+        const cleanQuery = query.trim();
+        if (cleanQuery.length > 500) {
+            metrics.totalErrors += 1;
+            recordError('Nutrition chat query too long');
+            return res.status(400).json({ error: 'השאלה ארוכה מדי (מקסימום 500 תווים)' });
+        }
+
+        const day = nutrition && typeof nutrition === 'object' ? nutrition : {};
+        const totals = day.totals && typeof day.totals === 'object' ? day.totals : {};
+        const targets = day.targets && typeof day.targets === 'object' ? day.targets : {};
+        const meals = Array.isArray(day.meals) ? day.meals.slice(0, 20) : [];
+
+        const num = (value) => Math.round(Number(value) || 0);
+        const targetLine = (label, key, unit) =>
+            `- ${label}: ${num(totals[key])}${unit} מתוך יעד ${num(targets[key])}${unit}`;
+
+        const mealsBlock = meals.length
+            ? meals.map((meal, i) => {
+                const t = meal && meal.totals && typeof meal.totals === 'object' ? meal.totals : {};
+                const name = truncate(String((meal && meal.description) || ''), 120) || 'ארוחה';
+                const time = meal && meal.time ? ` (${meal.time})` : '';
+                return `${i + 1}. ${name}${time} — ${num(t.kcal)} קק"ל, חלבון ${num(t.protein)}g, פחמימות ${num(t.carbs)}g, שומן ${num(t.fats)}g`;
+            }).join('\n')
+            : 'לא הוזנו ארוחות היום.';
+
+        const nutritionBlock = `
+### נתוני היום (${truncate(String(day.date || 'היום'), 20)})
+${targetLine('קלוריות', 'kcal', '')}
+${targetLine('חלבון', 'protein', 'g')}
+${targetLine('פחמימות', 'carbs', 'g')}
+${targetLine('שומן', 'fats', 'g')}
+${targetLine('סיבים', 'fiber', 'g')}
+${targetLine('סוכר', 'sugar', 'g')}
+- מים: ${num(day.water)}ml מתוך יעד ${num(targets.water)}ml
+
+### ארוחות היום (${meals.length})
+${mealsBlock}
+${day.insights && String(day.insights).trim() ? `\n### תובנה קודמת של המערכת\n${truncate(String(day.insights), 700)}` : ''}
+`;
+
+        metrics.totalKnowledgeLookups += 1;
+        const personalChunks = searchKnowledge(cleanQuery);
+        let personalContext = '';
+
+        if (personalChunks.length > 0) {
+            metrics.totalKnowledgeHits += 1;
+            personalContext = `\n\n### ידע אישי רלוונטי:\n${personalChunks.map((c) => `- ${c.text}`).join('\n')}`;
+        }
+
+        const normalizedHistory = Array.isArray(rawHistory)
+            ? rawHistory.map((h) => ({
+                role: h?.role === 'assistant' ? 'jarvis' : 'user',
+                text: h?.content || h?.text || '',
+            }))
+            : [];
+
+        const history = sanitizeHistory(normalizedHistory);
+        metrics.totalHistoryMessagesSent += history.length;
+
+        const { reply, coreLatencyMs, attempts } = await callGemini({
+            systemInstruction: `${NUTRITION_COACH_SYSTEM_PROMPT}\n\n## נתוני התזונה של המשתמש:\n${nutritionBlock}${personalContext}`,
+            contents: buildConversationContents(history, cleanQuery),
+            temperature: 0.6,
+            maxOutputTokens: 1500,
+            timeoutMs: CONFIG.geminiTimeoutMs,
+            retries: CONFIG.defaultRetries,
+        });
+
+        const totalRoundTripMs = Date.now() - requestStart;
+        metrics.totalSuccess += 1;
+        recordLatency(coreLatencyMs);
+
+        log('info', 'Nutrition chat OK', {
+            meals: meals.length,
+            historyUsed: history.length,
+            personalChunks: personalChunks.length,
+            coreLatencyMs,
+        });
+
+        return res.json({
+            reply,
+            latencyMs: coreLatencyMs,
+            roundTripMs: totalRoundTripMs,
+            attempts,
+            historyUsed: history.length,
+            timestamp: new Date().toISOString(),
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// ==============================
 // 46. ROUTES — TRAINING
 // ==============================
 

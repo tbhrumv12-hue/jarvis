@@ -12,9 +12,11 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/hud-theme.css">
     <link rel="stylesheet" href="/css/nutrition.css">
+    <link rel="stylesheet" href="/css/hud-chat.css">
 </head>
-<body class="nutrition-page">
+<body class="nutrition-page hud-page">
 
     <div class="nutrition-container">
 
@@ -32,10 +34,10 @@
         </header>
 
         <!-- === Summary Section === -->
-        <section class="summary-section">
+        <section class="summary-section hud-card">
             <div class="summary-header">
                 <h2 class="section-title">📊 סיכום היום</h2>
-                <span class="date-badge" id="today-date">—</span>
+                <span class="date-badge hud-badge" id="today-date">—</span>
             </div>
             <div id="summary-grid" class="summary-grid">
                 <!-- Filled by JS -->
@@ -43,7 +45,7 @@
         </section>
 
         <!-- === Water Tracker === -->
-        <section class="water-section">
+        <section class="water-section hud-card">
             <h2 class="section-title">💧 מים</h2>
             <div class="water-tracker">
                 <button type="button" id="water-minus" class="water-btn" aria-label="הפחת 250 מ״ל">−250</button>
@@ -60,18 +62,18 @@
         </section>
 
         <!-- === Add Meal === -->
-        <section class="add-section">
+        <section class="add-section hud-card">
             <h2 class="section-title">✏️ הוסף ארוחה</h2>
             <div class="add-form">
                 <textarea 
                     id="meal-input" 
-                    class="meal-input" 
+                    class="meal-input hud-field" 
                     placeholder="תאר מה אכלת... למשל: 2 ביצים, 150 גרם עוף, כוס אורז"
                     rows="3"
                     maxlength="500"
                 ></textarea>
                 <div class="add-actions">
-                    <button type="button" id="btn-analyze" class="analyze-btn">
+                    <button type="button" id="btn-analyze" class="analyze-btn hud-btn hud-btn--primary">
                         <span>🔍</span>
                         <span>נתח והוסף</span>
                     </button>
@@ -79,16 +81,16 @@
             </div>
             <div class="quick-adds">
                 <span class="quick-label">הוספה מהירה:</span>
-                <button type="button" class="quick-chip" data-text="2 ביצים">🥚 2 ביצים</button>
-                <button type="button" class="quick-chip" data-text="150 גרם עוף">🍗 150 גרם עוף</button>
-                <button type="button" class="quick-chip" data-text="כוס אורז">🍚 כוס אורז</button>
-                <button type="button" class="quick-chip" data-text="100 גרם קוטג'">🧀 100 גרם קוטג'</button>
-                <button type="button" class="quick-chip" data-text="כף טחינה">🫘 כף טחינה</button>
+                <button type="button" class="quick-chip hud-chip" data-text="2 ביצים">🥚 2 ביצים</button>
+                <button type="button" class="quick-chip hud-chip" data-text="150 גרם עוף">🍗 150 גרם עוף</button>
+                <button type="button" class="quick-chip hud-chip" data-text="כוס אורז">🍚 כוס אורז</button>
+                <button type="button" class="quick-chip hud-chip" data-text="100 גרם קוטג'">🧀 100 גרם קוטג'</button>
+                <button type="button" class="quick-chip hud-chip" data-text="כף טחינה">🫘 כף טחינה</button>
             </div>
         </section>
 
         <!-- === Loading === -->
-        <section id="loading" class="loading-section" hidden>
+        <section id="loading" class="loading-section hud-card" hidden>
             <div class="loading-spinner"></div>
             <p class="loading-text">מנתח את הארוחה...</p>
             <p class="loading-subtext">זה יכול לקחת 5-15 שניות</p>
@@ -101,16 +103,16 @@
         </section>
 
         <!-- === Meals Today === -->
-        <section id="meals-section" class="meals-section" hidden>
+        <section id="meals-section" class="meals-section hud-card" hidden>
             <div class="section-header-row">
                 <h2 class="section-title">🍽️ ארוחות היום</h2>
-                <span class="count-badge" id="meals-count">(0)</span>
+                <span class="count-badge hud-badge" id="meals-count">(0)</span>
             </div>
             <div id="meals-list" class="meals-list"></div>
         </section>
 
         <!-- === Vitamins & Minerals === -->
-        <section id="micro-section" class="micro-section" hidden>
+        <section id="micro-section" class="micro-section hud-card" hidden>
             <div class="micro-columns">
                 <div class="micro-column">
                     <h2 class="section-title">💊 ויטמינים</h2>
@@ -124,19 +126,19 @@
         </section>
 
         <!-- === Amino Acids === -->
-        <section id="amino-section" class="amino-section" hidden>
+        <section id="amino-section" class="amino-section hud-card" hidden>
             <h2 class="section-title">🧬 חומצות אמינו חיוניות</h2>
             <div id="amino-list" class="amino-grid"></div>
         </section>
 
         <!-- === AI Insights === -->
-        <section id="insights-section" class="insights-section" hidden>
+        <section id="insights-section" class="insights-section hud-card" hidden>
             <h2 class="section-title">🤖 תובנות AI</h2>
             <div id="insights-text" class="insights-text"></div>
         </section>
 
         <!-- === History === -->
-        <section id="history-section" class="history-section" hidden>
+        <section id="history-section" class="history-section hud-card" hidden>
             <h2 class="section-title">📅 היסטוריה — 7 ימים אחרונים</h2>
             <div id="history-list" class="history-list"></div>
         </section>
@@ -149,7 +151,55 @@
 
     </div>
 
+    <!-- === Floating Nutrition Chat === -->
+    <button type="button" id="nutrition-chat-fab" class="hud-chat-fab" aria-label="צ'אט תזונה">
+        <span class="hud-chat-fab-icon">💬</span>
+        <span class="hud-chat-fab-pulse"></span>
+    </button>
+
+    <div id="nutrition-chat" class="hud-chat-window" role="dialog" aria-labelledby="nutrition-chat-title" hidden>
+        <header class="hud-chat-header">
+            <div class="hud-chat-header-info">
+                <span class="hud-chat-header-icon">🍽️</span>
+                <div>
+                    <h3 id="nutrition-chat-title" class="hud-chat-header-title">צ'אט תזונה</h3>
+                    <p class="hud-chat-header-subtitle">שאל על קלוריות, חלבון ומים של היום</p>
+                </div>
+            </div>
+            <button type="button" id="nutrition-chat-close" class="hud-chat-close" aria-label="סגור">✕</button>
+        </header>
+
+        <div id="nutrition-chat-messages" class="hud-chat-messages">
+            <div class="hud-chat-empty">
+                <span class="hud-chat-empty-icon">👋</span>
+                <p class="hud-chat-empty-title">אני התזונאי שלך</p>
+                <p class="hud-chat-empty-text">שאל על הקלוריות והמאקרו של היום, מה כדאי להוסיף, ואיך לעמוד ביעדים</p>
+                <div class="hud-chat-suggestions">
+                    <button type="button" class="hud-chat-suggestion" data-text="איך אני עומד ביעדים היום?">איך אני עומד ביעדים?</button>
+                    <button type="button" class="hud-chat-suggestion" data-text="מה כדאי לי לאכול בארוחה הבאה?">מה לאכול עכשיו?</button>
+                    <button type="button" class="hud-chat-suggestion" data-text="כמה חלבון עוד חסר לי היום?">כמה חלבון חסר?</button>
+                    <button type="button" class="hud-chat-suggestion" data-text="איך אני משפר את כמות הסיבים בתפריט שלי?">איך לשפר סיבים?</button>
+                </div>
+            </div>
+        </div>
+
+        <form id="nutrition-chat-form" class="hud-chat-form" autocomplete="off">
+            <input
+                type="text"
+                id="nutrition-chat-input"
+                class="hud-chat-input"
+                placeholder="שאל שאלה..."
+                maxlength="500"
+                aria-label="שאלה לתזונאי"
+            >
+            <button type="submit" id="nutrition-chat-send" class="hud-chat-send" aria-label="שלח">
+                <span>↑</span>
+            </button>
+        </form>
+    </div>
+
     <script src="/js/nutrition.js" defer></script>
+    <script src="/js/nutrition-chat.js" defer></script>
         <script>
         // Register Service Worker for PWA
         if ('serviceWorker' in navigator) {

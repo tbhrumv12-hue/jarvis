@@ -1,0 +1,316 @@
+/* ============================================================
+   J.A.R.V.I.S // HUD THEME — shared design tokens & primitives
+   Loaded by: training.html, nutrition.html, analytics.html, research.html
+   ============================================================ */
+
+:root {
+    /* Canvas */
+    --hud-bg: #0a0e1a;
+    --hud-bg-1: #0d1220;
+    --hud-bg-2: #121a2c;
+    --hud-surface: rgba(15, 23, 39, 0.72);
+    --hud-surface-2: rgba(22, 33, 54, 0.62);
+
+    /* Accents */
+    --hud-turquoise: #4dd0c4;
+    --hud-turquoise-bright: #8af5ea;
+    --hud-turquoise-dim: rgba(77, 208, 196, 0.14);
+    --hud-gold: #d4af37;
+    --hud-gold-bright: #f4d47c;
+    --hud-gold-dim: rgba(212, 175, 55, 0.14);
+    --hud-danger: #ff5c5c;
+    --hud-success: #4ade80;
+    --hud-warning: #fbbf24;
+
+    /* Text */
+    --hud-text: #e8ecf5;
+    --hud-text-2: #a8b2c8;
+    --hud-text-3: #6b7691;
+
+    /* Lines */
+    --hud-border: rgba(77, 208, 196, 0.16);
+    --hud-border-strong: rgba(77, 208, 196, 0.42);
+    --hud-line: rgba(255, 255, 255, 0.06);
+    --hud-line-gold: rgba(212, 175, 55, 0.34);
+
+    /* Shape */
+    --hud-radius-lg: 20px;
+    --hud-radius: 16px;
+    --hud-radius-sm: 12px;
+    --hud-radius-pill: 999px;
+
+    /* Depth */
+    --hud-shadow-card: 0 24px 48px -32px rgba(0, 0, 0, 0.95), 0 2px 8px rgba(0, 0, 0, 0.28);
+    --hud-shadow-lift: 0 28px 56px -30px rgba(0, 0, 0, 0.95), 0 0 22px rgba(77, 208, 196, 0.12);
+    --hud-focus: 0 0 0 3px rgba(77, 208, 196, 0.22);
+    --hud-glow-turquoise: 0 0 22px rgba(77, 208, 196, 0.32);
+    --hud-glow-gold: 0 0 22px rgba(212, 175, 55, 0.30);
+
+    /* Type */
+    --hud-font: 'Rajdhani', sans-serif;
+    --hud-mono: 'JetBrains Mono', monospace;
+
+    --hud-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* ---------- Card ---------- */
+.hud-card {
+    position: relative;
+    background:
+        linear-gradient(157deg, rgba(23, 34, 56, 0.74) 0%, rgba(10, 14, 26, 0.90) 64%),
+        var(--hud-bg);
+    border: 1px solid var(--hud-border);
+    border-radius: var(--hud-radius-lg);
+    box-shadow: var(--hud-shadow-card), inset 0 1px 0 rgba(212, 175, 55, 0.16);
+    backdrop-filter: blur(16px) saturate(130%);
+    -webkit-backdrop-filter: blur(16px) saturate(130%);
+}
+
+.hud-card::before,
+.hud-card::after {
+    content: '';
+    position: absolute;
+    width: 15px;
+    height: 15px;
+    border: 1px solid var(--hud-gold);
+    opacity: 0.55;
+    pointer-events: none;
+    transition: opacity 0.25s var(--hud-ease), box-shadow 0.25s var(--hud-ease);
+}
+.hud-card::before {
+    top: 9px;
+    right: 9px;
+    border-left: 0;
+    border-bottom: 0;
+    border-radius: 0 6px 0 0;
+}
+.hud-card::after {
+    bottom: 9px;
+    left: 9px;
+    border-right: 0;
+    border-top: 0;
+    border-radius: 0 0 0 6px;
+}
+.hud-card:hover::before,
+.hud-card:hover::after {
+    opacity: 0.95;
+    box-shadow: 0 0 10px rgba(212, 175, 55, 0.35);
+}
+
+/* ---------- Nested surface (rows inside a card) ---------- */
+.hud-row {
+    background: var(--hud-surface-2);
+    border: 1px solid var(--hud-line);
+    border-radius: var(--hud-radius);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    transition: background 0.22s var(--hud-ease),
+                border-color 0.22s var(--hud-ease),
+                box-shadow 0.22s var(--hud-ease),
+                transform 0.22s var(--hud-ease);
+}
+.hud-row:hover {
+    background: rgba(28, 42, 66, 0.70);
+    border-color: rgba(77, 208, 196, 0.26);
+    box-shadow: var(--hud-shadow-lift);
+    transform: translateY(-1px);
+}
+
+
+/* ---------- Buttons ---------- */
+.hud-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 46px;
+    padding: 0 22px;
+    border: 1px solid transparent;
+    border-radius: var(--hud-radius-sm);
+    font-family: var(--hud-font);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    cursor: pointer;
+    user-select: none;
+    transition: transform 0.18s var(--hud-ease),
+                box-shadow 0.18s var(--hud-ease),
+                background 0.18s var(--hud-ease),
+                border-color 0.18s var(--hud-ease),
+                color 0.18s var(--hud-ease);
+}
+.hud-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--hud-focus);
+}
+.hud-btn:active:not(:disabled) {
+    transform: translateY(1px);
+}
+.hud-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none !important;
+}
+
+.hud-btn--primary {
+    background: linear-gradient(135deg, #6fe0d5 0%, var(--hud-turquoise) 45%, #37a89d 100%);
+    color: #04121a;
+    box-shadow: 0 12px 26px -16px rgba(77, 208, 196, 0.95), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.hud-btn--primary:hover:not(:disabled) {
+    box-shadow: 0 16px 32px -14px rgba(77, 208, 196, 0.95), var(--hud-glow-turquoise);
+    transform: translateY(-1px);
+}
+
+.hud-btn--gold {
+    background: linear-gradient(135deg, var(--hud-gold-bright) 0%, var(--hud-gold) 45%, #b8941e 100%);
+    color: #17120a;
+    box-shadow: 0 12px 26px -16px rgba(212, 175, 55, 0.95), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.hud-btn--gold:hover:not(:disabled) {
+    box-shadow: 0 16px 32px -14px rgba(212, 175, 55, 0.95), var(--hud-glow-gold);
+    transform: translateY(-1px);
+}
+
+.hud-btn--ghost {
+    background: rgba(20, 29, 48, 0.62);
+    border-color: var(--hud-line);
+    color: var(--hud-text-2);
+}
+.hud-btn--ghost:hover:not(:disabled) {
+    background: rgba(28, 42, 66, 0.82);
+    border-color: rgba(212, 175, 55, 0.45);
+    color: var(--hud-gold-bright);
+}
+
+/* ---------- Fields ---------- */
+.hud-field {
+    width: 100%;
+    background: rgba(8, 12, 20, 0.72);
+    border: 1px solid var(--hud-line);
+    border-radius: var(--hud-radius-sm);
+    padding: 12px 14px;
+    color: var(--hud-text);
+    font-family: var(--hud-font);
+    font-size: 14.5px;
+    line-height: 1.45;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+    transition: border-color 0.2s var(--hud-ease), box-shadow 0.2s var(--hud-ease), background 0.2s var(--hud-ease);
+}
+.hud-field::placeholder {
+    color: var(--hud-text-3);
+}
+.hud-field:hover {
+    border-color: rgba(77, 208, 196, 0.22);
+}
+.hud-field:focus {
+    outline: none;
+    background: rgba(10, 16, 26, 0.9);
+    border-color: var(--hud-border-strong);
+    box-shadow: var(--hud-focus), inset 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+.hud-field:disabled {
+    opacity: 0.5;
+}
+
+/* ---------- Chips ---------- */
+.hud-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    background: rgba(20, 29, 48, 0.62);
+    border: 1px solid var(--hud-line);
+    border-radius: var(--hud-radius-pill);
+    color: var(--hud-text-2);
+    font-family: var(--hud-font);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.18s var(--hud-ease);
+}
+.hud-chip:hover {
+    background: rgba(212, 175, 55, 0.10);
+    border-color: rgba(212, 175, 55, 0.48);
+    color: var(--hud-gold-bright);
+    transform: translateY(-1px);
+}
+
+/* ---------- Badge ---------- */
+.hud-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border: 1px solid var(--hud-line-gold);
+    border-radius: var(--hud-radius-pill);
+    background: var(--hud-gold-dim);
+    color: var(--hud-gold-bright);
+    font-family: var(--hud-mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+}
+
+/* ---------- Section heading ---------- */
+.hud-eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    font-family: var(--hud-mono);
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--hud-text-2);
+}
+.hud-eyebrow::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(270deg, rgba(77, 208, 196, 0.30), transparent);
+}
+
+/* ---------- Global niceties ---------- */
+/* Author `display` rules (e.g. .error-section { display:flex }) override the UA
+   [hidden] rule — this keeps `hidden` authoritative across all pages. */
+[hidden] {
+    display: none !important;
+}
+
+::selection {
+    background: rgba(77, 208, 196, 0.28);
+    color: #ffffff;
+}
+
+.hud-page ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+.hud-page ::-webkit-scrollbar-track {
+    background: transparent;
+}
+.hud-page ::-webkit-scrollbar-thumb {
+    background: rgba(77, 208, 196, 0.22);
+    border-radius: var(--hud-radius-pill);
+}
+.hud-page ::-webkit-scrollbar-thumb:hover {
+    background: rgba(77, 208, 196, 0.38);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .hud-card::before,
+    .hud-card::after,
+    .hud-btn,
+    .hud-row,
+    .hud-chip,
+    .hud-field {
+        transition: none !important;
+    }
+    .hud-btn:hover:not(:disabled),
+    .hud-row:hover,
+    .hud-chip:hover {
+        transform: none !important;
+    }
+}

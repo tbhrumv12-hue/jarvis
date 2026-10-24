@@ -98,6 +98,22 @@
         `;
     }
 
+    function renderNoPapersState() {
+        const container = $('chat-messages');
+        if (!container) return;
+        if (container.querySelector('.chat-message')) return;
+
+        container.innerHTML = `
+            <div class="chat-empty-state">
+                <span class="chat-empty-icon">🔬</span>
+                <p class="chat-empty-title">עדיין אין מחקרים לשיחה</p>
+                <p class="chat-empty-text">
+                    בצע חיפוש מחקרים בדף ואז חזור לכאן כדי לשאול שאלות על התוצאות.
+                </p>
+            </div>
+        `;
+    }
+
     function renderUserMessage(text) {
         const container = $('chat-messages');
         if (!container) return;
@@ -279,14 +295,15 @@
         const modal = $('research-chat-modal');
         if (!modal) return;
 
-        if (!syncPapers()) {
-            alert('צריך לבצע חיפוש מחקרים לפני השיחה');
-            return;
-        }
+        const hasPapers = syncPapers();
 
         modal.hidden = false;
         state.open = true;
         updatePapersCount();
+
+        if (!hasPapers) {
+            renderNoPapersState();
+        }
 
         // Ensure history context
         if (window.JarvisChatHistory) {
@@ -419,6 +436,9 @@
     function bind() {
         const openBtn = $('btn-research-chat');
         if (openBtn) openBtn.addEventListener('click', openChat);
+
+        const chatFab = $('research-chat-fab');
+        if (chatFab) chatFab.addEventListener('click', openChat);
 
         document.querySelectorAll('[data-close-chat]').forEach((el) => {
             el.addEventListener('click', closeChat);

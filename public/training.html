@@ -14,9 +14,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 
+    <link rel="stylesheet" href="/css/hud-theme.css">
     <link rel="stylesheet" href="/css/training.css">
 </head>
-<body class="training-page">
+<body class="training-page hud-page">
 
     <div class="training-container">
 
@@ -34,29 +35,33 @@
         </header>
 
         <!-- === Mode Selector === -->
-        <section class="mode-section">
+        <section class="mode-section hud-card">
             <h2 class="section-title">⏱️ סוג אימון</h2>
             <div class="mode-selector">
                 <button type="button" class="mode-btn active" data-mode="short">
                     <span class="mode-icon">🎯</span>
-                    <span class="mode-title">קצר</span>
-                    <span class="mode-desc">40 דק'</span>
+                    <span class="mode-text">
+                        <span class="mode-title">קצר</span>
+                        <span class="mode-desc">40 דק'</span>
+                    </span>
                 </button>
                 <button type="button" class="mode-btn" data-mode="long">
                     <span class="mode-icon">🔥</span>
-                    <span class="mode-title">ארוך</span>
-                    <span class="mode-desc">60-90 דק'</span>
+                    <span class="mode-text">
+                        <span class="mode-title">ארוך</span>
+                        <span class="mode-desc">60-90 דק'</span>
+                    </span>
                 </button>
             </div>
         </section>
 
         <!-- === Request === -->
-        <section class="request-section">
+        <section class="request-section hud-card">
             <h2 class="section-title">✏️ מה בא לך היום?</h2>
             <div class="request-form">
                 <textarea
                     id="request-input"
-                    class="request-input"
+                    class="request-input hud-field"
                     placeholder="לדוגמה: היום אני רוצה לעבוד על פרונט ליבר, לתקן תפרום, ובאק לבר יד אחת"
                     rows="3"
                     maxlength="500"
@@ -64,16 +69,16 @@
 
                 <div class="quick-requests">
                     <span class="quick-label">רעיונות מהירים:</span>
-                    <button type="button" class="quick-chip" data-text="Planche focused — Straddle progressions">🎯 Planche</button>
-                    <button type="button" class="quick-chip" data-text="Front Lever — Advanced Tuck to Straddle">🎯 Front Lever</button>
-                    <button type="button" class="quick-chip" data-text="Handstand practice + OAHS work">🤸 Handstand</button>
-                    <button type="button" class="quick-chip" data-text="Full body pull + push + core">💪 Full Body</button>
-                    <button type="button" class="quick-chip" data-text="Skill day — Planche + Front Lever + Handstand">🎪 Skill Day</button>
-                    <button type="button" class="quick-chip" data-text="Core intensive — Dragon Flags + Hollow Body">🎯 Core</button>
+                    <button type="button" class="quick-chip hud-chip" data-text="Planche focused — Straddle progressions">🎯 Planche</button>
+                    <button type="button" class="quick-chip hud-chip" data-text="Front Lever — Advanced Tuck to Straddle">🎯 Front Lever</button>
+                    <button type="button" class="quick-chip hud-chip" data-text="Handstand practice + OAHS work">🤸 Handstand</button>
+                    <button type="button" class="quick-chip hud-chip" data-text="Full body pull + push + core">💪 Full Body</button>
+                    <button type="button" class="quick-chip hud-chip" data-text="Skill day — Planche + Front Lever + Handstand">🎪 Skill Day</button>
+                    <button type="button" class="quick-chip hud-chip" data-text="Core intensive — Dragon Flags + Hollow Body">🎯 Core</button>
                 </div>
 
                 <div class="add-actions">
-                    <button type="button" id="btn-generate" class="generate-btn">
+                    <button type="button" id="btn-generate" class="generate-btn hud-btn hud-btn--primary">
                         <span>🤖</span>
                         <span>הצע לי אימון</span>
                     </button>
@@ -82,7 +87,7 @@
         </section>
 
         <!-- === Loading === -->
-        <section id="loading" class="loading-section" hidden>
+        <section id="loading" class="loading-section hud-card" hidden>
             <div class="loading-spinner"></div>
             <p class="loading-text">בונה את האימון...</p>
             <p class="loading-subtext">זה יכול לקחת 5-15 שניות</p>
@@ -95,10 +100,10 @@
         </section>
 
         <!-- === Generated Workout === -->
-        <section id="workout-section" class="workout-section" hidden>
+        <section id="workout-section" class="workout-section hud-card" hidden>
             <div class="workout-header">
                 <h2 class="section-title" id="workout-title">🎯 האימון שלי</h2>
-                <span class="workout-badge" id="workout-badge">—</span>
+                <span class="workout-badge hud-badge" id="workout-badge">—</span>
             </div>
 
             <div class="workout-meta">
@@ -119,11 +124,11 @@
             <div id="exercises-list" class="exercises-list"></div>
 
             <div class="workout-actions">
-                <button type="button" id="btn-regenerate" class="secondary-btn">
+                <button type="button" id="btn-regenerate" class="secondary-btn hud-btn hud-btn--ghost">
                     <span>🔄</span>
                     <span>הצע אימון אחר</span>
                 </button>
-                <button type="button" id="btn-save-workout" class="save-btn">
+                <button type="button" id="btn-save-workout" class="save-btn hud-btn hud-btn--gold">
                     <span>💾</span>
                     <span>שמור וסיים</span>
                 </button>
@@ -131,22 +136,22 @@
         </section>
 
         <!-- === Today's Workouts === -->
-        <section id="today-section" class="today-section" hidden>
+        <section id="today-section" class="today-section hud-card" hidden>
             <div class="section-header-row">
                 <h2 class="section-title">📅 אימונים היום</h2>
-                <span class="count-badge" id="today-count">(0)</span>
+                <span class="count-badge hud-badge" id="today-count">(0)</span>
             </div>
             <div id="today-list" class="today-list"></div>
         </section>
 
         <!-- === AI Insights === -->
-        <section id="insights-section" class="insights-section" hidden>
+        <section id="insights-section" class="insights-section hud-card" hidden>
             <h2 class="section-title">🤖 תובנות AI</h2>
             <div id="insights-text" class="insights-text"></div>
         </section>
 
         <!-- === History === -->
-        <section id="history-section" class="history-section" hidden>
+        <section id="history-section" class="history-section hud-card" hidden>
             <h2 class="section-title">📜 היסטוריה — 7 ימים אחרונים</h2>
             <div id="history-list" class="history-list"></div>
         </section>

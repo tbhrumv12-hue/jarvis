@@ -1256,230 +1256,38 @@
     }
 
     // ==============================
-    // 12. AI ANALYZE (נתח AI)
+    // 12. FLOATING ANALYTICS CHAT
     // ==============================
 
-    async function analyzeWithAI() {
-        const btn = document.getElementById('btn-ai');
-        if (!btn) return;
+    function openChatWindow() {
+        const win = document.getElementById('analytics-chat');
+        const fab = document.getElementById('analytics-chat-fab');
+        if (!win || !fab) return;
 
-        if (!state.videos.length) {
-            alert('אין סרטונים לניתוח. הוסף סרטונים קודם.');
-            return;
-        }
+        win.hidden = false;
+        fab.classList.add('hidden');
+        renderChatHistory();
 
-        const originalHtml = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '⏳ מנתח...';
-
-        try {
-            const res = await fetch('/api/analyze', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ videos: state.videos }),
-            });
-
-            const data = await res.json().catch(() => ({}));
-
-            if (!res.ok) {
-                alert('❌ שגיאה: ' + (data.reply || data.error || `HTTP ${res.status}`));
-                return;
-            }
-
-            const reply = data.reply || 'לא התקבלה תשובה מהמערכת.';
-            showAnalysisResult(reply);
-
-        } catch (err) {
-            alert('❌ שגיאה בחיבור לשרת: ' + err.message);
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
-        }
+        setTimeout(() => {
+            const input = document.getElementById('chat-input');
+            if (input) input.focus();
+        }, 150);
     }
 
-    function showAnalysisResult(text) {
-        injectAnalysisModal(text);
+    function closeChatWindow() {
+        const win = document.getElementById('analytics-chat');
+        const fab = document.getElementById('analytics-chat-fab');
+        if (!win || !fab) return;
+
+        win.hidden = true;
+        fab.classList.remove('hidden');
     }
 
-    function injectAnalysisModal(text) {
-        const existing = document.getElementById('dynamic-ai-modal');
-        if (existing) existing.remove();
-
-        const existingStyle = document.getElementById('analysis-modal-styles');
-        if (existingStyle) existingStyle.remove();
-
-        const modal = document.createElement('div');
-        modal.id = 'dynamic-ai-modal';
-        modal.style.cssText = `
-            position: fixed;
-            inset: 0;
-            background: rgba(10, 14, 26, 0.92);
-            backdrop-filter: blur(8px);
-            z-index: 99999;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-            direction: rtl;
-            animation: fadeIn 0.2s ease;
-        `;
-
-        modal.innerHTML = `
-            <div style="
-                background: #ffffff;
-                border: 1px solid rgba(212, 175, 55, 0.4);
-                border-radius: 12px;
-                max-width: 900px;
-                width: 100%;
-                max-height: 90vh;
-                display: flex;
-                flex-direction: column;
-                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-                overflow: hidden;
-            ">
-                <div style="
-                    padding: 20px 24px;
-                    border-bottom: 1px solid #eee;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    background: #fafafa;
-                    flex-shrink: 0;
-                ">
-                    <h2 style="
-                        margin: 0;
-                        color: #333;
-                        font-size: 1.3rem;
-                        font-family: 'Rajdhani', sans-serif;
-                    ">🤖 ניתוח AI של ג'רוויס</h2>
-                    <div style="display: flex; gap: 10px;">
-                        <button id="copy-analysis-btn" style="
-                            background: linear-gradient(135deg, #d4af37, #40e0d0);
-                            border: none;
-                            color: #0a0e1a;
-                            padding: 8px 16px;
-                            border-radius: 6px;
-                            cursor: pointer;
-                            font-weight: bold;
-                            font-size: 0.9rem;
-                        ">📋 העתק</button>
-                        <button id="close-analysis-btn" style="
-                            background: rgba(255, 85, 102, 0.1);
-                            border: 1px solid rgba(255, 85, 102, 0.4);
-                            color: #ff5566;
-                            padding: 8px 14px;
-                            border-radius: 6px;
-                            cursor: pointer;
-                            font-weight: bold;
-                            font-size: 1rem;
-                        ">✕</button>
-                    </div>
-                </div>
-                <div id="analysis-content" style="
-                    padding: 24px;
-                    overflow-y: auto;
-                    flex: 1;
-                    color: #333;
-                    line-height: 1.75;
-                    font-family: 'Rajdhani', sans-serif;
-                    font-size: 1rem;
-                ">
-                    ${formatAnalysisHtml(text)}
-                </div>
-            </div>
-        `;
-
-        const styleTag = document.createElement('style');
-        styleTag.id = 'analysis-modal-styles';
-        styleTag.textContent = `
-            #analysis-content h1 { color: #d4af37; border-bottom: 2px solid #d4af37; padding-bottom: 8px; margin-top: 0; }
-            #analysis-content h2 { color: #2a9d8f; margin-top: 24px; margin-bottom: 12px; font-size: 1.15rem; }
-            #analysis-content h3 { color: #d4af37; margin-top: 20px; margin-bottom: 10px; font-size: 1.05rem; }
-            #analysis-content strong { color: #b8941f; }
-            #analysis-content ul, #analysis-content ol { padding-right: 24px; margin: 12px 0; }
-            #analysis-content li { margin: 6px 0; }
-            #analysis-content code {
-                background: rgba(212, 175, 55, 0.15);
-                padding: 2px 6px;
-                border-radius: 3px;
-                color: #b8941f;
-                font-family: monospace;
-                font-size: 0.9em;
-            }
-            #analysis-content p { margin: 10px 0; }
-            @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        `;
-        document.head.appendChild(styleTag);
-        document.body.appendChild(modal);
-
-        const closeFn = () => {
-            modal.remove();
-            const st = document.getElementById('analysis-modal-styles');
-            if (st) st.remove();
-        };
-
-        modal.querySelector('#close-analysis-btn').addEventListener('click', closeFn);
-
-        modal.querySelector('#copy-analysis-btn').addEventListener('click', async (e) => {
-            const btn = e.target;
-            const plainText = modal.querySelector('#analysis-content').innerText;
-            try {
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    await navigator.clipboard.writeText(plainText);
-                } else {
-                    const ta = document.createElement('textarea');
-                    ta.value = plainText;
-                    document.body.appendChild(ta);
-                    ta.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(ta);
-                }
-                const orig = btn.textContent;
-                btn.textContent = '✓ הועתק!';
-                btn.style.background = '#10b981';
-                setTimeout(() => {
-                    btn.textContent = orig;
-                    btn.style.background = 'linear-gradient(135deg, #d4af37, #40e0d0)';
-                }, 1500);
-            } catch (err) {
-                alert('שגיאה בהעתקה: ' + err.message);
-            }
-        });
-
-        const escHandler = (e) => {
-            if (e.key === 'Escape') {
-                closeFn();
-                document.removeEventListener('keydown', escHandler);
-            }
-        };
-        document.addEventListener('keydown', escHandler);
-
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) closeFn();
-        });
+    function isChatWindowOpen() {
+        const win = document.getElementById('analytics-chat');
+        return !!win && !win.hidden;
     }
 
-    function formatAnalysisHtml(text) {
-        if (!text) return '';
-        let html = escapeHtml(text);
-
-        html = html.replace(/^### (.*)$/gm, '<h3>$1</h3>');
-        html = html.replace(/^## (.*)$/gm, '<h2>$1</h2>');
-        html = html.replace(/^# (.*)$/gm, '<h1>$1</h1>');
-        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-        html = html.replace(/`(.+?)`/g, '<code>$1</code>');
-        html = html.replace(/^[\*\-] (.+)$/gm, '<li>$1</li>');
-        html = html.replace(/(<li>.*<\/li>\n?)+/g, (match) => '<ul>' + match + '</ul>');
-
-        html = html.split('\n\n').map(p => {
-            const trimmed = p.trim();
-            if (!trimmed) return '';
-            if (/^<[hul]/.test(trimmed)) return trimmed;
-            return '<p>' + trimmed.replace(/\n/g, '<br>') + '</p>';
-        }).join('\n');
-
-        return html;
-    }
     // ==============================
     // 12.5. 🆕 DROPDOWN
     // ==============================
@@ -1560,9 +1368,6 @@
 
         const btnMega = document.getElementById('btn-mega');
         if (btnMega) btnMega.addEventListener('click', openMegaPrompt);
-
-        const btnAi = document.getElementById('btn-ai');
-        if (btnAi) btnAi.addEventListener('click', analyzeWithAI);
 
         const btnExport = document.getElementById('btn-export');
         if (btnExport) btnExport.addEventListener('click', exportData);
@@ -1705,9 +1510,20 @@
             });
         });
 
+        // === Floating chat ===
+        const chatFab = document.getElementById('analytics-chat-fab');
+        if (chatFab) chatFab.addEventListener('click', openChatWindow);
+
+        const chatCloseBtn = document.getElementById('analytics-chat-close');
+        if (chatCloseBtn) chatCloseBtn.addEventListener('click', closeChatWindow);
+
         // === Escape key ===
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
+                if (isChatWindowOpen()) {
+                    closeChatWindow();
+                    return;
+                }
                 document.querySelectorAll('.modal:not([hidden])').forEach((m) => m.hidden = true);
             }
         });
