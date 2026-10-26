@@ -72,6 +72,7 @@ const CONFIG = {
     geminiTimeoutMs: Number(process.env.GEMINI_TIMEOUT_MS) || 45000,
     geminiVisionTimeoutMs: Number(process.env.GEMINI_VISION_TIMEOUT_MS) || 30000,
     geminiTranslationTimeoutMs: Number(process.env.GEMINI_TRANSLATION_TIMEOUT_MS) || 15000,
+    geminiTrainingTimeoutMs: Number(process.env.GEMINI_TRAINING_TIMEOUT_MS) || 55000,
 
     youtubeApiKey: process.env.YOUTUBE_API_KEY || '',
     youtubeTimeoutMs: Number(process.env.YOUTUBE_TIMEOUT_MS) || 10000,
@@ -1012,11 +1013,13 @@ async function callGeminiJSON({
     maxOutputTokens = 8192,
     timeoutMs = CONFIG.geminiTimeoutMs,
     retries = CONFIG.defaultRetries,
+    thinkingBudget = null,
 }) {
     const fallback = require('./gemini-fallback');
     const modelsToTry = fallback.getFallbackModels(CONFIG.geminiModel);
+    const hasThinkingConfig = thinkingBudget !== null;
 
-    const body = JSON.stringify({
+    const buildBody = (includeThinkingConfig) => JSON.stringify({
         systemInstruction: { parts: [{ text: systemInstruction }] },
         contents: [{
             role: 'user',
@@ -1026,6 +1029,7 @@ async function callGeminiJSON({
             temperature,
             maxOutputTokens,
             responseMimeType: 'application/json',
+            ...(includeThinkingConfig ? { thinkingConfig: { thinkingBudget } } : {}),
         },
     });
 
@@ -1038,6 +1042,9 @@ async function callGeminiJSON({
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${CONFIG.geminiApiKey}`;
 
         let modelFailed = false;
+        // Graceful degradation: if the model rejects thinkingConfig (400), resend without it.
+        let useThinkingConfig = hasThinkingConfig;
+        let body = buildBody(useThinkingConfig);
 
         for (let attempt = 0; attempt <= retries; attempt++) {
             try {
@@ -1054,6 +1061,17 @@ async function callGeminiJSON({
                 const data = await response.json();
 
                 if (data.error) {
+                    if (response.status === 400 && useThinkingConfig) {
+                        log('warn', `Gemini JSON ${currentModel}: 400 with thinkingConfig — retrying without it`, {
+                            apiMessage: data.error.message,
+                        });
+                        attemptsLog.push({ model: currentModel, reason: 'thinking-config-rejected' });
+                        useThinkingConfig = false;
+                        body = buildBody(false);
+                        attempt -= 1; // same attempt slot, one extra call without thinkingConfig
+                        continue;
+                    }
+
                     if (fallback.isModelNotFoundError(data, response.status)) {
                         log('warn', `JSON model ${currentModel} not available, trying next`);
                         attemptsLog.push({ model: currentModel, reason: 'not-found' });
@@ -4684,30 +4702,34 @@ ${durationHint}
 
 צור אימון מתאים. החזר JSON בלבד.`;
 
-        const { reply, coreLatencyMs, attempts } = await callGemini({
-            systemInstruction: TRAINING_GENERATE_SYSTEM_PROMPT,
-            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-            temperature: 0.7,
-            maxOutputTokens: 2500,
-            timeoutMs: CONFIG.geminiTimeoutMs,
-            retries: CONFIG.defaultRetries,
+        // Hard wall-clock budget for the whole request: fail fast with 503 instead of a proxy 504.
+        const budgetMs = CONFIG.geminiTrainingTimeoutMs;
+        let budgetTimer = null;
+        const budgetGuard = new Promise((_, reject) => {
+            budgetTimer = setTimeout(() => {
+                reject(new GeminiError('הבקשה ארכה יותר מדי. נסה שוב.', 503));
+            }, budgetMs);
         });
 
-        // Parse JSON reply from Gemini
-        let workout = null;
+        let geminiResult;
         try {
-            let cleaned = (reply || '').trim();
-            cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
-            const firstBrace = cleaned.indexOf('{');
-            const lastBrace = cleaned.lastIndexOf('}');
-            if (firstBrace !== -1 && lastBrace > firstBrace) {
-                cleaned = cleaned.slice(firstBrace, lastBrace + 1);
-            }
-            workout = JSON.parse(cleaned);
-        } catch (parseErr) {
-            log('warn', 'Training generate: failed to parse JSON', parseErr.message);
-            log('warn', 'Raw reply:', truncate(reply || '', 500));
+            geminiResult = await Promise.race([
+                callGeminiJSON({
+                    systemInstruction: TRAINING_GENERATE_SYSTEM_PROMPT,
+                    userPrompt,
+                    temperature: 0.7,
+                    maxOutputTokens: cleanMode === 'long' ? 2000 : 1500,
+                    timeoutMs: CONFIG.geminiTrainingTimeoutMs,
+                    retries: 1,
+                    thinkingBudget: 0,
+                }),
+                budgetGuard,
+            ]);
+        } finally {
+            clearTimeout(budgetTimer);
         }
+
+        const { data: workout, coreLatencyMs, attempts } = geminiResult;
 
         if (!workout || !Array.isArray(workout.exercises) || workout.exercises.length === 0) {
             metrics.totalErrors += 1;
