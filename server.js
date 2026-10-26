@@ -72,7 +72,12 @@ const CONFIG = {
     geminiTimeoutMs: Number(process.env.GEMINI_TIMEOUT_MS) || 45000,
     geminiVisionTimeoutMs: Number(process.env.GEMINI_VISION_TIMEOUT_MS) || 30000,
     geminiTranslationTimeoutMs: Number(process.env.GEMINI_TRANSLATION_TIMEOUT_MS) || 15000,
-    geminiTrainingTimeoutMs: Number(process.env.GEMINI_TRAINING_TIMEOUT_MS) || 55000,
+    // Training generation is the slowest endpoint, so it gets a dedicated model chain
+    // and its own budget instead of the global fallback ladder.
+    geminiTrainingModel: process.env.GEMINI_TRAINING_MODEL || 'gemini-3.7-flash',
+    geminiTrainingFallbackModel: process.env.GEMINI_TRAINING_FALLBACK_MODEL || 'gemini-3.5-flash',
+    geminiTrainingTimeoutMs: Number(process.env.GEMINI_TRAINING_TIMEOUT_MS) || 30000, // per attempt
+    geminiTrainingBudgetMs: Number(process.env.GEMINI_TRAINING_BUDGET_MS) || 40000, // whole request
 
     youtubeApiKey: process.env.YOUTUBE_API_KEY || '',
     youtubeTimeoutMs: Number(process.env.YOUTUBE_TIMEOUT_MS) || 10000,
@@ -1006,6 +1011,19 @@ async function callGeminiWithRetry(userQuery, knowledgeContext = '', history = [
 // 14. GEMINI JSON — STRUCTURED OUTPUT
 // ==============================
 
+/**
+ * Structured-output (JSON) call to Gemini.
+ *
+ * @param {string[]|null} models         Explicit model chain. Overrides the global fallback chain
+ *                                       in gemini-fallback.js for this call only.
+ * @param {number|null}   deadlineMs     Wall-clock budget (ms) for the whole ladder: every model,
+ *                                       every retry and every backoff sleep is checked against it.
+ *                                       When it is exhausted the call throws a fatal 503 instead of
+ *                                       leaving work running in the background.
+ * @param {boolean}       strictFallback When true, only a 404 may fall through to the next model.
+ *                                       429 / 503 / 5xx abort the ladder immediately instead of
+ *                                       burning the budget on retries and sleeps.
+ */
 async function callGeminiJSON({
     systemInstruction,
     userPrompt,
@@ -1014,9 +1032,14 @@ async function callGeminiJSON({
     timeoutMs = CONFIG.geminiTimeoutMs,
     retries = CONFIG.defaultRetries,
     thinkingBudget = null,
+    models = null,
+    deadlineMs = null,
+    strictFallback = false,
 }) {
     const fallback = require('./gemini-fallback');
-    const modelsToTry = fallback.getFallbackModels(CONFIG.geminiModel);
+    const modelsToTry = Array.isArray(models) && models.length
+        ? models.filter(Boolean)
+        : fallback.getFallbackModels(CONFIG.geminiModel);
     const hasThinkingConfig = thinkingBudget !== null;
 
     const buildBody = (includeThinkingConfig) => JSON.stringify({
@@ -1035,11 +1058,44 @@ async function callGeminiJSON({
 
     let lastError = null;
     const coreStart = Date.now();
+    const deadlineAt = deadlineMs !== null ? coreStart + deadlineMs : null;
     const attemptsLog = [];
+
+    const remainingMs = () => (deadlineAt === null ? Infinity : deadlineAt - Date.now());
+
+    const deadlineError = (model, phase) => {
+        attemptsLog.push({ model, reason: 'deadline', phase, elapsedMs: Date.now() - coreStart });
+        log('error', `Gemini JSON deadline (${Math.round(deadlineMs / 1000)}s) exhausted before ${phase}`, {
+            model,
+            elapsedMs: Date.now() - coreStart,
+        });
+        const err = new GeminiError('הבקשה ארכה יותר מדי. נסה שוב.', 503);
+        err.fatal = true; // never fall through to the next model
+        return err;
+    };
+
+    const assertWithinDeadline = (model, phase) => {
+        if (remainingMs() <= 0) throw deadlineError(model, phase);
+    };
+
+    // Sleeps are capped by the deadline: wake exactly on it and fail, never past it.
+    const sleepWithinDeadline = async (ms, model) => {
+        const left = remainingMs();
+        if (left <= 0) throw deadlineError(model, 'sleep');
+        const cappedMs = Math.min(ms, left);
+        log('info', `Gemini JSON backing off ${Math.round(cappedMs / 1000)}s`, {
+            model,
+            deadlineInMs: Math.round(left),
+        });
+        await sleep(cappedMs);
+        if (remainingMs() <= 0) throw deadlineError(model, 'sleep');
+    };
 
     for (let modelIdx = 0; modelIdx < modelsToTry.length; modelIdx++) {
         const currentModel = modelsToTry[modelIdx];
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${CONFIG.geminiApiKey}`;
+
+        assertWithinDeadline(currentModel, 'model call');
 
         let modelFailed = false;
         // Graceful degradation: if the model rejects thinkingConfig (400), resend without it.
@@ -1047,6 +1103,22 @@ async function callGeminiJSON({
         let body = buildBody(useThinkingConfig);
 
         for (let attempt = 0; attempt <= retries; attempt++) {
+            assertWithinDeadline(currentModel, `attempt ${attempt + 1}`);
+
+            const attemptStart = Date.now();
+            // A single attempt may never outlive the remaining budget.
+            const attemptTimeoutMs = Math.min(timeoutMs, Math.max(1000, remainingMs()));
+
+            log('info', `Gemini JSON attempt ${attempt + 1}/${retries + 1}`, {
+                model: currentModel,
+                modelIndex: modelIdx,
+                attempt: attempt + 1,
+                elapsedMs: Date.now() - coreStart,
+                timeoutMs: attemptTimeoutMs,
+                thinkingBudget: useThinkingConfig ? thinkingBudget : 'off',
+                strictFallback,
+            });
+
             try {
                 const response = await fetchWithTimeout(
                     url,
@@ -1055,7 +1127,7 @@ async function callGeminiJSON({
                         headers: { 'Content-Type': 'application/json' },
                         body,
                     },
-                    timeoutMs
+                    attemptTimeoutMs
                 );
 
                 const data = await response.json();
@@ -1073,10 +1145,53 @@ async function callGeminiJSON({
                     }
 
                     if (fallback.isModelNotFoundError(data, response.status)) {
-                        log('warn', `JSON model ${currentModel} not available, trying next`);
-                        attemptsLog.push({ model: currentModel, reason: 'not-found' });
+                        log('warn', `JSON model ${currentModel} not available, trying next`, {
+                            model: currentModel,
+                            attempt: attempt + 1,
+                            elapsedMs: Date.now() - attemptStart,
+                        });
+                        attemptsLog.push({ model: currentModel, reason: 'not-found', elapsedMs: Date.now() - attemptStart });
                         modelFailed = true;
                         break;
+                    }
+
+                    // Latency-critical endpoints (strictFallback): only a 404 may move on to the
+                    // next model. A 429 / 503 / 5xx aborts the whole ladder right here instead of
+                    // spending the wall-clock budget on retries and backoff sleeps.
+                    if (strictFallback) {
+                        const rateLimited = isRateLimitError(data, response.status);
+                        const highDemand = fallback.isHighDemandError(data, response.status);
+                        if (rateLimited) metrics.totalRateLimitHits += 1;
+                        if (highDemand) metrics.totalHighDemandHits += 1;
+
+                        const reason = rateLimited ? 'rate-limit' : (highDemand ? 'high-demand' : 'error');
+                        const elapsedMs = Date.now() - attemptStart;
+
+                        log('warn', `JSON ${currentModel}: ${response.status} (${reason}) — strict mode, no retry/fallback`, {
+                            model: currentModel,
+                            attempt: attempt + 1,
+                            elapsedMs,
+                            apiMessage: data.error.message,
+                        });
+                        attemptsLog.push({
+                            model: currentModel,
+                            attempt: attempt + 1,
+                            reason,
+                            status: response.status,
+                            elapsedMs,
+                        });
+
+                        const fatalErr = new GeminiError(
+                            (rateLimited || highDemand)
+                                ? 'המערכת עמוסה כרגע — נסה שוב בעוד דקה'
+                                : (data.error.message || 'שגיאה לא ידועה ממערכת הליבה'),
+                            (rateLimited || highDemand)
+                                ? 503
+                                : (response.status >= 400 ? response.status : 502),
+                            data.error
+                        );
+                        fatalErr.fatal = true;
+                        throw fatalErr;
                     }
 
                     if (fallback.isHighDemandError(data, response.status)) {
@@ -1087,10 +1202,10 @@ async function callGeminiJSON({
                                 8000
                             );
                             log('warn', `JSON ${currentModel} high demand — retry in ${Math.round(retryMs / 1000)}s`);
-                            await sleep(retryMs);
+                            await sleepWithinDeadline(retryMs, currentModel);
                             continue;
                         }
-                        attemptsLog.push({ model: currentModel, reason: 'high-demand' });
+                        attemptsLog.push({ model: currentModel, reason: 'high-demand', elapsedMs: Date.now() - attemptStart });
                         modelFailed = true;
                         break;
                     }
@@ -1102,17 +1217,17 @@ async function callGeminiJSON({
                                 extractRetryDelay(data) || CONFIG.retryOn429DelayMs,
                                 10000
                             );
-                            await sleep(retryMs);
+                            await sleepWithinDeadline(retryMs, currentModel);
                             continue;
                         }
-                        attemptsLog.push({ model: currentModel, reason: 'rate-limit' });
+                        attemptsLog.push({ model: currentModel, reason: 'rate-limit', elapsedMs: Date.now() - attemptStart });
                         modelFailed = true;
                         break;
                     }
 
                     const isRetryable = response.status >= 500;
                     if (isRetryable && attempt < retries) {
-                        await sleep(backoffDelay(attempt));
+                        await sleepWithinDeadline(backoffDelay(attempt), currentModel);
                         continue;
                     }
 
@@ -1121,7 +1236,12 @@ async function callGeminiJSON({
                         response.status >= 400 ? response.status : 502,
                         data.error
                     );
-                    attemptsLog.push({ model: currentModel, reason: 'error', msg: lastError.message });
+                    attemptsLog.push({
+                        model: currentModel,
+                        reason: 'error',
+                        msg: lastError.message,
+                        elapsedMs: Date.now() - attemptStart,
+                    });
                     modelFailed = true;
                     break;
                 }
@@ -1229,6 +1349,14 @@ async function callGeminiJSON({
                     });
                 }
 
+                log('info', 'Gemini JSON attempt OK', {
+                    model: currentModel,
+                    attempt: attempt + 1,
+                    elapsedMs: Date.now() - attemptStart,
+                    totalElapsedMs: Date.now() - coreStart,
+                    thinkingConfig: useThinkingConfig ? `budget=${thinkingBudget}` : 'off',
+                });
+
                 return {
                     data: parsed,
                     coreLatencyMs: Date.now() - coreStart,
@@ -1239,6 +1367,18 @@ async function callGeminiJSON({
             } catch (error) {
                 if (error instanceof GeminiError) {
                     lastError = error;
+                    if (error.fatal) {
+                        // strictFallback / deadline: stop the whole ladder, nothing may keep running.
+                        log('error', 'Gemini JSON ladder aborted', {
+                            model: currentModel,
+                            attempt: attempt + 1,
+                            elapsedMs: Date.now() - attemptStart,
+                            totalElapsedMs: Date.now() - coreStart,
+                            status: error.statusCode,
+                            message: error.message,
+                        });
+                        throw error;
+                    }
                     if (error.statusCode === 502 && /MAX_TOKENS|SAFETY|RECITATION/.test(error.message)) {
                         throw error;
                     }
@@ -1246,6 +1386,26 @@ async function callGeminiJSON({
                     lastError = new GeminiError('תם הזמן הקצוב', 504);
                 } else {
                     lastError = new GeminiError('תקלת תקשורת זמנית', 502, error.message);
+                }
+
+                if (strictFallback) {
+                    // Fail fast: a single network/timeout failure is not retried and does not
+                    // fall through to the secondary model.
+                    attemptsLog.push({
+                        model: currentModel,
+                        reason: 'exception',
+                        msg: lastError.message,
+                        elapsedMs: Date.now() - attemptStart,
+                    });
+                    log('error', 'Gemini JSON failure — strict mode, no retry/fallback', {
+                        model: currentModel,
+                        attempt: attempt + 1,
+                        elapsedMs: Date.now() - attemptStart,
+                        totalElapsedMs: Date.now() - coreStart,
+                        message: lastError.message,
+                    });
+                    lastError.fatal = true;
+                    throw lastError;
                 }
 
                 if (attempt === retries) {
@@ -1260,7 +1420,7 @@ async function callGeminiJSON({
         if (!modelFailed) break;
     }
 
-    log('error', 'All Gemini JSON models failed', { attempts: attemptsLog });
+    log('error', 'All Gemini JSON models failed', { attempts: attemptsLog, totalElapsedMs: Date.now() - coreStart });
     throw lastError || new GeminiError('כל המודלים עמוסים כרגע — נסה שוב בעוד דקה', 503);
 }
 // ==============================
@@ -4703,7 +4863,7 @@ ${durationHint}
 צור אימון מתאים. החזר JSON בלבד.`;
 
         // Hard wall-clock budget for the whole request: fail fast with 503 instead of a proxy 504.
-        const budgetMs = CONFIG.geminiTrainingTimeoutMs;
+        const budgetMs = CONFIG.geminiTrainingBudgetMs;
         let budgetTimer = null;
         const budgetGuard = new Promise((_, reject) => {
             budgetTimer = setTimeout(() => {
@@ -4718,10 +4878,18 @@ ${durationHint}
                     systemInstruction: TRAINING_GENERATE_SYSTEM_PROMPT,
                     userPrompt,
                     temperature: 0.7,
-                    maxOutputTokens: cleanMode === 'long' ? 2000 : 1500,
+                    maxOutputTokens: 2500,
+                    // Per-attempt timeout (30s), not the old 55s that could eat the whole budget.
                     timeoutMs: CONFIG.geminiTrainingTimeoutMs,
-                    retries: 1,
+                    // No retries: a failure surfaces immediately instead of sleeping 8-30s first.
+                    retries: 0,
                     thinkingBudget: 0,
+                    // Short dedicated chain: 3.7-flash primary, 3.5-flash only if the first is a 404.
+                    models: [CONFIG.geminiTrainingModel, CONFIG.geminiTrainingFallbackModel],
+                    // Internal deadline: stops the ladder (and its sleeps) instead of letting it
+                    // keep calling Gemini in the background after the guard above has fired.
+                    deadlineMs: budgetMs,
+                    strictFallback: true,
                 }),
                 budgetGuard,
             ]);
@@ -4729,7 +4897,7 @@ ${durationHint}
             clearTimeout(budgetTimer);
         }
 
-        const { data: workout, coreLatencyMs, attempts } = geminiResult;
+        const { data: workout, coreLatencyMs, attempts, modelUsed } = geminiResult;
 
         if (!workout || !Array.isArray(workout.exercises) || workout.exercises.length === 0) {
             metrics.totalErrors += 1;
@@ -4762,6 +4930,7 @@ ${durationHint}
             coreLatencyMs,
             totalRoundTripMs,
             attempts,
+            modelUsed,
         });
 
         return res.json({
@@ -4769,6 +4938,7 @@ ${durationHint}
             latencyMs: coreLatencyMs,
             roundTripMs: totalRoundTripMs,
             attempts,
+            modelUsed,
             timestamp: new Date().toISOString(),
         });
     } catch (error) {
