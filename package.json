@@ -27,6 +27,7 @@
     "express-rate-limit": "^8.7.1",
     "helmet": "^8.3.0",
     "node-fetch": "^3.3.2",
-    "rebrowser-playwright": "^1.64.101"
+    "rebrowser-playwright": "^1.64.101",
+    "woke-dyno": "^1.0.1"
   }
 }

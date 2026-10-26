@@ -33,6 +33,19 @@ const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
+// === Keep-alive (Render Free dyno) ===
+// woke-dyno נשלח כ-ESM בלבד ("type": "module"), לכן require() מחזיר namespace
+// עם ה-default export. אם המודול חסר / שגוי — השרת עולה בכל זאת, בלי keep-alive.
+let wokeDyno = null;
+try {
+    const wokeDynoModule = require('woke-dyno');
+    wokeDyno = typeof wokeDynoModule === 'function'
+        ? wokeDynoModule
+        : (typeof wokeDynoModule?.default === 'function' ? wokeDynoModule.default : null);
+} catch (err) {
+    console.warn(`[WARN] woke-dyno not loaded: ${err.message}`);
+}
+
 // ==============================
 // 2. ENVIRONMENT VALIDATION
 // ==============================
@@ -5022,6 +5035,16 @@ const server = app.listen(CONFIG.port, () => {
     log('info', 'Research sources: 11 (Europe PMC, PubMed, OpenAlex, Semantic Scholar, CrossRef, DOAJ, bioRxiv, CORE, medRxiv, BASE, SciELO)');
     log('info', `CORE API: ${CONFIG.coreApiKey ? 'configured' : 'NOT configured (source disabled)'}`);
     log('info', `Semantic Scholar API: ${CONFIG.semanticScholarKey ? 'configured' : 'public tier'}`);
+
+    // === Keep-alive — מונע מ-Render Free להרדים את השרת אחרי 15 דק' ללא תנועה ===
+    // Render מגדיר RENDER_EXTERNAL_URL אוטומטית; נופלים ל-URL הקבוע אם חסר.
+    const SELF_URL = process.env.RENDER_EXTERNAL_URL || 'https://jarvis-ype5.onrender.com';
+    if (wokeDyno) {
+        wokeDyno(SELF_URL).start();
+        log('info', `woke-dyno started for ${SELF_URL}`);
+    } else {
+        log('warn', 'woke-dyno not started (module unavailable)');
+    }
 });
 
 // ==============================
