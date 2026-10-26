@@ -99,6 +99,13 @@ const CONFIG = {
     researchAnalysisTopPapers: Number(process.env.RESEARCH_ANALYSIS_TOP_PAPERS) || 15,
     researchAbstractSnippetLength: Number(process.env.RESEARCH_ABSTRACT_SNIPPET_LENGTH) || 350,
     researchChatContextLimit: Number(process.env.RESEARCH_CHAT_CONTEXT_LIMIT) || 12,
+
+    // --- ASK response cache (in-memory LRU) ---
+    askCacheEnabled: process.env.ASK_CACHE_ENABLED !== '0',
+    askCacheTtlMs: Number(process.env.ASK_CACHE_TTL_MS) || 5 * 60 * 1000,
+    askCacheMaxEntries: Number(process.env.ASK_CACHE_MAX_ENTRIES) || 100,
+    askCacheMinQueryLength: Number(process.env.ASK_CACHE_MIN_QUERY_LENGTH) || 8,
+    askCacheRequireEmptyHistory: process.env.ASK_CACHE_ALLOW_HISTORY !== '1',
 };
 
 // ==============================
@@ -272,6 +279,8 @@ const metrics = {
     totalHighDemandHits: 0,
     totalHistoryMessagesSent: 0,
     totalPapersFetched: 0,
+    totalAskCacheHits: 0,
+    totalAskCacheMisses: 0,
     lastLatencyMs: 0,
     avgLatencyMs: 0,
     lastErrorAt: null,
@@ -2704,6 +2713,7 @@ app.get('/api/health', (req, res) => {
             knowledgeFiles: knowledge.files.size,
             knowledgeChunks: knowledge.chunks.length,
             knowledgeVocab: knowledge.vocab.size,
+            cache: askCacheInfo(),
             timestamp: new Date().toISOString(),
         });
     } catch (err) {
@@ -2726,6 +2736,7 @@ app.get('/api/metrics', (req, res) => {
             knowledgeFiles: knowledge.files.size,
             knowledgeChunks: knowledge.chunks.length,
             perSourceHits: metrics.perSourceHits,
+            cacheStats: askCacheInfo(),
             timestamp: new Date().toISOString(),
         });
     } catch (err) {
@@ -2788,6 +2799,7 @@ app.post('/api/knowledge/upload', (req, res) => {
         const fullPath = path.join(CONFIG.knowledgeDir, safeName);
         fs.writeFileSync(fullPath, content, 'utf8');
         loadKnowledgeBase();
+        askCacheClear();
 
         log('info', `Knowledge uploaded: ${safeName}`);
         res.json({
@@ -2824,6 +2836,7 @@ app.delete('/api/knowledge/:name', (req, res) => {
 
         fs.unlinkSync(fullPath);
         loadKnowledgeBase();
+        askCacheClear();
 
         res.json({
             success: true,
@@ -2839,6 +2852,7 @@ app.delete('/api/knowledge/:name', (req, res) => {
 app.post('/api/knowledge/reload', (req, res) => {
     try {
         loadKnowledgeBase();
+        askCacheClear();
         res.json({
             success: true,
             totalFiles: knowledge.files.size,
@@ -2849,6 +2863,97 @@ app.post('/api/knowledge/reload', (req, res) => {
         res.status(500).json({ error: 'טעינה מחדש נכשלה', message: err.message });
     }
 });
+
+// ==============================
+// 36.5. ASK RESPONSE CACHE (LRU)
+// ==============================
+
+// In-memory LRU for /api/ask answers. Map keeps insertion order, so the first
+// key from keys() is always the least-recently-used entry.
+const askCache = new Map();
+
+const askCacheStats = {
+    hits: 0,
+    misses: 0,
+    stores: 0,
+    evictions: 0,
+    invalidations: 0,
+};
+
+// Returns null when the request is not cacheable, otherwise the exact key string.
+function askCacheBuildKey(userQuery, history) {
+    if (!CONFIG.askCacheEnabled) return null;
+    if (history.length > 0 && CONFIG.askCacheRequireEmptyHistory) return null;
+
+    const normalized = String(userQuery)
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .replace(/[?!.,;:]+$/, '')
+        .trim();
+
+    if (normalized.length < CONFIG.askCacheMinQueryLength) return null;
+
+    const fingerprint = history.map((m) => `${m.role}:${m.text}`).join('\u0001');
+    return `${normalized}\u0000${fingerprint}`;
+}
+
+function askCacheGet(key) {
+    const entry = askCache.get(key);
+    if (!entry) {
+        askCacheStats.misses += 1;
+        return null;
+    }
+
+    if (Date.now() - entry.storedAt > CONFIG.askCacheTtlMs) {
+        askCache.delete(key);
+        askCacheStats.misses += 1;
+        return null;
+    }
+
+    // LRU touch — re-insert so this key becomes the newest entry.
+    askCache.delete(key);
+    askCache.set(key, entry);
+    askCacheStats.hits += 1;
+    return entry;
+}
+
+function askCacheSet(key, payload) {
+    if (!key) return;
+
+    if (askCache.size >= CONFIG.askCacheMaxEntries) {
+        const oldestKey = askCache.keys().next().value;
+        if (oldestKey !== undefined) {
+            askCache.delete(oldestKey);
+            askCacheStats.evictions += 1;
+        }
+    }
+
+    askCache.set(key, { ...payload, storedAt: Date.now() });
+    askCacheStats.stores += 1;
+}
+
+function askCacheClear() {
+    const cleared = askCache.size;
+    askCache.clear();
+    askCacheStats.invalidations += 1;
+    if (cleared > 0) log('info', `[AskCache] cleared ${cleared} entries`);
+    return cleared;
+}
+
+function askCacheInfo() {
+    return {
+        enabled: CONFIG.askCacheEnabled,
+        entries: askCache.size,
+        maxEntries: CONFIG.askCacheMaxEntries,
+        ttlMs: CONFIG.askCacheTtlMs,
+        requireEmptyHistory: CONFIG.askCacheRequireEmptyHistory,
+        hits: askCacheStats.hits,
+        misses: askCacheStats.misses,
+        stores: askCacheStats.stores,
+        evictions: askCacheStats.evictions,
+        invalidations: askCacheStats.invalidations,
+    };
+}
 
 // ==============================
 // 37. ROUTES — ASK
@@ -2975,6 +3080,32 @@ if (isSearchRequest) {
         const history = sanitizeHistory(rawHistory);
         metrics.totalHistoryMessagesSent += history.length;
 
+        // cache check is below the search early-returns — search requests are never cached
+        const askCacheKey = askCacheBuildKey(userQuery, history);
+        const askCached = askCacheKey ? askCacheGet(askCacheKey) : null;
+
+        if (askCached) {
+            metrics.totalAskCacheHits += 1;
+            metrics.totalSuccess += 1;
+            const cacheAgeMs = Date.now() - askCached.storedAt;
+            log('info', `[AskCache] HIT — age ${Math.round(cacheAgeMs / 1000)}s, saved ~${askCached.latencyMs}ms`);
+            return res.json({
+                reply: askCached.reply,
+                latencyMs: 0,
+                roundTripMs: Date.now() - requestStart,
+                attempts: askCached.attempts,
+                historyUsed: history.length,
+                knowledgeUsed: askCached.knowledgeUsed,
+                knowledgeChunks: askCached.knowledgeChunks,
+                knowledgeSources: askCached.knowledgeSources,
+                cached: true,
+                cacheAgeMs,
+                timestamp: new Date().toISOString(),
+            });
+        }
+
+        if (askCacheKey) metrics.totalAskCacheMisses += 1;
+
         metrics.totalKnowledgeLookups += 1;
         const matchedChunks = searchKnowledge(userQuery);
         const knowledgeContext = buildKnowledgeContext(matchedChunks);
@@ -2993,6 +3124,17 @@ if (isSearchRequest) {
         const totalRoundTripMs = Date.now() - requestStart;
         metrics.totalSuccess += 1;
         recordLatency(coreLatencyMs);
+
+        if (askCacheKey) {
+            askCacheSet(askCacheKey, {
+                reply,
+                latencyMs: coreLatencyMs,
+                attempts,
+                knowledgeUsed: matchedChunks.length > 0,
+                knowledgeChunks: matchedChunks.length,
+                knowledgeSources: [...new Set(matchedChunks.map((c) => c.source))],
+            });
+        }
 
         return res.json({
             reply,
@@ -4162,6 +4304,66 @@ async function searchYouTubeVideos(query, maxResults = 4) {
     }
 }
 
+// ==============================
+// 45.4. TRAINING — ANALYZE PROGRESS
+// ==============================
+
+// Best-effort JSON extraction for TRAINING_ANALYZE_SYSTEM_PROMPT output.
+// Returns the parsed object, or null when the model answered with plain prose.
+function parseTrainingInsights(raw) {
+    const text = String(raw || '').trim();
+    if (!text) return null;
+
+    const candidates = [
+        text,
+        text.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim(),
+    ];
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+        candidates.push(text.slice(firstBrace, lastBrace + 1));
+    }
+
+    for (const candidate of candidates) {
+        try {
+            const parsed = JSON.parse(candidate);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+        } catch (e) {
+            // try the next candidate
+        }
+    }
+    return null;
+}
+
+function toInsightList(value) {
+    if (!Array.isArray(value)) return [];
+    return value
+        .filter((item) => typeof item === 'string' && item.trim())
+        .map((item) => item.trim())
+        .slice(0, 5);
+}
+
+function formatTrainingInsights(insights) {
+    const summary = typeof insights.summary === 'string' ? insights.summary.trim() : '';
+    const nextFocus = typeof insights.next_focus === 'string' ? insights.next_focus.trim() : '';
+    const blocks = [];
+
+    if (summary) blocks.push(`**${summary}**`);
+
+    const sections = [
+        ['חוזקות', toInsightList(insights.strengths)],
+        ['חולשות', toInsightList(insights.weaknesses)],
+        ['המלצות', toInsightList(insights.recommendations)],
+    ];
+    for (const [title, items] of sections) {
+        if (!items.length) continue;
+        blocks.push([`**${title}**`, ...items.map((item) => `- ${item}`)].join('\n'));
+    }
+
+    if (nextFocus) blocks.push(`**מיקוד הבא:** ${nextFocus}`);
+
+    return blocks.join('\n\n').trim();
+}
 
 app.post('/api/training/analyze', apiRateLimiter, async (req, res, next) => {
     const requestStart = Date.now();
@@ -4212,6 +4414,10 @@ ${daysText}
             retries: CONFIG.defaultRetries,
         });
 
+        const insights = parseTrainingInsights(reply);
+        const formatted = insights ? formatTrainingInsights(insights) : '';
+        const analysisText = formatted || String(reply || '').trim();
+
         const totalRoundTripMs = Date.now() - requestStart;
         metrics.totalSuccess += 1;
         recordLatency(coreLatencyMs);
@@ -4224,7 +4430,8 @@ ${daysText}
         });
 
         return res.json({
-            analysis: reply,
+            analysis: analysisText,
+            insights: insights || null,
             daysAnalyzed: recentDays.length,
             workoutsAnalyzed: totalWorkouts,
             latencyMs: coreLatencyMs,
@@ -4375,6 +4582,60 @@ const TRAINING_GENERATE_SYSTEM_PROMPT = [
     '7. התאם תרגילים לפי הציוד שיש לו (מקבילים, משקולות, רצועה, מגנזיום) — בלי טבעות, בלי אפוד משקל.',
     '8. אם הבקשה כללית מדי — בחר תרגילי ELITE שמתאימים למטרות שלו (Planche, Front Lever, Handstand).',
     '9. **בכל שילוב קטגוריות — חלק שווה.** אל תיתן הכל מקטגוריה אחת.',
+].join('\n');
+
+// ==============================
+// 45.4b. TRAINING — ANALYZE PROGRESS PROMPT
+// ==============================
+
+const TRAINING_ANALYZE_SYSTEM_PROMPT = [
+    JARVIS_PERSONA,
+    '',
+    '═══════════════════════════════════════════════════════════',
+    '## המשימה',
+    '═══════════════════════════════════════════════════════════',
+    '',
+    'נתח את יומן האימונים של Ori (קליסטניקס, רמת ELITE) והחזר ניתוח התקדמות קצר ומבוסס מספרים.',
+    '',
+    'הקלט: עד 10 ימים אחרונים. לכל יום יש תאריך ואימונים; בכל אימון תרגילים עם סטים×חזרות, סימון ✅ (בוצע) או ⬜ (לא בוצע), ולעיתים "(בפועל: ...)" עם מה שנעשה בפועל.',
+    '',
+    '═══════════════════════════════════════════════════════════',
+    '## כללי ניתוח',
+    '═══════════════════════════════════════════════════════════',
+    '',
+    '1. התבסס **רק** על מה שכתוב בהיסטוריה. אסור להמציא תרגילים, חזרות, משקלים או תאריכים שלא הופיעו.',
+    '2. היה ספציפי ומבוסס מספרים: "5 מ-7 אימונים", "60% מהתרגילים לא בוצעו", "Front Lever 4s — לא תועד שיפור".',
+    '3. התייחס לחמישה צירים: עקביות (אימונים מתוך הימים), השלמת תרגילים (✅ מול ⬜), נפח (סטים×חזרות מול המתוכנן), איזון קטגוריות (פוש / פול / סטטי / דינמי / באלאנס), והתקדמות מול "(בפועל: ...)".',
+    '4. נתון חסר — אמור שהוא חסר. אל תסיק מסקנות מדאטה שלא קיימת.',
+    '5. ביקורת ישרה, בלי ריכוך. אדוני מבקש ניתוח, לא עידוד.',
+    '6. בלי הקדמות, בלי התנצלויות, בלי אזכור של עצמך כ-AI.',
+    '',
+    '═══════════════════════════════════════════════════════════',
+    '## פורמט פלט — חובה JSON בלבד',
+    '═══════════════════════════════════════════════════════════',
+    '',
+    'החזר JSON תקני בלבד. אל תוסיף טקסט לפני או אחרי. אל תוסיף סימוני code block.',
+    'המבנה חייב להיות בדיוק כך:',
+    '{',
+    '  "summary": "משפט אחד שמסכם את מצב ההתקדמות",',
+    '  "strengths": ["חוזקה אחת, עם מספר"],',
+    '  "weaknesses": ["חולשה אחת, עם מספר"],',
+    '  "recommendations": ["המלצה קונקרטית אחת"],',
+    '  "next_focus": "משפט אחד — על מה להתמקד באימון הבא"',
+    '}',
+    '',
+    '═══════════════════════════════════════════════════════════',
+    '## חוקים סופיים',
+    '═══════════════════════════════════════════════════════════',
+    '',
+    '1. summary ו-next_focus — משפט אחד כל אחד, עד 20 מילים.',
+    '2. strengths / weaknesses / recommendations — מערך של 1 עד 5 מחרוזות. לא יותר מ-5 בכל מערך.',
+    '3. כל מחרוזת קצרה (עד 15 מילים), עברית, מבוססת מספר.',
+    '4. ב-recommendations קודם הדבר האחד שיקדם הכי הרבה.',
+    '5. פנייה למשתמש — "אדוני" בלבד, ואם אין צורך לפנות — בלי פנייה.',
+    '6. אם ההיסטוריה ריקה, אין בה אימונים או אין בה שום תרגיל — החזר בדיוק:',
+    '   {"summary":"אין נתונים לניתוח, אדוני.","strengths":[],"weaknesses":[],"recommendations":[],"next_focus":""}',
+    '7. אסור טקסט מחוץ ל-JSON. אסור code block. אסור שדות נוספים. אסור שדות חסרים.',
 ].join('\n');
 
 app.post('/api/training/generate', apiRateLimiter, async (req, res, next) => {
