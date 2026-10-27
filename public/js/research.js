@@ -13,6 +13,12 @@
     const CONFIG = {
         historyKey: 'jarvis_research_history_v1',
         maxHistory: 10,
+        // The server answers within RESEARCH_BUDGET_MS (45s); 60s leaves room for a slow
+        // cellular round-trip while still guaranteeing the user never waits forever.
+        requestTimeoutMs: 60000,
+        // After this long the loading copy changes, so a slow request never looks frozen.
+        slowHintMs: 20000,
+        slowHintText: 'עוד מחפש... החיפוש עדיין רץ, אפשר לחכות',
     };
 
     // ==============================
@@ -44,6 +50,31 @@
     function formatYear(y) {
         if (!y) return '—';
         return String(y);
+    }
+
+    function describeHttpError(status, data) {
+        if (data && data.error) return '⚠️ ' + data.error;
+        if (data && data.reply) return '⚠️ ' + data.reply;
+        if (status === 429) return '⏳ חרגנו ממכסת החיפושים לרגע. המתן דקה ונסה שוב.';
+        if (status === 503 || status === 504) return '🕒 השרת עמוס או איטי כרגע. נסה שוב בעוד רגע.';
+        return `❌ שגיאה ${status}`;
+    }
+
+    function describeFetchError(err, timedOut) {
+        if (timedOut || (err && err.name === 'AbortError')) {
+            const seconds = Math.round(CONFIG.requestTimeoutMs / 1000);
+            return `⏱️ הבקשה ארכה יותר מ-${seconds} שניות. נסה שוב — או נסח שאלה קצרה יותר.`;
+        }
+        if (err && err.name === 'TypeError') {
+            return '📡 אין חיבור לשרת. בדוק את החיבור לאינטרנט ונסה שוב.';
+        }
+        return '❌ שגיאה לא צפויה: ' + ((err && err.message) || 'נסה שוב');
+    }
+
+    function restoreQuery(value) {
+        const input = $('#search-input');
+        // Never overwrite something the user already typed after the failure.
+        if (input && !input.value.trim()) input.value = value || '';
     }
 
     // ==============================
@@ -112,6 +143,15 @@
     function hideError() {
         const errorBox = $('#error-box');
         if (errorBox) errorBox.hidden = true;
+    }
+
+    let slowHintDefault = null;
+
+    function setSlowHint(on) {
+        const el = $('#loading .loading-subtext');
+        if (!el) return;
+        if (slowHintDefault === null) slowHintDefault = el.textContent;
+        el.textContent = on ? CONFIG.slowHintText : slowHintDefault;
     }
 
     // ==============================
@@ -252,26 +292,41 @@
         setLoading(true);
         hideError();
 
+        // Hard client-side deadline: if the server never answers (dead network, proxy
+        // hang), abort instead of leaving the spinner spinning forever.
+        const controller = new AbortController();
+        let timedOut = false;
+        const abortId = setTimeout(function () {
+            timedOut = true;
+            controller.abort();
+        }, CONFIG.requestTimeoutMs);
+        const slowHintId = setTimeout(function () { setSlowHint(true); }, CONFIG.slowHintMs);
+
         try {
             const res = await fetch('/api/research', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ query: trimmed }),
+                signal: controller.signal,
             });
 
             const data = await res.json().catch(function () { return {}; });
 
             if (!res.ok) {
-                const errMsg = data.error || data.reply || `שגיאה ${res.status}`;
-                showError(errMsg);
+                showError(describeHttpError(res.status, data));
+                restoreQuery(trimmed);
                 return;
             }
 
             renderResults(data);
 
         } catch (err) {
-            showError('שגיאה בחיבור לשרת: ' + err.message);
+            showError(describeFetchError(err, timedOut));
+            restoreQuery(trimmed);
         } finally {
+            clearTimeout(abortId);
+            clearTimeout(slowHintId);
+            setSlowHint(false);
             setLoading(false);
         }
     }

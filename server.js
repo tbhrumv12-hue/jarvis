@@ -82,7 +82,10 @@ const CONFIG = {
     youtubeApiKey: process.env.YOUTUBE_API_KEY || '',
     youtubeTimeoutMs: Number(process.env.YOUTUBE_TIMEOUT_MS) || 10000,
     tiktokTimeoutMs: Number(process.env.TIKTOK_TIMEOUT_MS) || 10000,
-    researchTimeoutMs: Number(process.env.RESEARCH_TIMEOUT_MS) || 20000,
+    researchTimeoutMs: Number(process.env.RESEARCH_TIMEOUT_MS) || 12000,
+    // Whole /api/research pipeline budget (translate → 11 sources → AI). Must stay
+    // well below the 60s client-side AbortController so slow mobile links still get JSON.
+    researchBudgetMs: Number(process.env.RESEARCH_BUDGET_MS) || 45000,
     coreApiKey: process.env.CORE_API_KEY || '',
     semanticScholarKey: process.env.SEMANTIC_SCHOLAR_KEY || '',
 
@@ -845,27 +848,63 @@ async function callGemini({
     maxOutputTokens = 2048,
     timeoutMs = CONFIG.geminiTimeoutMs,
     retries = CONFIG.defaultRetries,
+    thinkingBudget = null,
+    deadlineMs = null,
 }) {
     const fallback = require('./gemini-fallback');
     const modelsToTry = fallback.getFallbackModels(CONFIG.geminiModel);
+    const hasThinkingConfig = thinkingBudget !== null;
 
-    const body = JSON.stringify({
+    const buildBody = (includeThinkingConfig) => JSON.stringify({
         systemInstruction: { parts: [{ text: systemInstruction }] },
         contents,
-        generationConfig: { temperature, maxOutputTokens },
+        generationConfig: {
+            temperature,
+            maxOutputTokens,
+            ...(includeThinkingConfig ? { thinkingConfig: { thinkingBudget } } : {}),
+        },
     });
 
     let lastError = null;
     const coreStart = Date.now();
+    const deadlineAt = deadlineMs !== null ? coreStart + deadlineMs : null;
     const attemptsLog = [];
+
+    const remainingMs = () => (deadlineAt === null ? Infinity : deadlineAt - Date.now());
+
+    // Sleeps never outlive the deadline: they wake on it instead of overshooting it.
+    const sleepWithinDeadline = async (ms) => sleep(Math.min(ms, remainingMs()));
+
+    const deadlineError = (model, phase) => {
+        attemptsLog.push({ model, reason: 'deadline', phase, elapsedMs: Date.now() - coreStart });
+        log('error', `Gemini deadline (${Math.round(deadlineMs / 1000)}s) exhausted before ${phase}`, {
+            model,
+            elapsedMs: Date.now() - coreStart,
+        });
+        return new GeminiError('הבקשה ארכה יותר מדי. נסה שוב.', 504);
+    };
+
+    const assertWithinDeadline = (model, phase) => {
+        if (remainingMs() <= 0) throw deadlineError(model, phase);
+    };
 
     for (let modelIdx = 0; modelIdx < modelsToTry.length; modelIdx++) {
         const currentModel = modelsToTry[modelIdx];
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${CONFIG.geminiApiKey}`;
 
+        assertWithinDeadline(currentModel, 'model call');
+
         let modelFailed = false;
+        // Graceful degradation: if the model rejects thinkingConfig (400), resend without it.
+        let useThinkingConfig = hasThinkingConfig;
+        let body = buildBody(useThinkingConfig);
 
         for (let attempt = 0; attempt <= retries; attempt++) {
+            assertWithinDeadline(currentModel, `attempt ${attempt + 1}`);
+
+            // A single attempt may never outlive the remaining budget.
+            const attemptTimeoutMs = Math.min(timeoutMs, Math.max(1000, remainingMs()));
+
             try {
                 const response = await fetchWithTimeout(
                     url,
@@ -874,7 +913,7 @@ async function callGemini({
                         headers: { 'Content-Type': 'application/json' },
                         body,
                     },
-                    timeoutMs
+                    attemptTimeoutMs
                 );
 
                 const data = await response.json();
@@ -898,6 +937,18 @@ async function callGemini({
                     throw new GeminiError('מבנה הנתונים אינו תקין', 502, data);
                 }
 
+                // ── thinkingConfig rejected (400) → resend the same attempt without it ──
+                if (response.status === 400 && useThinkingConfig) {
+                    log('warn', `${currentModel}: 400 with thinkingConfig — retrying without it`, {
+                        apiMessage: data.error.message,
+                    });
+                    attemptsLog.push({ model: currentModel, reason: 'thinking-config-rejected' });
+                    useThinkingConfig = false;
+                    body = buildBody(false);
+                    attempt -= 1; // same attempt slot, one extra call without thinkingConfig
+                    continue;
+                }
+
                 // ── Model not found → try next model immediately ──
                 if (fallback.isModelNotFoundError(data, response.status)) {
                     log('warn', `Model ${currentModel} not available, trying next`);
@@ -918,7 +969,7 @@ async function callGemini({
                             8000
                         );
                         log('warn', `${currentModel} high demand — retry ${attempt + 1}/${retries} in ${Math.round(retryMs / 1000)}s`);
-                        await sleep(retryMs);
+                        await sleepWithinDeadline(retryMs);
                         continue;
                     }
 
@@ -938,7 +989,7 @@ async function callGemini({
                             10000
                         );
                         log('warn', `${currentModel} rate limit — retry in ${Math.round(retryMs / 1000)}s`);
-                        await sleep(retryMs);
+                        await sleepWithinDeadline(retryMs);
                         continue;
                     }
                     attemptsLog.push({ model: currentModel, reason: 'rate-limit' });
@@ -949,7 +1000,7 @@ async function callGemini({
                 // ── Other errors ──
                 const isRetryable = response.status >= 500;
                 if (isRetryable && attempt < retries) {
-                    await sleep(backoffDelay(attempt));
+                    await sleepWithinDeadline(backoffDelay(attempt));
                     continue;
                 }
 
@@ -976,7 +1027,7 @@ async function callGemini({
                     modelFailed = true;
                     break;
                 }
-                await sleep(backoffDelay(attempt));
+                await sleepWithinDeadline(backoffDelay(attempt));
             }
         }
 
@@ -1578,7 +1629,7 @@ async function callGeminiVision(imageBase64, mimeType, userPrompt, retries = CON
 // 16. TRANSLATION (Hebrew → English)
 // ==============================
 
-async function translateToEnglish(hebrewQuery) {
+async function translateToEnglish(hebrewQuery, deadlineMs = null) {
     const trimmed = String(hebrewQuery || '').trim();
     if (!trimmed) return '';
 
@@ -1596,6 +1647,10 @@ async function translateToEnglish(hebrewQuery) {
             maxOutputTokens: 128,
             timeoutMs: CONFIG.geminiTranslationTimeoutMs,
             retries: 1,
+            // Translation does not need hidden reasoning tokens.
+            thinkingBudget: 0,
+            // Never let translation outlive the caller's wall-clock budget.
+            deadlineMs,
         });
 
         const translated = String(reply)
@@ -2595,7 +2650,26 @@ async function searchAllSources(query, limitPerSource) {
 // 32. RESEARCH — AI ANALYSIS
 // ==============================
 
-function buildFallbackSummary(query, englishQuery, papers) {
+function classifyResearchFailure(err) {
+    if (!err) return 'unknown';
+    if (err.name === 'AbortError') return 'timeout';
+
+    const status = err.statusCode || err.status || 0;
+    if (status === 504) return 'timeout';
+    if (status === 429) return 'quota';
+    if (status === 502 || status === 503) return 'busy';
+
+    const msg = String(err.message || '').toLowerCase();
+    if (msg.includes('זמן') || msg.includes('timeout') || msg.includes('abort') || msg.includes('deadline')) {
+        return 'timeout';
+    }
+    if (msg.includes('עמוס') || msg.includes('מכסה') || msg.includes('quota') || msg.includes('rate')) {
+        return 'busy';
+    }
+    return 'unknown';
+}
+
+function buildFallbackSummary(query, englishQuery, papers, reason = 'unknown') {
     const top = papers.slice(0, 5);
     const list = top.map((p, i) => {
         const citations = p.citedBy ? ` • ${p.citedBy} ציטוטים` : '';
@@ -2606,17 +2680,30 @@ function buildFallbackSummary(query, englishQuery, papers) {
 
     const wasTranslated = englishQuery && englishQuery !== query;
 
+    // The verdict must tell the user *why* the AI summary is missing — a bare
+    // "not available" made every failure (slow, quota, overload) look identical.
+    const verdictByReason = {
+        timeout: '⏱️ הניתוח לקח יותר מדי זמן — המחקרים למטה תקפים',
+        quota: '⏳ מכסת ה-AI מלאה לרגע — הסיכום יחזור בעוד דקה',
+        busy: '⚠️ סיכום AI לא זמין כרגע',
+        unknown: '⚠️ סיכום AI לא זמין כרגע',
+    };
+    const retryHint = reason === 'timeout'
+        ? '💡 נסה שוב, או נסח שאלה קצרה יותר כדי לזרז את הניתוח.'
+        : '💡 נסה שוב בעוד דקה כדי לקבל סיכום AI מלא עם תובנות ומיתוס.';
+
     return {
-        verdict: '⚠️ סיכום AI לא זמין כרגע',
-        summary: `מצאתי ${papers.length} מחקרים רלוונטיים על "${query}"${wasTranslated ? ` (חיפוש: "${englishQuery}")` : ''}.\n\nהנה המחקרים המובילים:\n\n${list}\n\n💡 נסה שוב בעוד דקה כדי לקבל סיכום AI מלא עם תובנות ומיתוס.`,
+        verdict: verdictByReason[reason] || verdictByReason.unknown,
+        summary: `מצאתי ${papers.length} מחקרים רלוונטיים על "${query}"${wasTranslated ? ` (חיפוש: "${englishQuery}")` : ''}.\n\nהנה המחקרים המובילים:\n\n${list}\n\n${retryHint}`,
         myth: '',
         limitations: '',
         fallback: true,
+        fallbackReason: reason,
         wasTranslated,
     };
 }
 
-async function analyzeResearchWithAI(query, englishQuery, papers) {
+async function analyzeResearchWithAI(query, englishQuery, papers, deadlineMs = null) {
     const topPapers = papers.slice(0, CONFIG.researchAnalysisTopPapers);
 
     const papersText = topPapers.map((p, i) => {
@@ -2634,9 +2721,17 @@ async function analyzeResearchWithAI(query, englishQuery, papers) {
         systemInstruction: 'אתה מדען-על. תן תשובות מדויקות, מבוססות ראיות, בעברית.',
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         temperature: 0.4,
-        maxOutputTokens: 2500,
-        timeoutMs: CONFIG.geminiTimeoutMs,
-        retries: CONFIG.defaultRetries,
+        // The summary is 4 short Hebrew blocks — 1200 tokens leaves 2x headroom and
+        // cuts worst-case decoding time roughly in half compared to the old 2500.
+        maxOutputTokens: 1200,
+        // Per-attempt timeout well inside the 45s route budget.
+        timeoutMs: 28000,
+        // No retries: a failure must surface immediately so the fallback can answer fast.
+        retries: 0,
+        // Research analysis is latency-critical — hidden reasoning tokens are pure delay here.
+        thinkingBudget: 0,
+        // Stops the model ladder (and its sleeps) at the route's wall-clock budget.
+        deadlineMs,
     });
 
     const verdictMatch = reply.match(/\[VERDICT\]([\s\S]*?)\[\/VERDICT\]/i);
@@ -3778,6 +3873,24 @@ app.post('/api/research', researchRateLimiter, async (req, res, next) => {
     metrics.totalRequests += 1;
     metrics.totalResearchRequests += 1;
 
+    // Hard wall-clock budget for the whole pipeline (translate → 11 sources → AI).
+    // Every stage checks it first, so a slow mobile client always gets JSON back
+    // instead of an endless spinner or a proxy 504.
+    const deadlineAt = requestStart + CONFIG.researchBudgetMs;
+    const remainingBudgetMs = () => Math.max(0, deadlineAt - Date.now());
+
+    const budgetExhausted = (stage) => {
+        metrics.totalErrors += 1;
+        recordError(`Research budget exhausted (${stage})`);
+        log('warn', `Research budget exhausted after ${CONFIG.researchBudgetMs}ms at stage "${stage}"`);
+        return res.status(503).json({
+            error: `הבקשה ארכה יותר מ-${Math.round(CONFIG.researchBudgetMs / 1000)} שניות. נסה שוב, או נסח שאלה קצרה יותר.`,
+            budgetExhausted: true,
+            stage,
+            searchTimeMs: Date.now() - requestStart,
+        });
+    };
+
     try {
         const { query } = req.body || {};
 
@@ -3797,7 +3910,11 @@ app.post('/api/research', researchRateLimiter, async (req, res, next) => {
 
         log('info', `Research query: "${cleanQuery}"`);
 
-        const englishQuery = await translateToEnglish(cleanQuery);
+        if (remainingBudgetMs() <= 0) return budgetExhausted('translate');
+
+        const englishQuery = await translateToEnglish(cleanQuery, remainingBudgetMs());
+
+        if (remainingBudgetMs() <= 0) return budgetExhausted('search');
 
         const papers = await searchAllSources(englishQuery, CONFIG.researchMaxPerSource);
 
@@ -3815,27 +3932,54 @@ app.post('/api/research', researchRateLimiter, async (req, res, next) => {
                 },
                 papers: [],
                 totalFound: 0,
+                aiLatencyMs: 0,
                 searchTimeMs: Date.now() - requestStart,
             });
         }
 
+        if (remainingBudgetMs() <= 0) return budgetExhausted('ai-analysis');
+
         let analysis;
+        const aiStart = Date.now();
+
         try {
-            analysis = await analyzeResearchWithAI(cleanQuery, englishQuery, papers);
+            analysis = await analyzeResearchWithAI(cleanQuery, englishQuery, papers, remainingBudgetMs());
         } catch (aiError) {
-            log('warn', 'AI analysis failed — using fallback', { err: aiError.message });
-            analysis = buildFallbackSummary(cleanQuery, englishQuery, papers);
+            const fallbackReason = classifyResearchFailure(aiError);
+            log('warn', 'AI analysis failed — using fallback', {
+                err: aiError.message,
+                fallbackReason,
+                aiElapsedMs: Date.now() - aiStart,
+            });
+            analysis = buildFallbackSummary(cleanQuery, englishQuery, papers, fallbackReason);
         }
+
+        const aiLatencyMs = Date.now() - aiStart;
 
         const totalRoundTripMs = Date.now() - requestStart;
         metrics.totalSuccess += 1;
         recordLatency(totalRoundTripMs);
 
+        // Payload trim: shipping every source with its full abstract made this response
+        // several MB on cellular. Only the analysis-top papers keep a (truncated) abstract,
+        // because /api/research-chat sends them back as conversation context.
+        const responsePapers = papers
+            .slice(0, CONFIG.researchFinalLimit)
+            .map((paper, index) => {
+                const { abstract, ...rest } = paper;
+                return index < CONFIG.researchAnalysisTopPapers && abstract
+                    ? { ...rest, abstract: truncate(abstract, 400) }
+                    : rest;
+            });
+
         log('info', 'Research OK', {
             query: cleanQuery,
             englishQuery,
             totalPapers: papers.length,
+            returnedPapers: responsePapers.length,
             fallback: analysis.fallback,
+            fallbackReason: analysis.fallbackReason || null,
+            aiLatencyMs,
             roundTripMs: totalRoundTripMs,
         });
 
@@ -3843,9 +3987,10 @@ app.post('/api/research', researchRateLimiter, async (req, res, next) => {
             query: cleanQuery,
             englishQuery,
             summary: analysis,
-            papers,
+            papers: responsePapers,
             totalFound: papers.length,
             sources: [...new Set(papers.map((p) => p.source))],
+            aiLatencyMs,
             searchTimeMs: totalRoundTripMs,
         });
     } catch (error) {
