@@ -1,0 +1,3 @@
+[33m36df4d4[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m Fix /api/training/generate timeout: dedicated 3.7-flash model, retries 0, internal deadline, strict fallback, 2500 tokens
+[33m185e308[m Fix /api/training/generate timeout: disable thinking, use callGeminiJSON, add 55s budget guard
+[33m0fca07f[m Add woke-dyno keep-alive to prevent Render Free cold starts
