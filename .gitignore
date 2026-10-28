@@ -124,6 +124,15 @@ profile.json
 *.tsbuildinfo
 .tscache/
 
+# === Accidental junk from broken shell commands ===
+# Created when a command with unbalanced quotes redirected output into a file
+# (e.g. `cd ...\jarvis'; git status; echo ... > log` produced a file literally
+# named "ersACTDownloadsjarvis'; git status; ..." instead of writing a log).
+*;*
+ersACTDownloads*
+*git status*
+*echo '---*
+
 # === Optional (uncomment if needed) ===
 # package-lock.json
 # yarn.lock body.json
