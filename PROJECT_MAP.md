@@ -1,7 +1,7 @@
 # PROJECT MAP — J.A.R.V.I.S
 
 > מסמך מיפוי בלבד (ללא קוד). נבנה מקריאה ישירה של הקוד בריפו.
-> בסיס: `server.js` — 4,799 שורות, Express 5, CommonJS (`"type": "commonjs"`), נקודת כניסה `node server.js` (`npm start`).
+> בסיס: `server.js` — 5,053 שורות, Express 5, CommonJS (`"type": "commonjs"`), נקודת כניסה `node server.js` (`npm start`).
 
 ---
 
@@ -16,8 +16,6 @@
 | 5 | `app.use(express.urlencoded)` | 2471 | — | גוף urlencoded, תקרה 10MB | — |
 | 6 | `app.use(logger)` | 2474–2483 | — | לוג לכל בקשה תחת `/api/` עם סטטוס ומשך | — |
 | 7 | `app.use(express.static)` | 2514–2518 | — | הגשת `public/` עם `index:false`, `maxAge:'1h'`, ETag | כל הדפים |
-| 8 | `POST /api/browse` | 2523–2557 | `apiRateLimiter` | מריץ `node browser.js "<query>"` (DuckDuckGo Lite) דרך `child_process`, מפרסר stdout לתוצאות | לא בשימוש בצד לקוח |
-| 9 | `POST /api/browser/action` | 2559–2664 | `apiRateLimiter` | Playwright headless: `click` / `fill` / `getText` על URL חיצוני; חוסם localhost/טווחים פרטיים (SSRF); timeout 15s לפעולה | לא בשימוש בצד לקוח |
 | 10 | `GET /` | 2667–2669 | — | מגיש `public/landing.html` | דפדפן |
 | 11 | `GET /app` | 2671–2673 | — | מגיש `public/index.html` (האפליקציה הראשית) | דפדפן |
 | 12 | `GET /api/health` | 2680–2713 | — | status, uptime, model, מוני metrics, גודל אינדקס הידע | — |
@@ -27,7 +25,6 @@
 | 16 | `DELETE /api/knowledge/:name` | 2804–2837 | — | מוחק קובץ ידע (עם הגנת path traversal) וטוען מחדש | — |
 | 17 | `POST /api/knowledge/reload` | 2839–2851 | — | בונה מחדש את אינדקס ה-BM25 מהדיסק וה-ENV | — |
 | 18 | `POST /api/ask` | 2857–3011 | `apiRateLimiter` | הצ'אט הראשי: history + זיהוי "חפש/מצא" (YouTube או `browser.js`), BM25 על הידע, ואז Gemini | `app.js:1364` |
-| 19 | `POST /api/analyze` | 3017–3230 | `apiRateLimiter` | ניתוח אנליטיקס בסגנון "אנליסט אגרסיבי" (סיכום מספרי + Gemini) | **אין** — legacy, הכפתור הוסר |
 | 20 | `POST /api/vision` | 3236–3275 | `visionRateLimiter` | תמונה base64 → `callGeminiVision` → תיאור בעברית | `app.js:1283` |
 | 21 | `POST /api/youtube/fetch` | 3281–3350 | `apiRateLimiter` | שליפת סטטיסטיקות סרטון לפי ID/URL דרך YouTube Data API | `analytics.js:610` |
 | 22 | `POST /api/tiktok/fetch` | 3356–3437 | `apiRateLimiter` | שליפת מטא-דאטה של TikTok דרך oEmbed | `analytics.js:779` |
@@ -45,6 +42,8 @@
 | 34 | `app.use` 404 | 4708–4710 | — | מחזיר JSON עברית לנתיב לא קיים | — |
 | 35 | `app.use` error handler | 4716–4746 | — | ממיר `GeminiError` / `ResearchError` / `ValidationError` לתגובת JSON; 429 ייעודי למכסה | — |
 | 36 | `app.listen` | 4754–4764 | — | האזנה על `PORT` + לוג אתחול | — |
+
+> **הוסרו ב-2026-10-28 (ניקוי קוד מת):** `POST /api/browse`, `POST /api/browser/action`, `POST /api/analyze` — לשלושתם לא היה קורא בצד הלקוח. עמודת ה-`#` נשמרה כדי לא לשבור הפניות קיימות. ⚠️ מספרי השורות בטבלה שלמעלה **טרם רועננו** אחרי המחיקה (הם מתייחסים לגרסה שקדמה לה, וגם קודם לכן היו מיושנים) — רענון מלא של המסמך הוא משימה נפרדת.
 
 **Rate limiters** (מוגדרים 2486–2508): `apiRateLimiter` (ברירת מחדל 30/דקה), `visionRateLimiter` (15/דקה), `researchRateLimiter` (10/דקה).
 
@@ -139,7 +138,6 @@
 
 בנוסף, פרומפטים קצרים מוטבעים (inline) ב-`systemInstruction`:
 - שורה 2434 — `אתה מדען-על. תן תשובות מדויקות, מבוססות ראיות, בעברית.` (ניתוח `/api/research`)
-- שורה 3205 — `אתה אנליסט תוכן אגרסיבי. תן ניתוח ישיר, ביקורתי, מבוסס מספרים.` (`/api/analyze`)
 
 ### 3.1 `JARVIS_PERSONA` (110–125)
 
@@ -536,7 +534,6 @@ ${JARVIS_PERSONA}
 | Endpoint / פונקציה | פונקציית הקריאה | `temperature` | `maxOutputTokens` | `systemInstruction` |
 |---|---|---|---|---|
 | `/api/ask` | `callGeminiWithRetry` (962) | 0.7 | 2048 | `SYSTEM_PROMPT` או `KNOWLEDGE_SYSTEM_PROMPT` + צ'אנקים |
-| `/api/analyze` (legacy) | `callGemini` (3204) | 0.6 | 2048 | inline (3205) |
 | `/api/research` (ניתוח) | `callGemini` (2433) | 0.4 | 2500 | inline (2434) |
 | `/api/research-chat` | `callGemini` (3596) | 0.5 | 2048 | `RESEARCH_CHAT_*` לפי `mode` + תמצית מחקרים |
 | `/api/analytics-chat` | `callGemini` (3703) | 0.6 | 1500 | `ANALYTICS_SYSTEM_PROMPT` + נתוני אנליטיקס + ידע |
@@ -567,8 +564,8 @@ ${JARVIS_PERSONA}
 | `express-rate-limit` | 33 | `node_modules` |
 | `dotenv` | 34 | `node_modules` (`.config()` טוען `.env` מהתיקייה הראשית) |
 | `./gemini-fallback` | 821, 994, 1230 | מודול מקומי — שרשרת fallback בין מודלים |
-| `child_process` | 2521, 2938 | מודול מובנה — הרצת `node browser.js "<query>"` |
-| `rebrowser-playwright` | 2620 | `node_modules` — דפדפן headless ל-`/api/browser/action` (גם `browser.js`) |
+| `child_process` | 3186 | מודול מובנה — הרצת `node browser.js "<query>"` |
+| `rebrowser-playwright` | 2620 | `node_modules` — דפדפן headless — בשימוש ב-`browser.js` בלבד |
 
 בנוסף: `server.js` מפעיל תהליך חיצוני `node browser.js` (סקרייפינג DuckDuckGo Lite), ו-`whatsapp-bot.js` (לא נטען מהשרת) משתמש ב-`fetch` גלובלי / `node-fetch` מול `/api/ask`.
 
@@ -666,7 +663,7 @@ ${JARVIS_PERSONA}
 ## 9. ממצאים תפעוליים (מהמיפוי)
 
 1. **`POST /api/training/analyze` שבור (500).** בשורה 4207 נעשה שימוש ב-`TRAINING_ANALYZE_SYSTEM_PROMPT`, אך הקבוע **אינו מוגדר בשום מקום** בקובץ (`server.js.broken` גם הוא לא מכיל אותו). אומת בריצה מקומית: `ReferenceError: TRAINING_ANALYZE_SYSTEM_PROMPT is not defined` → `500` עם `{"reply":"אדון, אירעה תקלה בלתי צפויה במערכת."}`. גם `training.js:604` קורא ל-endpoint הזה, כך שכפתור "נתח התקדמות" לא יעבוד עד להוספת הפרומפט.
-2. **`POST /api/analyze` (3017–3230) הוא קוד יתום** — אין קורא בצד הלקוח לאחר הסרת כפתור ה-AI מהאנליטיקס; הוא צורך טוקנים רק אם מישהו קורא ל-API ידנית.
+2. ~~קוד יתום~~ **נמחק (2026-10-28):** `POST /api/analyze` הוסר מ-`server.js` יחד עם `POST /api/browse` ו-`POST /api/browser/action` — לשלושתם לא היה קורא בצד הלקוח. `computeAnalyticsSummary` **לא** נמחק כי `/api/analytics-chat` עדיין משתמש בו.
 3. **`/api/training/save` ו-`/api/training/history` לא באמת שומרים דבר** — הראשון מחזיר `savedAt` בלבד, השני מחזיר מערך ריק. האחסון האמיתי הוא `localStorage` (`jarvis_training_v1`).
 4. **`.env.example` לא מסונכרן** — מכיל רק `GEMINI_API_KEY`, `GEMINI_MODEL`, `PORT`, והמודל שמופיע בו (`gemini-3.6-flash`) שונה מברירת המחדל בקוד (`gemini-3.8-flash`). כל שאר 40+ המשתנים ב-§6 אינם מתועדים שם.
 5. **סודות בקוד מקור** — `whatsapp-bot.js` מכיל מזהה מופע וטוקן של Green API Hardcoded (שורות 9–10 בקובץ). יש להעביר ל-`.env` ולסובב את הטוקן; הקובץ לא נטען מהשרת אבל נמצא ב-Git.
@@ -680,6 +677,6 @@ ${JARVIS_PERSONA}
 - `node --check server.js` — עובר (תחביר תקין; השגיאה ב-§9 היא שגיאת ריצה, לא תחביר).
 - הרמת השרת בפועל (`PORT=4023`) — `GET /api/health` החזיר `status: ok`, `model: gemini-3.8-flash`, `knowledgeFiles: 8`.
 - קריאה ל-`POST /api/training/analyze` — החזירה `500`, והלוג הראה `Unhandled error ReferenceError: TRAINING_ANALYZE_SYSTEM_PROMPT is not defined` ואחריו `POST /api/training/analyze → 500 (19ms)`.
-- מספרי השורות במסמך נבדקו מול `server.js` (גרסה בת 4,799 שורות) ומול ספירת השורות בפועל של כל קובץ ב-`public/js` ו-`public/css`.
+- מספרי השורות במסמך נבדקו מול `server.js` (גרסה בת 5,053 שורות) ומול ספירת השורות בפועל של כל קובץ ב-`public/js` ו-`public/css`.
 
 _עודכן: 2026-10-24_
