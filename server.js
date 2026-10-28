@@ -69,15 +69,19 @@ const CONFIG = {
 
     geminiApiKey: String(process.env.GEMINI_API_KEY).trim(),
     geminiModel: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
-    geminiTimeoutMs: Number(process.env.GEMINI_TIMEOUT_MS) || 45000,
+    geminiTimeoutMs: Number(process.env.GEMINI_TIMEOUT_MS) || 60000, // per attempt
+    // Hard ceiling for one whole callGemini/callGeminiJSON invocation. With defaultRetries=2
+    // a 60s attempt could otherwise add up to ~180s and hit the proxy limit in front of
+    // Render (which returns a bare 502/504 with no JSON). Callers may pass their own budget.
+    geminiTimeoutCeilingMs: Number(process.env.GEMINI_TIMEOUT_CEILING_MS) || 90000,
     geminiVisionTimeoutMs: Number(process.env.GEMINI_VISION_TIMEOUT_MS) || 30000,
     geminiTranslationTimeoutMs: Number(process.env.GEMINI_TRANSLATION_TIMEOUT_MS) || 15000,
     // Training generation is the slowest endpoint, so it gets a dedicated model chain
     // and its own budget instead of the global fallback ladder.
     geminiTrainingModel: process.env.GEMINI_TRAINING_MODEL || 'gemini-3.7-flash',
     geminiTrainingFallbackModel: process.env.GEMINI_TRAINING_FALLBACK_MODEL || 'gemini-3.5-flash',
-    geminiTrainingTimeoutMs: Number(process.env.GEMINI_TRAINING_TIMEOUT_MS) || 30000, // per attempt
-    geminiTrainingBudgetMs: Number(process.env.GEMINI_TRAINING_BUDGET_MS) || 40000, // whole request
+    geminiTrainingTimeoutMs: Number(process.env.GEMINI_TRAINING_TIMEOUT_MS) || 60000, // per attempt
+    geminiTrainingBudgetMs: Number(process.env.GEMINI_TRAINING_BUDGET_MS) || 75000, // whole request
 
     youtubeApiKey: process.env.YOUTUBE_API_KEY || '',
     youtubeTimeoutMs: Number(process.env.YOUTUBE_TIMEOUT_MS) || 10000,
@@ -849,7 +853,7 @@ async function callGemini({
     timeoutMs = CONFIG.geminiTimeoutMs,
     retries = CONFIG.defaultRetries,
     thinkingBudget = null,
-    deadlineMs = null,
+    deadlineMs = CONFIG.geminiTimeoutCeilingMs,
 }) {
     const fallback = require('./gemini-fallback');
     const modelsToTry = fallback.getFallbackModels(CONFIG.geminiModel);
@@ -1084,7 +1088,7 @@ async function callGeminiJSON({
     retries = CONFIG.defaultRetries,
     thinkingBudget = null,
     models = null,
-    deadlineMs = null,
+    deadlineMs = CONFIG.geminiTimeoutCeilingMs,
     strictFallback = false,
 }) {
     const fallback = require('./gemini-fallback');
@@ -2715,10 +2719,10 @@ async function analyzeResearchWithAI(query, englishQuery, papers, deadlineMs = n
 
     const wasTranslated = englishQuery && englishQuery !== query;
 
-    const prompt = `אתה מדען-על בכיר. השאלה שלי: "${query}"${wasTranslated ? `\n(חיפשתי במאגרי מחקרים בינלאומיים עם המונח: "${englishQuery}")` : ''}\n\nהנה ${topPapers.length} המחקרים הרלוונטיים ביותר שנמצאו:\n\n${papersText}\n\n---\n\nענה במבנה הזה בדיוק, בעברית, בלי הקדמות, בלי מרכאות מיותרות:\n\n[VERDICT]\nכן / לא / תלוי / לא ברור — משפט אחד חד וחד-משמעי.\n[/VERDICT]\n\n[SUMMARY]\n3-4 משפטים מבוססים רק על המחקרים שלמעלה. תן מספרים ספציפיים אם יש. אם המחקרים לא עונים ישירות — אמור את זה במפורש.\n[/SUMMARY]\n\n[MYTH]\nמיתוס אחד נפוץ על הנושא + האמת שמחקרים מראים. 2-3 משפטים.\n[/MYTH]\n\n[LIMITATIONS]\nמשפט אחד: מה המחקרים האלה לא אומרים, או מה עוד צריך לחקור.\n[/LIMITATIONS]\n\nסגנון: ישיר, מדעי, מבוסס ראיות. עברית.`;
+    const prompt = `אתה מדען-על בכיר. השאלה שלי: "${query}"${wasTranslated ? `\n(חיפשתי במאגרי מחקרים בינלאומיים עם המונח: "${englishQuery}")` : ''}\n\nהנה ${topPapers.length} המחקרים הרלוונטיים ביותר שנמצאו:\n\n${papersText}\n\n---\n\nכללי אמת מחייבים:\nאם אין מספיק מחקרים רלוונטיים לשאלה שלי, או אם המחקרים לא עונים ישירות — אמור את זה במפורש. אסור לך להמציא מחקרים, שמות, או תוצאות שלא מופיעים בטקסט שסופק לך. אם אין מספיק מידע, החזר VERDICT: לא ברור והסבר למה.\n\nענה במבנה הזה בדיוק, בעברית, בלי הקדמות, בלי מרכאות מיותרות:\n\n[VERDICT]\nכן / לא / תלוי / לא ברור — משפט אחד חד וחד-משמעי. אם אינך יכול לבסס את התשובה על המחקרים שלמעלה — בחר "לא ברור" ונמק במשפט.\n[/VERDICT]\n\n[SUMMARY]\n3-4 משפטים מבוססים רק על המחקרים שלמעלה. תן מספרים ספציפיים אם יש. אם המחקרים לא עונים ישירות — אמור את זה במפורש.\n[/SUMMARY]\n\n[MYTH]\nמיתוס אחד נפוץ על הנושא + האמת שהמחקרים שלמעלה מראים. אם אף מחקר כאן לא מתייחס למיתוס — כתוב זאת במפורש, ואל תמציא מחקר או מקור. 2-3 משפטים.\n[/MYTH]\n\n[LIMITATIONS]\nמשפט אחד: מה המחקרים האלה לא אומרים, או מה עוד צריך לחקור.\n[/LIMITATIONS]\n\nסגנון: ישיר, מדעי, מבוסס ראיות. עברית.`;
 
     const { reply } = await callGemini({
-        systemInstruction: 'אתה מדען-על. תן תשובות מדויקות, מבוססות ראיות, בעברית.',
+        systemInstruction: 'אתה מדען-על. תן תשובות מדויקות, מבוססות ראיות, בעברית. אסור להמציא מחקרים, שמות או תוצאות שלא הופיעו בקלט — אם אין די מידע, אמור זאת במפורש.',
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         temperature: 0.4,
         // The summary is 4 short Hebrew blocks — 1200 tokens leaves 2x headroom and
@@ -5024,7 +5028,7 @@ ${durationHint}
                     userPrompt,
                     temperature: 0.7,
                     maxOutputTokens: 2500,
-                    // Per-attempt timeout (30s), not the old 55s that could eat the whole budget.
+                    // Per-attempt timeout (60s): a full 90-minute plan on a slow Render dyno can take 40-55s.
                     timeoutMs: CONFIG.geminiTrainingTimeoutMs,
                     // No retries: a failure surfaces immediately instead of sleeping 8-30s first.
                     retries: 0,
