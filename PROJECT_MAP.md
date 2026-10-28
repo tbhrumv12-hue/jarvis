@@ -34,7 +34,7 @@
 | 26 | `POST /api/nutrition/analyze` | 3742–3853 | `apiRateLimiter` | ניתוח ארוחות חופשי → JSON תזונתי (`callGeminiJSON`) | `nutrition.js:586` |
 | 27 | `POST /api/nutrition/chat` | 3875–3978 | `apiRateLimiter` | צ'אט תזונאי עם נתוני היום (יעדים/ארוחות/מים) + ידע אישי | `nutrition-chat.js` |
 | 28 | `POST /api/training/coach` | 4010–4090 | `apiRateLimiter` | מאמן קליסטניקס; במקביל מחפש סרטוני YouTube אם השאלה מבקשת הדגמה | `training.js:827` |
-| 29 | `POST /api/training/analyze` | 4166–4238 | `apiRateLimiter` | ניתוח התקדמות מ-10 ימים אחרונים | `training.js:604` — **שבור, ראו §9** |
+| 29 | `POST /api/training/analyze` | 4166–4238 | `apiRateLimiter` | ניתוח התקדמות מ-10 ימים אחרונים | `training.js:604` |
 | 30 | `POST /api/training/generate` | 4380–4481 | `apiRateLimiter` | יצירת אימון ELITE בפורמט JSON (short=40d / long=90d) | `training.js:454` |
 | 31 | `POST /api/training/save` | 4488–4528 | `apiRateLimiter` | ולידציה של אימון ומחזיר `savedAt`; **לא נשמר בשרת** | לא נקרא (השמירה ב-localStorage) |
 | 32 | `GET /api/training/history` | 4534–4550 | `apiRateLimiter` | מחזיר תמיד `history: []` עם הסבר שהאחסון בדפדפן | לא נקרא |
@@ -134,7 +134,7 @@
 | `NUTRITION_COACH_SYSTEM_PROMPT` | 3859–3873 | `/api/nutrition/chat` (3948) |
 | `TRAINING_COACH_SYSTEM_PROMPT` | 3990–4008 | `/api/training/coach` (4049) |
 | `TRAINING_GENERATE_SYSTEM_PROMPT` | 4244–4378 | `/api/training/generate` (4414) |
-| `TRAINING_ANALYZE_SYSTEM_PROMPT` | **לא מוגדר** | `/api/training/analyze` (4207) — ראו §9 |
+| `TRAINING_ANALYZE_SYSTEM_PROMPT` | 4565 | `/api/training/analyze` (4383) |
 
 בנוסף, פרומפטים קצרים מוטבעים (inline) ב-`systemInstruction`:
 - שורה 2434 — `אתה מדען-על. תן תשובות מדויקות, מבוססות ראיות, בעברית.` (ניתוח `/api/research`)
@@ -540,7 +540,7 @@ ${JARVIS_PERSONA}
 | `/api/nutrition/analyze` | `callGeminiJSON` (3821) | 0.3 | 8192 | `NUTRITION_SYSTEM_PROMPT` |
 | `/api/nutrition/chat` | `callGemini` (3947) | 0.6 | 1500 | `NUTRITION_COACH_SYSTEM_PROMPT` + נתוני היום + ידע |
 | `/api/training/coach` | `callGemini` (4048) | 0.5 | 1800 | `TRAINING_COACH_SYSTEM_PROMPT` |
-| `/api/training/analyze` | `callGemini` (4206) | 0.4 | 2000 | `TRAINING_ANALYZE_SYSTEM_PROMPT` — **לא מוגדר** |
+| `/api/training/analyze` | `callGemini` (4206) | 0.4 | 2000 | `TRAINING_ANALYZE_SYSTEM_PROMPT` |
 | `/api/training/generate` | `callGemini` (4413) | 0.7 | 2500 | `TRAINING_GENERATE_SYSTEM_PROMPT` |
 | `/api/vision` | `callGeminiVision` (1229) | 0.5 | 512 | `VISION_SYSTEM_PROMPT` כחלק מ-`contents` (ללא שדה `systemInstruction`) |
 | `translateToEnglish` | `callGemini` (1392) | 0.2 | 128 | `TRANSLATION_SYSTEM_PROMPT`, `retries: 1` |
@@ -662,13 +662,13 @@ ${JARVIS_PERSONA}
 
 ## 9. ממצאים תפעוליים (מהמיפוי)
 
-1. **`POST /api/training/analyze` שבור (500).** בשורה 4207 נעשה שימוש ב-`TRAINING_ANALYZE_SYSTEM_PROMPT`, אך הקבוע **אינו מוגדר בשום מקום** בקובץ (`server.js.broken` גם הוא לא מכיל אותו). אומת בריצה מקומית: `ReferenceError: TRAINING_ANALYZE_SYSTEM_PROMPT is not defined` → `500` עם `{"reply":"אדון, אירעה תקלה בלתי צפויה במערכת."}`. גם `training.js:604` קורא ל-endpoint הזה, כך שכפתור "נתח התקדמות" לא יעבוד עד להוספת הפרומפט.
+1. ~~`POST /api/training/analyze` שבור~~ **נבדק מחדש (2026-10-28) — עובד.** `TRAINING_ANALYZE_SYSTEM_PROMPT` מוגדר ב-`server.js:4565` (module scope, מאותחל לפני `app.listen`) ומשמש ב-4383; לכן אין `ReferenceError`. אומת אמפירית: בקשה תקינה ל-endpoint מגיעה לקריאת Gemini ומחזירה `GeminiError` (`API key not valid` עם מפתח מזויף) ולא את הודעת השגיאה הגנרית של `ReferenceError`. הטענה הקודמת הוסרה.
 2. ~~קוד יתום~~ **נמחק (2026-10-28):** `POST /api/analyze` הוסר מ-`server.js` יחד עם `POST /api/browse` ו-`POST /api/browser/action` — לשלושתם לא היה קורא בצד הלקוח. `computeAnalyticsSummary` **לא** נמחק כי `/api/analytics-chat` עדיין משתמש בו.
 3. **`/api/training/save` ו-`/api/training/history` לא באמת שומרים דבר** — הראשון מחזיר `savedAt` בלבד, השני מחזיר מערך ריק. האחסון האמיתי הוא `localStorage` (`jarvis_training_v1`).
 4. **`.env.example` לא מסונכרן** — מכיל רק `GEMINI_API_KEY`, `GEMINI_MODEL`, `PORT`, והמודל שמופיע בו (`gemini-3.6-flash`) שונה מברירת המחדל בקוד (`gemini-3.8-flash`). כל שאר 40+ המשתנים ב-§6 אינם מתועדים שם.
 5. **סודות בקוד מקור** — `whatsapp-bot.js` מכיל מזהה מופע וטוקן של Green API Hardcoded (שורות 9–10 בקובץ). יש להעביר ל-`.env` ולסובב את הטוקן; הקובץ לא נטען מהשרת אבל נמצא ב-Git.
 6. **קבצי גיבוי/שאריות בריפו** — `server.js.broken`, `landing.js.backup`, `landing.css.backup`, `landing.html.backup`, ותיקיית `.aider.tags.cache.v4` (מטמון SQLite של aider). אינם נטענים ע"י השרת.
-7. **אין בדיקות אוטומטיות** — `npm test` מוגדר להיכשל בכוונה (`echo "Error: no test specified" && exit 1`); `npm start` הוא `node server.js`.
+7. ~~אין בדיקות אוטומטיות~~ **נסגר (2026-10-28):** נוסף `test/smoke.test.js` (`node:test`, ללא תלות חדשה) ו-`npm test` מריץ אותו. הבדיקות מרימות את השרת על פורט פנוי עם `GEMINI_API_KEY` דמה (אין עלות טוקנים) ומכסות: תחביר של כל קובצי ה-JS, `/api/health`, `/api/metrics`, `/api/knowledge`, `/api/mega-prompt`, הדפים `/` ו-`/app`, היעדרות שלושת ה-endpoints שנמחקו, ווולידציית קלט (`/api/ask` → 400/413, `/api/training/analyze` → 400). `npm run check` נשאר לבדיקת תחביר מהירה של `server.js` בלבד.
 
 ---
 
