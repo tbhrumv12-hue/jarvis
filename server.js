@@ -15,6 +15,9 @@
  * - Nutrition Analyzer (JSON)
  * - Research Chat (AI Analyst)
  * - Mega Prompt Generator
+ * - Streaming Answers (SSE) for /api/ask
+ * - Function Calling — /api/ask decides on its own when to run a tool
+ *   (browser search, YouTube, personal knowledge, training data)
  * - Full Metrics & Monitoring
  */
 
@@ -32,6 +35,16 @@ const cors = require('cors');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
+
+// Local module — Gemini function declarations + the tool executor (pure, dependency-injected).
+const {
+    ASK_TOOL_DECLARATIONS,
+    askToolLabel,
+    buildAskToolsPayload,
+    parseBrowserResults,
+    runAskTool,
+    toFunctionResponse,
+} = require('./ask-tools');
 
 // === Keep-alive (Render Free dyno) ===
 // woke-dyno נשלח כ-ESM בלבד ("type": "module"), לכן require() מחזיר namespace
@@ -132,6 +145,21 @@ const CONFIG = {
     askCacheMaxEntries: Number(process.env.ASK_CACHE_MAX_ENTRIES) || 100,
     askCacheMinQueryLength: Number(process.env.ASK_CACHE_MIN_QUERY_LENGTH) || 8,
     askCacheRequireEmptyHistory: process.env.ASK_CACHE_ALLOW_HISTORY !== '1',
+
+    // --- ASK streaming (SSE) ---
+    askStreamEnabled: process.env.ASK_STREAM_DISABLED !== '1',
+    askStreamHeartbeatMs: Number(process.env.ASK_STREAM_HEARTBEAT_MS) || 10000,
+
+    // --- ASK function calling (tools) ---
+    // When on, /api/ask ships functionDeclarations and the model decides by itself whether to run
+    // a tool before it answers. ASK_TOOLS_DISABLED=1 restores the plain "one call, one answer" path.
+    askToolsEnabled: process.env.ASK_TOOLS_DISABLED !== '1',
+    // Tool rounds allowed before the final, tool-free call that forces a text answer.
+    askToolsMaxRounds: Number(process.env.ASK_TOOLS_MAX_ROUNDS) || 3,
+    // Wall-clock budget for the whole tool loop (all rounds and all tools together).
+    askToolsBudgetMs: Number(process.env.ASK_TOOLS_BUDGET_MS) || 100000,
+    // One tool execution may not outlive this — the browser tool launches a real Chrome.
+    askToolTimeoutMs: Number(process.env.ASK_TOOL_TIMEOUT_MS) || 30000,
 };
 
 // ==============================
@@ -307,6 +335,9 @@ const metrics = {
     totalPapersFetched: 0,
     totalAskCacheHits: 0,
     totalAskCacheMisses: 0,
+    totalAskStreamRequests: 0,
+    totalAskToolCalls: 0,
+    totalAskToolErrors: 0,
     lastLatencyMs: 0,
     avgLatencyMs: 0,
     lastErrorAt: null,
@@ -845,6 +876,147 @@ function buildConversationContents(history, newUserQuery) {
 // 13. GEMINI API — CORE CALLS
 // ==============================
 
+// ── Streaming transport ──
+// `streamGenerateContent?alt=sse` answers with one `data: {json}` frame per chunk, and the
+// frame payload has exactly the same candidates/parts shape as a full generateContent body.
+
+// Extracts the visible text of one streamed frame, skipping "thinking" parts.
+function extractStreamText(payload) {
+    const parts = payload?.candidates?.[0]?.content?.parts;
+    if (!Array.isArray(parts)) return '';
+
+    return parts
+        .filter((part) => part && part.thought !== true && typeof part.text === 'string')
+        .map((part) => part.text)
+        .join('');
+}
+
+// Parses a single SSE frame into its JSON payload (null for comments, empty frames and junk).
+function parseGeminiSsePayload(frame) {
+    const dataLines = [];
+
+    for (const line of frame.split(/\r?\n/)) {
+        if (!line.startsWith('data:')) continue;
+        dataLines.push(line.slice('data:'.length).trim());
+    }
+
+    if (!dataLines.length) return null;
+
+    const raw = dataLines.join('\n');
+    if (raw === '' || raw === '[DONE]') return null;
+
+    try {
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Raw `functionCall` parts of one streamed frame.
+ *
+ * The whole part is kept (not just `functionCall`) because Gemini may attach a
+ * `thoughtSignature` to it, and that signature has to travel back in the model turn.
+ */
+function extractStreamToolParts(payload) {
+    const parts = payload?.candidates?.[0]?.content?.parts;
+    if (!Array.isArray(parts)) return [];
+
+    return parts.filter((part) => part && part.functionCall && typeof part.functionCall.name === 'string');
+}
+
+/**
+ * One streaming attempt against a single Gemini model.
+ *
+ * Resolves with `{ ok: true, text, toolParts }` when the stream finished, or with
+ * `{ ok: false, response, data }` for an HTTP-level failure so the caller can reuse the regular
+ * 429 / 503 / 404 / thinkingConfig error classification. Network errors, timeouts and broken
+ * streams throw and are handled by the caller's retry loop.
+ *
+ * `timeoutMs` covers the whole stream, not just the response headers: a silent connection is
+ * aborted instead of hanging until the client gives up. `abortSignal` forwards a client
+ * disconnect, so abandoned answers stop consuming quota.
+ */
+async function streamGeminiAttempt({ url, body, timeoutMs, onDelta, abortSignal = null }) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const forwardAbort = () => controller.abort();
+
+    if (abortSignal) {
+        if (abortSignal.aborted) forwardAbort();
+        else abortSignal.addEventListener('abort', forwardAbort, { once: true });
+    }
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'text/event-stream',
+            },
+            body,
+            signal: controller.signal,
+        });
+
+        if (!response.ok) {
+            let data = null;
+            try {
+                data = await response.json();
+            } catch {
+                data = { error: { message: `HTTP ${response.status}` } };
+            }
+            return { ok: false, response, data };
+        }
+
+        if (!response.body) throw new GeminiError('מבנה הנתונים אינו תקין', 502);
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let text = '';
+        // functionCall parts never carry visible text — they are collected for the caller.
+        const toolParts = [];
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+
+            // Frames end with a blank line; the trailing partial frame stays in the buffer.
+            let boundary = buffer.search(/\r?\n\r?\n/);
+            while (boundary !== -1) {
+                const frame = buffer.slice(0, boundary);
+                buffer = buffer.slice(boundary + (buffer[boundary] === '\r' ? 4 : 2));
+
+                const payload = parseGeminiSsePayload(frame);
+                if (payload) {
+                    const delta = extractStreamText(payload);
+                    if (delta) {
+                        text += delta;
+                        onDelta(delta);
+                    }
+                    for (const part of extractStreamToolParts(payload)) toolParts.push(part);
+                }
+
+                boundary = buffer.search(/\r?\n\r?\n/);
+            }
+        }
+
+        return { ok: true, text, toolParts };
+    } finally {
+        clearTimeout(timer);
+        if (abortSignal) abortSignal.removeEventListener('abort', forwardAbort);
+    }
+}
+
+/**
+ * Core Gemini call — model ladder, retries, backoff, and both transports.
+ *
+ * `tools` (Gemini functionDeclarations wrapper) turns the call into a function-calling call: the
+ * result may then carry `functionCalls` and the `modelParts` to echo back after the tools ran.
+ * `onDelta` switches the transport to SSE and streams the visible text as it arrives.
+ */
 async function callGemini({
     systemInstruction,
     contents,
@@ -854,14 +1026,23 @@ async function callGemini({
     retries = CONFIG.defaultRetries,
     thinkingBudget = null,
     deadlineMs = CONFIG.geminiTimeoutCeilingMs,
+    tools = null,
+    onDelta = null,
+    abortSignal = null,
 }) {
     const fallback = require('./gemini-fallback');
     const modelsToTry = fallback.getFallbackModels(CONFIG.geminiModel);
     const hasThinkingConfig = thinkingBudget !== null;
+    const toolsPayload = Array.isArray(tools) && tools.length ? { tools } : {};
+
+    // Passing an onDelta callback switches this call to the SSE transport. Everything else —
+    // model ladder, retries, backoff, error classification — stays shared with the JSON path.
+    const streaming = typeof onDelta === 'function';
 
     const buildBody = (includeThinkingConfig) => JSON.stringify({
         systemInstruction: { parts: [{ text: systemInstruction }] },
         contents,
+        ...toolsPayload,
         generationConfig: {
             temperature,
             maxOutputTokens,
@@ -873,6 +1054,8 @@ async function callGemini({
     const coreStart = Date.now();
     const deadlineAt = deadlineMs !== null ? coreStart + deadlineMs : null;
     const attemptsLog = [];
+    // Characters already delivered to the client — retrying after this point would duplicate them.
+    let streamedChars = 0;
 
     const remainingMs = () => (deadlineAt === null ? Infinity : deadlineAt - Date.now());
 
@@ -894,7 +1077,9 @@ async function callGemini({
 
     for (let modelIdx = 0; modelIdx < modelsToTry.length; modelIdx++) {
         const currentModel = modelsToTry[modelIdx];
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${CONFIG.geminiApiKey}`;
+        const url = streaming
+            ? `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:streamGenerateContent?alt=sse&key=${CONFIG.geminiApiKey}`
+            : `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${CONFIG.geminiApiKey}`;
 
         assertWithinDeadline(currentModel, 'model call');
 
@@ -910,29 +1095,88 @@ async function callGemini({
             const attemptTimeoutMs = Math.min(timeoutMs, Math.max(1000, remainingMs()));
 
             try {
-                const response = await fetchWithTimeout(
-                    url,
-                    {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                let response;
+                let data;
+
+                if (streaming) {
+                    const streamResult = await streamGeminiAttempt({
+                        url,
                         body,
-                    },
-                    attemptTimeoutMs
-                );
+                        timeoutMs: attemptTimeoutMs,
+                        abortSignal,
+                        onDelta: (delta) => {
+                            streamedChars += delta.length;
+                            onDelta(delta);
+                        },
+                    });
 
-                const data = await response.json();
+                    if (streamResult.ok) {
+                        const reply = streamResult.text.trim();
+                        const toolParts = Array.isArray(streamResult.toolParts) ? streamResult.toolParts : [];
+                        const functionCalls = toolParts.map((part) => part.functionCall);
+                        // A tool request is a valid, text-free answer — only a truly empty one is not.
+                        if (!reply && !functionCalls.length) throw new GeminiError('מבנה הנתונים אינו תקין', 502);
 
-                // ── Success ──
-                if (!data.error) {
-                    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-                    if (reply) {
                         if (modelIdx > 0) {
                             log('info', `Gemini fallback SUCCESS on model: ${currentModel}`, {
                                 attempts: attemptsLog,
                             });
                         }
                         return {
-                            reply: reply.trim(),
+                            reply,
+                            functionCalls,
+                            // The model turn has to repeat the model's own parts verbatim (text and any
+                            // thoughtSignature inside a functionCall part), or the next round is rejected.
+                            modelParts: [
+                                ...(streamResult.text ? [{ text: streamResult.text }] : []),
+                                ...toolParts,
+                            ],
+                            coreLatencyMs: Date.now() - coreStart,
+                            attempts: attempt + 1,
+                            modelUsed: currentModel,
+                            streamed: true,
+                        };
+                    }
+
+                    // HTTP-level failure (429 / 503 / 404 …) — same classification as the JSON path.
+                    response = streamResult.response;
+                    data = streamResult.data;
+                } else {
+                    response = await fetchWithTimeout(
+                        url,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body,
+                        },
+                        attemptTimeoutMs
+                    );
+
+                    data = await response.json();
+                }
+
+                // ── Success ──
+                if (!data.error) {
+                    const content = data?.candidates?.[0]?.content;
+                    const parts = Array.isArray(content?.parts) ? content.parts : [];
+                    const reply = parts
+                        .filter((part) => part && part.thought !== true && typeof part.text === 'string')
+                        .map((part) => part.text)
+                        .join('')
+                        .trim();
+                    const toolParts = parts.filter((part) => part && part.functionCall && part.functionCall.name);
+
+                    // A tool request carries no text: the caller runs it and asks the model again.
+                    if (reply || toolParts.length) {
+                        if (modelIdx > 0) {
+                            log('info', `Gemini fallback SUCCESS on model: ${currentModel}`, {
+                                attempts: attemptsLog,
+                            });
+                        }
+                        return {
+                            reply,
+                            functionCalls: toolParts.map((part) => part.functionCall),
+                            modelParts: parts.length ? parts : [{ text: reply }],
                             coreLatencyMs: Date.now() - coreStart,
                             attempts: attempt + 1,
                             modelUsed: currentModel,
@@ -1018,6 +1262,17 @@ async function callGemini({
                 break;
 
             } catch (error) {
+                // Text is already on the wire — retrying or falling back would duplicate what the
+                // client has rendered, so surface the failure with its partial output flag.
+                if (streamedChars > 0) {
+                    const partialError = error instanceof GeminiError
+                        ? error
+                        : new GeminiError('תקלת תקשורת זמנית', 502, error.message);
+                    partialError.partial = true;
+                    attemptsLog.push({ model: currentModel, reason: 'partial', msg: partialError.message });
+                    throw partialError;
+                }
+
                 if (error instanceof GeminiError) {
                     lastError = error;
                 } else if (error.name === 'AbortError') {
@@ -1042,7 +1297,22 @@ async function callGemini({
     throw lastError || new GeminiError('כל המודלים עמוסים כרגע — נסה שוב בעוד דקה', 503);
 }
 
-async function callGeminiWithRetry(userQuery, knowledgeContext = '', history = [], retries = CONFIG.defaultRetries) {
+/**
+ * Chat completion used by /api/ask — with function calling.
+ *
+ * The model decides on its own whether it needs a tool. When it asks for one, the tool runs, its
+ * result is appended to the conversation as a `functionResponse`, and the model is asked again.
+ * The last allowed round always runs *without* tools, so the answer is always text.
+ *
+ * `streamOptions` is optional:
+ *   - `onDelta(delta)`    receives every text fragment as soon as Gemini produces it (SSE transport).
+ *   - `onToolCall(info)`  { name, label, status: 'running'|'done'|'error', summary, ms }.
+ *   - `abortSignal`       stops the upstream request when the client disconnects.
+ *   - `useTools: false`   opts this call out of tools entirely.
+ * Without it the call behaves exactly as before and resolves with the whole answer.
+ */
+async function callGeminiWithRetry(userQuery, knowledgeContext = '', history = [], retries = CONFIG.defaultRetries, streamOptions = null) {
+    const options = streamOptions || {};
     let systemText;
     if (knowledgeContext) {
         systemText = `${KNOWLEDGE_SYSTEM_PROMPT}\n\n${knowledgeContext}`;
@@ -1050,16 +1320,110 @@ async function callGeminiWithRetry(userQuery, knowledgeContext = '', history = [
         systemText = SYSTEM_PROMPT;
     }
 
-    const contents = buildConversationContents(history, userQuery);
+    let contents = buildConversationContents(history, userQuery);
 
-    return callGemini({
-        systemInstruction: systemText,
-        contents,
-        temperature: 0.7,
-        maxOutputTokens: 2048,
-        timeoutMs: CONFIG.geminiTimeoutMs,
-        retries,
-    });
+    const toolsAllowed = CONFIG.askToolsEnabled && options.useTools !== false;
+    const maxToolRounds = toolsAllowed ? Math.max(0, CONFIG.askToolsMaxRounds) : 0;
+    // One budget for the whole loop: rounds, tools and retries all draw from it.
+    const budgetAt = Date.now() + CONFIG.askToolsBudgetMs;
+
+    let attempts = 0;
+    const toolsUsed = [];
+    // Once the tool rounds are spent the model is told, in plain words, that it has to answer.
+    let forceAnswer = false;
+
+    for (let round = 0; ; round++) {
+        // The last allowed round runs without tools, which pushes the model into a text answer.
+        const withTools = !forceAnswer && round < maxToolRounds;
+
+        const result = await callGemini({
+            systemInstruction: systemText,
+            contents,
+            temperature: 0.7,
+            maxOutputTokens: 2048,
+            timeoutMs: CONFIG.geminiTimeoutMs,
+            retries,
+            tools: withTools ? buildAskToolsPayload() : null,
+            deadlineMs: Math.max(1000, Math.min(CONFIG.geminiTimeoutCeilingMs, budgetAt - Date.now())),
+            onDelta: options.onDelta || null,
+            abortSignal: options.abortSignal || null,
+        });
+
+        attempts += result.attempts || 1;
+        const functionCalls = Array.isArray(result.functionCalls) ? result.functionCalls : [];
+
+        if (!functionCalls.length) {
+            return { ...result, attempts, toolsUsed };
+        }
+
+        if (!withTools) {
+            // Tools were not even offered and the model still shaped a call: answer with what we have.
+            return {
+                ...result,
+                reply: result.reply
+                    || 'אדוני, המידע שאספתי לא הספיק כדי לענות על זה בוודאות. נסח את הבקשה שוב, או ציין מה בדיוק לחפש.',
+                attempts,
+                toolsUsed,
+            };
+        }
+
+        // ── Tool round ──
+        const responseParts = [];
+        for (const call of functionCalls) {
+            const label = askToolLabel(call.name);
+            if (options.onToolCall) {
+                options.onToolCall({ name: call.name, label, status: 'running', args: call.args || {} });
+            }
+
+            metrics.totalAskToolCalls += 1;
+            const outcome = await runAskTool(call, getAskToolDeps());
+            if (!outcome.ok) metrics.totalAskToolErrors += 1;
+
+            toolsUsed.push({ name: call.name, ok: outcome.ok, ms: outcome.ms });
+            log('info', `[AskTool] ${call.name} → ${outcome.ok ? 'ok' : 'failed'} (${outcome.ms}ms)`);
+
+            if (options.onToolCall) {
+                options.onToolCall({
+                    name: call.name,
+                    label,
+                    status: outcome.ok ? 'done' : 'error',
+                    summary: outcome.summary,
+                    ms: outcome.ms,
+                });
+            }
+
+            responseParts.push(toFunctionResponse(outcome));
+        }
+
+        contents = [
+            ...contents,
+            {
+                role: 'model',
+                parts: result.modelParts && result.modelParts.length ? result.modelParts : [{ text: result.reply }],
+            },
+            { role: 'user', parts: responseParts },
+        ];
+
+        if (Date.now() >= budgetAt) {
+            log('warn', `[AskTool] budget exhausted after ${toolsUsed.length} tool call(s)`);
+            throw new GeminiError('הכלים דרשו יותר מדי זמן. נסה שוב.', 504);
+        }
+
+        // Out of tool rounds: ask for the answer explicitly, so the next round cannot stall again.
+        if (round + 1 >= maxToolRounds) {
+            forceAnswer = true;
+            contents = [
+                ...contents,
+                {
+                    role: 'user',
+                    parts: [{
+                        text: 'לא נותרו קריאות לכלים בסבב הזה. ענה עכשיו על השאלה המקורית מהמידע שכבר נאסף, '
+                            + 'או אמור בפה מלא שאין לך את הנתון.',
+                    }],
+                },
+            ];
+        }
+    }
 }
 
 // ==============================
@@ -2853,6 +3217,10 @@ app.get('/api/health', (req, res) => {
             totalPapersFetched: metrics.totalPapersFetched,
             totalRateLimitHits: metrics.totalRateLimitHits,
             totalHighDemandHits: metrics.totalHighDemandHits,
+            totalAskStreamRequests: metrics.totalAskStreamRequests,
+            totalAskToolCalls: metrics.totalAskToolCalls,
+            totalAskToolErrors: metrics.totalAskToolErrors,
+            tools: ASK_TOOL_DECLARATIONS.map((tool) => tool.name),
             knowledgeFiles: knowledge.files.size,
             knowledgeChunks: knowledge.chunks.length,
             knowledgeVocab: knowledge.vocab.size,
@@ -2876,6 +3244,9 @@ app.get('/api/metrics', (req, res) => {
             avgLatencyMs: metrics.avgLatencyMs,
             totalRequests: metrics.totalRequests,
             totalErrors: metrics.totalErrors,
+            totalAskStreamRequests: metrics.totalAskStreamRequests,
+            totalAskToolCalls: metrics.totalAskToolCalls,
+            totalAskToolErrors: metrics.totalAskToolErrors,
             knowledgeFiles: knowledge.files.size,
             knowledgeChunks: knowledge.chunks.length,
             perSourceHits: metrics.perSourceHits,
@@ -3099,12 +3470,183 @@ function askCacheInfo() {
 }
 
 // ==============================
+// 36.6. ASK — SERVER-SENT EVENTS
+// ==============================
+
+// Clients opt into streaming explicitly (`stream: true` in the body or `?stream=1`) or by
+// accepting text/event-stream. Every other caller keeps the original single-JSON response.
+function clientWantsStream(req) {
+    if (!CONFIG.askStreamEnabled) return false;
+    if (req.body && req.body.stream === true) return true;
+    if (req.query && (req.query.stream === '1' || req.query.stream === 'true')) return true;
+
+    const accept = String(req.get('accept') || '');
+    return accept.includes('text/event-stream');
+}
+
+/**
+ * Opens an SSE channel and returns a writer for it.
+ *
+ * Events written by /api/ask:
+ *   meta   — { historyUsed, knowledgeUsed, knowledgeChunks, knowledgeSources }
+ *   tool   — { name, label, status: 'running'|'done'|'error', args?, summary?, ms? }
+ *            one pair of frames per function call the model decided to make
+ *   delta  — { text }   one or more text fragments, in order
+ *   done   — the full JSON payload the non-streaming endpoint returns (incl. `reply`, `toolsUsed`)
+ *   error  — { reply, partial, status }  `partial` is true when text was already delivered
+ *
+ * Comment frames (`: ping`) are emitted while Gemini is still thinking so proxies and browsers
+ * do not mistake an idle connection for a dead one.
+ */
+function createAskStream(res) {
+    const state = { closed: false, ended: false, heartbeat: null };
+
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    // Tells nginx/Render not to buffer the response — without it the answer arrives in one burst.
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+    res.on('close', () => {
+        state.closed = true;
+        if (state.heartbeat) clearInterval(state.heartbeat);
+    });
+
+    state.heartbeat = setInterval(() => {
+        if (state.closed || state.ended) return;
+        try {
+            res.write(': ping\n\n');
+            if (typeof res.flush === 'function') res.flush();
+        } catch {
+            state.closed = true;
+        }
+    }, CONFIG.askStreamHeartbeatMs);
+    if (typeof state.heartbeat.unref === 'function') state.heartbeat.unref();
+
+    state.send = (event, payload) => {
+        if (state.closed || state.ended) return false;
+        try {
+            res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+            // compression() holds small writes back until its buffer fills — flush per event.
+            if (typeof res.flush === 'function') res.flush();
+            return true;
+        } catch (err) {
+            log('warn', `[AskStream] write failed: ${err.message}`);
+            state.closed = true;
+            return false;
+        }
+    };
+
+    state.end = () => {
+        if (state.ended) return;
+        state.ended = true;
+        if (state.heartbeat) clearInterval(state.heartbeat);
+        if (!state.closed) {
+            try {
+                res.end();
+            } catch {
+                /* socket already gone */
+            }
+        }
+    };
+
+    return state;
+}
+
+// ==============================
+// 36.7. ASK — TOOLS (FUNCTION CALLING)
+// ==============================
+
+/**
+ * Runs browser.js (real Chrome via Playwright) for the `web_search` tool and parses its stdout.
+ *
+ * execFile rather than exec: the query is written by the model, so it must never reach a shell.
+ * A timeout or a crash resolves with whatever was printed — the model still gets to answer.
+ */
+function browseWithChrome(query, timeoutMs = CONFIG.askToolTimeoutMs) {
+    const { execFile } = require('child_process');
+    const scriptPath = path.join(__dirname, 'browser.js');
+
+    return new Promise((resolve, reject) => {
+        execFile(
+            process.execPath,
+            [scriptPath, query],
+            { timeout: timeoutMs, windowsHide: true, maxBuffer: 2 * 1024 * 1024 },
+            (err, stdout) => {
+                if (err && !stdout) return reject(err);
+                resolve(parseBrowserResults(stdout));
+            }
+        );
+    });
+}
+
+// Training/fitness chunks of the knowledge base (knowledge/training.txt, fitness.txt …).
+// A query filters them; without a match — or without a query — the freshest chunks are returned.
+function trainingKnowledgeChunks(query = '', limit = 4) {
+    const isTrainingSource = (source) => /train|fit|workout/i.test(String(source || ''));
+    const all = knowledge.chunks.filter((chunk) => isTrainingSource(chunk.source));
+    if (!all.length) return [];
+
+    const matched = query
+        ? searchKnowledge(query).filter((chunk) => isTrainingSource(chunk.source))
+        : [];
+
+    return (matched.length ? matched : all).slice(0, limit);
+}
+
+/**
+ * The capabilities handed to ask-tools.js.
+ *
+ * Kept in one place so the tool layer stays dependency-free (and unit-testable) while every real
+ * connection to the rest of the server — knowledge base, YouTube, Chrome — lives here.
+ */
+function getAskToolDeps() {
+    return {
+        browse: (query) => browseWithChrome(query),
+        youtube: (query, max) => searchYouTubeVideos(query, max),
+        knowledge: (query) => searchKnowledge(query),
+        training: (query) => trainingKnowledgeChunks(query),
+    };
+}
+
+// ==============================
 // 37. ROUTES — ASK
 // ==============================
 
 app.post('/api/ask', apiRateLimiter, async (req, res, next) => {
     const requestStart = Date.now();
     metrics.totalRequests += 1;
+
+    // Streaming is opt-in (see clientWantsStream) — the JSON contract stays the default.
+    const streaming = clientWantsStream(req);
+    const clientAbort = new AbortController();
+    let sse = null;
+    // Set once the model's own deltas have reached the client, so the final payload does not
+    // re-send text that is already on screen.
+    let answerStreamed = false;
+
+    if (streaming) {
+        metrics.totalAskStreamRequests += 1;
+        // The browser tab went away mid-answer — stop paying for tokens we cannot deliver.
+        res.on('close', () => {
+            if (!res.writableEnded) clientAbort.abort();
+        });
+    }
+
+    // Single exit point for every "here is the answer" case: SSE frames, or one JSON body.
+    const sendReply = (payload, status = 200) => {
+        if (!streaming) return res.status(status).json(payload);
+
+        if (!sse) sse = createAskStream(res);
+        if (!answerStreamed && typeof payload.reply === 'string' && payload.reply) {
+            sse.send('delta', { text: payload.reply });
+        }
+        sse.send('done', { ...payload, streamed: true });
+        sse.end();
+        return undefined;
+    };
 
     try {
         const rawQuery = req.body?.prompt;
@@ -3139,7 +3681,7 @@ if (isSearchRequest) {
     });
     
     if (searchQuery.length < 2) {
-        return res.json({ reply: 'אדוני, אנא ספק מילת חיפוש מדויקת יותר.' });
+        return sendReply({ reply: 'אדוני, אנא ספק מילת חיפוש מדויקת יותר.' });
     }
 
     // --- חיפוש וידאו ב-YouTube (במקום DuckDuckGo) ---
@@ -3155,18 +3697,18 @@ if (isSearchRequest) {
         log('info', `[Ask] Detected video search: "${videoQuery}"`);
 
         if (videoQuery.length < 2) {
-            return res.json({ reply: 'אדוני, על איזה נושא לחפש סרטון?' });
+            return sendReply({ reply: 'אדוני, על איזה נושא לחפש סרטון?' });
         }
 
         if (!CONFIG.youtubeApiKey) {
             recordError('Missing YouTube API key');
-            return res.status(500).json({ reply: 'אדוני, מפתח YouTube API לא מוגדר בשרת.' });
+            return sendReply({ reply: 'אדוני, מפתח YouTube API לא מוגדר בשרת.' }, 500);
         }
 
         const videos = await searchYouTubeVideos(videoQuery, 5);
 
         if (!videos.length) {
-            return res.json({ reply: 'אדוני, לא נמצאו סרטונים מתאימים ב-YouTube. נסה ניסוח אחר.' });
+            return sendReply({ reply: 'אדוני, לא נמצאו סרטונים מתאימים ב-YouTube. נסה ניסוח אחר.' });
         }
 
         const formatted = videos.map((v, i) => {
@@ -3175,7 +3717,7 @@ if (isSearchRequest) {
             return `${i + 1}. [${v.title}](${v.url})\n${meta}`;
         }).join('\n\n');
 
-        return res.json({
+        return sendReply({
             reply: `אדוני, הנה הסרטונים שמצאתי ב-YouTube:\n\n${formatted}`,
             videos,
         });
@@ -3183,41 +3725,20 @@ if (isSearchRequest) {
 
     
     try {
-        const { exec } = require('child_process');
-        const results = await new Promise((resolve, reject) => {
-            exec(`node browser.js "${searchQuery}"`, { timeout: 30000 }, (err, stdout, stderr) => {
-                if (err) return reject(err);
-                const lines = stdout.split('\n');
-                const parsed = [];
-                let current = null;
-                for (const line of lines) {
-                    const match = line.match(/^(\d+)\.\s+(.+)$/);
-                    if (match) {
-                        if (current) parsed.push(current);
-                        current = { title: match[2].trim(), url: '', snippet: '' };
-                    } else if (current && line.trim().startsWith('http')) {
-                        current.url = line.trim();
-                    } else if (current && line.trim() && !line.includes('[Browser]')) {
-                        current.snippet += line.trim() + ' ';
-                    }
-                }
-                if (current) parsed.push(current);
-                resolve(parsed);
-            });
-        });
+        const results = await browseWithChrome(searchQuery);
         
         if (results.length === 0) {
-            return res.json({ reply: 'אדוני, לא מצאתי תוצאות. נסה ניסוח אחר.' });
+            return sendReply({ reply: 'אדוני, לא מצאתי תוצאות. נסה ניסוח אחר.' });
         }
         
         const formatted = results.slice(0, 5).map((r, i) => 
             `${i + 1}. ${r.title}\n${r.url}\n${r.snippet}`
         ).join('\n\n');
         
-        return res.json({ reply: `אדוני, הנה מה שמצאתי:\n\n${formatted}` });
+        return sendReply({ reply: `אדוני, הנה מה שמצאתי:\n\n${formatted}` });
     } catch (err) {
         log('error', '[Ask] Search failed:', err.message);
-        return res.json({ reply: 'אדוני, החיפוש נכשל. נסה שוב.' });
+        return sendReply({ reply: 'אדוני, החיפוש נכשל. נסה שוב.' });
     }
 }
         const history = sanitizeHistory(rawHistory);
@@ -3232,7 +3753,7 @@ if (isSearchRequest) {
             metrics.totalSuccess += 1;
             const cacheAgeMs = Date.now() - askCached.storedAt;
             log('info', `[AskCache] HIT — age ${Math.round(cacheAgeMs / 1000)}s, saved ~${askCached.latencyMs}ms`);
-            return res.json({
+            return sendReply({
                 reply: askCached.reply,
                 latencyMs: 0,
                 roundTripMs: Date.now() - requestStart,
@@ -3258,17 +3779,45 @@ if (isSearchRequest) {
             log('info', `Knowledge hit — ${matchedChunks.length} chunks`);
         }
 
-        const { reply, coreLatencyMs, attempts } = await callGeminiWithRetry(
+        if (streaming) {
+            sse = createAskStream(res);
+            sse.send('meta', {
+                historyUsed: history.length,
+                knowledgeUsed: matchedChunks.length > 0,
+                knowledgeChunks: matchedChunks.length,
+                knowledgeSources: [...new Set(matchedChunks.map((c) => c.source))],
+            });
+        }
+
+        // The model is always offered the tools — it decides on its own whether it needs one.
+        // Streaming only changes how the deltas and the tool activity reach the client.
+        const { reply, coreLatencyMs, attempts, toolsUsed = [] } = await callGeminiWithRetry(
             userQuery,
             knowledgeContext,
-            history
+            history,
+            CONFIG.defaultRetries,
+            {
+                onDelta: streaming
+                    ? (delta) => {
+                        answerStreamed = true;
+                        sse.send('delta', { text: delta });
+                    }
+                    : null,
+                abortSignal: streaming ? clientAbort.signal : null,
+                onToolCall: streaming
+                    ? (info) => {
+                        if (sse) sse.send('tool', info);
+                    }
+                    : null,
+            }
         );
 
         const totalRoundTripMs = Date.now() - requestStart;
         metrics.totalSuccess += 1;
         recordLatency(coreLatencyMs);
 
-        if (askCacheKey) {
+        // Answers built on live tool data are never cached — they would go stale immediately.
+        if (askCacheKey && !toolsUsed.length) {
             askCacheSet(askCacheKey, {
                 reply,
                 latencyMs: coreLatencyMs,
@@ -3279,11 +3828,12 @@ if (isSearchRequest) {
             });
         }
 
-        return res.json({
+        return sendReply({
             reply,
             latencyMs: coreLatencyMs,
             roundTripMs: totalRoundTripMs,
             attempts,
+            toolsUsed,
             historyUsed: history.length,
             knowledgeUsed: matchedChunks.length > 0,
             knowledgeChunks: matchedChunks.length,
@@ -3291,6 +3841,33 @@ if (isSearchRequest) {
             timestamp: new Date().toISOString(),
         });
     } catch (error) {
+        // An open SSE channel has already sent its 200 status, so next(error) could no longer set
+        // one — report the failure as a final `error` event instead.
+        if (streaming) {
+            const clientGone = clientAbort.signal.aborted || res.writableEnded;
+
+            if (!clientGone) {
+                const message = error instanceof GeminiError
+                    ? error.message
+                    : 'אירעה תקלה בלתי צפויה במערכת.';
+                recordError(message);
+                log('error', `[Ask][stream] ${message}`);
+
+                if (!sse) sse = createAskStream(res);
+                sse.send('error', {
+                    reply: `אדון, ${message}`,
+                    partial: error.partial === true,
+                    status: error instanceof GeminiError ? error.statusCode : 500,
+                });
+                sse.end();
+            } else if (sse) {
+                log('warn', '[Ask][stream] client disconnected before the answer was complete');
+                sse.end();
+            }
+
+            return;
+        }
+
         next(error);
     }
 });

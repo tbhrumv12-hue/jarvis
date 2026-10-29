@@ -1,7 +1,11 @@
 # PROJECT MAP — J.A.R.V.I.S
 
 > מסמך מיפוי בלבד (ללא קוד). נבנה מקריאה ישירה של הקוד בריפו.
-> בסיס: `server.js` — 5,053 שורות, Express 5, CommonJS (`"type": "commonjs"`), נקודת כניסה `node server.js` (`npm start`).
+> בסיס: `server.js` — 5,630 שורות, Express 5, CommonJS (`"type": "commonjs"`), נקודת כניסה `node server.js` (`npm start`).
+>
+> **רוענן ב-2026-10-28** אחרי הוספת סטרימינג (SSE) ו-Function Calling ל-`/api/ask`: מספרי השורות של
+> נתיב ה-ask, פונקציות העזר שלו, `/api/health`, `/api/metrics`, ה-rate limiters ו-`ask-tools.js`
+> נבדקו מחדש מול הגרסה הזו. שורות של נתיבים ופונקציות אחרים טרם רועננו — ראו ההערה בסוף §1.
 
 ---
 
@@ -18,13 +22,13 @@
 | 7 | `app.use(express.static)` | 2514–2518 | — | הגשת `public/` עם `index:false`, `maxAge:'1h'`, ETag | כל הדפים |
 | 10 | `GET /` | 2667–2669 | — | מגיש `public/landing.html` | דפדפן |
 | 11 | `GET /app` | 2671–2673 | — | מגיש `public/index.html` (האפליקציה הראשית) | דפדפן |
-| 12 | `GET /api/health` | 2680–2713 | — | status, uptime, model, מוני metrics, גודל אינדקס הידע | — |
-| 13 | `GET /api/metrics` | 2715–2734 | — | מטריקות מצומצמות + `perSourceHits` | `app.js:637` |
+| 12 | `GET /api/health` | 3196–3234 | — | status, uptime, model, מוני metrics (כולל `totalAskToolCalls`/`totalAskToolErrors`), רשימת הכלים (`tools`), גודל אינדקס הידע, מצב ה-cache | — |
+| 13 | `GET /api/metrics` | 3236–3259 | — | מטריקות מצומצמות + `perSourceHits` + מוני סטרימינג/כלים | `app.js:637` |
 | 14 | `GET /api/knowledge` | 2740–2765 | — | מחזיר רשימת קבצי ידע + צ'אנקים/תווים | — |
 | 15 | `POST /api/knowledge/upload` | 2767–2802 | — | מקבל `{name, content}`, שומר `.txt/.md` בתיקיית `knowledge/`, טוען מחדש את האינדקס | — |
 | 16 | `DELETE /api/knowledge/:name` | 2804–2837 | — | מוחק קובץ ידע (עם הגנת path traversal) וטוען מחדש | — |
 | 17 | `POST /api/knowledge/reload` | 2839–2851 | — | בונה מחדש את אינדקס ה-BM25 מהדיסק וה-ENV | — |
-| 18 | `POST /api/ask` | 2857–3011 | `apiRateLimiter` | הצ'אט הראשי: history + זיהוי "חפש/מצא" (YouTube או `browser.js`), BM25 על הידע, ואז Gemini | `app.js:1364` |
+| 18 | `POST /api/ask` | 3618–3873 | `apiRateLimiter` | הצ'אט הראשי: ולידציה → ניתוב "חפש/מצא" הישן, BM25 על הידע, ואז Gemini עם Function Calling — JSON יחיד או זרם SSE (`meta`/`tool`/`delta`/`done`/`error`) | `app.js:1703` |
 | 20 | `POST /api/vision` | 3236–3275 | `visionRateLimiter` | תמונה base64 → `callGeminiVision` → תיאור בעברית | `app.js:1283` |
 | 21 | `POST /api/youtube/fetch` | 3281–3350 | `apiRateLimiter` | שליפת סטטיסטיקות סרטון לפי ID/URL דרך YouTube Data API | `analytics.js:610` |
 | 22 | `POST /api/tiktok/fetch` | 3356–3437 | `apiRateLimiter` | שליפת מטא-דאטה של TikTok דרך oEmbed | `analytics.js:779` |
@@ -43,9 +47,13 @@
 | 35 | `app.use` error handler | 4716–4746 | — | ממיר `GeminiError` / `ResearchError` / `ValidationError` לתגובת JSON; 429 ייעודי למכסה | — |
 | 36 | `app.listen` | 4754–4764 | — | האזנה על `PORT` + לוג אתחול | — |
 
-> **הוסרו ב-2026-10-28 (ניקוי קוד מת):** `POST /api/browse`, `POST /api/browser/action`, `POST /api/analyze` — לשלושתם לא היה קורא בצד הלקוח. עמודת ה-`#` נשמרה כדי לא לשבור הפניות קיימות. ⚠️ מספרי השורות בטבלה שלמעלה **טרם רועננו** אחרי המחיקה (הם מתייחסים לגרסה שקדמה לה, וגם קודם לכן היו מיושנים) — רענון מלא של המסמך הוא משימה נפרדת.
+> **הוסרו ב-2026-10-28 (ניקוי קוד מת):** `POST /api/browse`, `POST /api/browser/action`, `POST /api/analyze` — לשלושתם לא היה קורא בצד הלקוח. עמודת ה-`#` נשמרה כדי לא לשבור הפניות קיימות.
+>
+> **סטטוס מספרי השורות:** שורות `/api/ask` (3618–3873), `/api/health`, `/api/metrics`, ה-rate limiters
+> ופונקציות ה-ask ב-§2 רועננו ב-2026-10-28 מול `server.js` בן 5,630 השורות. שאר השורות בטבלה מיושנות
+> (מתייחסות לגרסה מלפני המחיקה ומלפני ה-SSE/כלים) — רענון מלא של המסמך הוא משימה נפרדת.
 
-**Rate limiters** (מוגדרים 2486–2508): `apiRateLimiter` (ברירת מחדל 30/דקה), `visionRateLimiter` (15/דקה), `researchRateLimiter` (10/דקה).
+**Rate limiters** (מוגדרים 3149–3171): `apiRateLimiter` (ברירת מחדל 30/דקה), `visionRateLimiter` (15/דקה), `researchRateLimiter` (10/דקה).
 
 ---
 
@@ -114,6 +122,21 @@
 | `searchYouTubeVideos` | 4092 | חיפוש YouTube Data API + שליפת סטטיסטיקות. |
 | `shutdown` | 4772 | סגירה מסודרת עם timeout כפוי של 10s. |
 
+**נוסף ב-2026-10-28 (SSE + Function Calling):**
+
+| פונקציה | שורה | מה היא עושה (משפט אחד) |
+|---|---|---|
+| `clientWantsStream` | 3478 | מחליט אם הבקשה מבקשת SSE: `stream` בגוף, `?stream=1` או `Accept: text/event-stream`. |
+| `createAskStream` | 3501 | פותח ערוץ SSE ומחזיר writer עם `send`/`end`, heartbeat של `: ping` וסגירה ב-`close`. |
+| `browseWithChrome` | 3568 | מריץ `node browser.js "<query>"` דרך `execFile` (לא shell) ומחזיר תוצאות מפורסרות. |
+| `trainingKnowledgeChunks` | 3587 | מחזיר צ'אנקים ממקורות אימון/כושר, מסונן לפי שאילתה או לפי הטריים ביותר. |
+| `getAskToolDeps` | 3605 | מרכיב את היכולות שמוזרקות ל-`ask-tools.js`: `browse`, `youtube`, `knowledge`, `training`. |
+
+> `callGeminiWithRetry` (1314) הוא הזרוע של לולאת הכלים: הוא שולח `tools`, אוסף `functionCalls`,
+> מריץ כל כלי דרך `runAskTool` ומזרים `onDelta`/`onToolCall` ל-`/api/ask`. פונקציות שכבת הכלים
+> (`ASK_TOOL_SPECS`, `runAskTool`, `toFunctionResponse`, `parseBrowserResults`, `buildAskToolsPayload`)
+> יושבות ב-`ask-tools.js` (302 שורות) ולא ב-`server.js`.
+
 > פונקציות עזר נוספות ללא לוגיקה עסקית: `metrics` (257), `GeminiError`/`ResearchError`/`ValidationError` (319–348), אובייקט `knowledge` (511).
 
 ---
@@ -122,24 +145,24 @@
 
 | קבוע | שורות | בשימוש ב־ |
 |---|---|---|
-| `JARVIS_PERSONA` | 110–125 | בסיס ל-`SYSTEM_PROMPT` ול-`KNOWLEDGE_SYSTEM_PROMPT` |
-| `SYSTEM_PROMPT` | 127–155 | `/api/ask` ללא ידע (`callGeminiWithRetry`, 967) |
-| `VISION_SYSTEM_PROMPT` | 157 | `/api/vision` (`callGeminiVision`, 1233–1235) |
-| `KNOWLEDGE_SYSTEM_PROMPT` | 159–172 | `/api/ask` עם ידע (965) |
-| `ANALYTICS_SYSTEM_PROMPT` | 174–186 | `/api/analytics-chat` (3691) |
-| `TRANSLATION_SYSTEM_PROMPT` | 188–206 | `translateToEnglish` (1393) |
-| `NUTRITION_SYSTEM_PROMPT` | 208–216 | `/api/nutrition/analyze` (3822) |
-| `RESEARCH_CHAT_SYSTEM_PROMPT` | 218–230 | `/api/research-chat` במצב `papers` |
-| `RESEARCH_CHAT_HYBRID_SYSTEM_PROMPT` | 231–251 | `/api/research-chat` בכל מצב אחר |
-| `NUTRITION_COACH_SYSTEM_PROMPT` | 3859–3873 | `/api/nutrition/chat` (3948) |
-| `TRAINING_COACH_SYSTEM_PROMPT` | 3990–4008 | `/api/training/coach` (4049) |
-| `TRAINING_GENERATE_SYSTEM_PROMPT` | 4244–4378 | `/api/training/generate` (4414) |
-| `TRAINING_ANALYZE_SYSTEM_PROMPT` | 4565 | `/api/training/analyze` (4383) |
+| `JARVIS_PERSONA` | 171–186 | בסיס ל-`SYSTEM_PROMPT` (188) ול-`KNOWLEDGE_SYSTEM_PROMPT` (220), וגם ל-`TRAINING_ANALYZE_SYSTEM_PROMPT` (5143) |
+| `SYSTEM_PROMPT` | 188–216 | `/api/ask` ללא ידע (`callGeminiWithRetry`, 1318–1320) |
+| `VISION_SYSTEM_PROMPT` | 218 | `/api/vision` (`callGeminiVision`, 1853–1854) |
+| `KNOWLEDGE_SYSTEM_PROMPT` | 220–233 | `/api/ask` עם ידע (1318) |
+| `ANALYTICS_SYSTEM_PROMPT` | 235–247 | `/api/analytics-chat` (4384) |
+| `TRANSLATION_SYSTEM_PROMPT` | 249–267 | `translateToEnglish` (2012) |
+| `NUTRITION_SYSTEM_PROMPT` | 269–277 | `/api/nutrition/analyze` (4515) |
+| `RESEARCH_CHAT_SYSTEM_PROMPT` | 279–291 | `/api/research-chat` במצב `papers` (4285) |
+| `RESEARCH_CHAT_HYBRID_SYSTEM_PROMPT` | 292–312 | `/api/research-chat` בכל מצב אחר (4286) |
+| `NUTRITION_COACH_SYSTEM_PROMPT` | 4552–4566 | `/api/nutrition/chat` (4641) |
+| `TRAINING_COACH_SYSTEM_PROMPT` | 4683–4701 | `/api/training/coach` (4742) |
+| `TRAINING_GENERATE_SYSTEM_PROMPT` | 5002–5136 | `/api/training/generate` (5238) |
+| `TRAINING_ANALYZE_SYSTEM_PROMPT` | 5142–5190 | `/api/training/analyze` (4862, 4960) |
 
 בנוסף, פרומפטים קצרים מוטבעים (inline) ב-`systemInstruction`:
 - שורה 2434 — `אתה מדען-על. תן תשובות מדויקות, מבוססות ראיות, בעברית.` (ניתוח `/api/research`)
 
-### 3.1 `JARVIS_PERSONA` (110–125)
+### 3.1 `JARVIS_PERSONA` (171–186)
 
 ```text
 אתה J.A.R.V.I.S (Just A Rather Very Intelligent System) — מערכת בינה מלאכותית אישית, שנאמנותה נתונה למשתמש שמולך בלבד.
@@ -160,7 +183,7 @@
 8. **כבוד**: ענייני ומכבד. אף פעם לא מתנשא ולא ילדותי, גם כשהמשתמש טועה.
 ```
 
-### 3.2 `SYSTEM_PROMPT` (127–155) — PERSONA + כללי התנהגות
+### 3.2 `SYSTEM_PROMPT` (188–216) — PERSONA + כללי התנהגות
 
 ```text
 ${JARVIS_PERSONA}
@@ -194,13 +217,13 @@ ${JARVIS_PERSONA}
 ## שפה: עברית בלבד. תמיד.
 ```
 
-### 3.3 `VISION_SYSTEM_PROMPT` (157)
+### 3.3 `VISION_SYSTEM_PROMPT` (218)
 
 ```text
 אתה ג'רוויס (J.A.R.V.I.S), מערכת בינה מלאכותית עם חיישנים אופטיים. אתה מקבל תמונה מהמצלמה של המשתמש ומנתח אותה. תאר בקצרה, בצורה עניינית, בגוף ראשון, בעברית בלבד, מה אתה רואה. היה ספציפי לגבי אנשים, חפצים, צבעים, ותנועות שאתה מזהה. אם יש בן אדם — תאר מה הוא עושה ומצב רוח כללי (אם ניתן להסיק). אם אין — תאר את הסביבה. אל תמציא דברים שלא רואים בתמונה.
 ```
 
-### 3.4 `KNOWLEDGE_SYSTEM_PROMPT` (159–172)
+### 3.4 `KNOWLEDGE_SYSTEM_PROMPT` (220–233)
 
 ```text
 ${JARVIS_PERSONA}
@@ -219,7 +242,7 @@ ${JARVIS_PERSONA}
 ## שפה: עברית בלבד.
 ```
 
-### 3.5 `ANALYTICS_SYSTEM_PROMPT` (174–186)
+### 3.5 `ANALYTICS_SYSTEM_PROMPT` (235–247)
 
 ```text
 אתה J.A.R.V.I.S — אנליסט תוכן אישי בעברית.
@@ -237,7 +260,7 @@ ${JARVIS_PERSONA}
 10. אם אתה רואה דפוסים — תאר אותם עם מספרים.
 ```
 
-### 3.6 `TRANSLATION_SYSTEM_PROMPT` (188–206)
+### 3.6 `TRANSLATION_SYSTEM_PROMPT` (249–267)
 
 ```text
 אתה מתרגם מקצועי של מונחים מדעיים ורפואיים מעברית לאנגלית.
@@ -261,7 +284,7 @@ ${JARVIS_PERSONA}
 - "שינה וטסטוסטרון" → "sleep testosterone levels"
 ```
 
-### 3.7 `NUTRITION_SYSTEM_PROMPT` (208–216)
+### 3.7 `NUTRITION_SYSTEM_PROMPT` (269–277)
 
 ```text
 אתה תזונאי מקצועי. אתה מנתח ארוחות בעברית ומחזיר נתונים תזונתיים מדויקים בפורמט JSON.
@@ -275,7 +298,7 @@ ${JARVIS_PERSONA}
 6. החזר רק JSON תקין, בלי טקסט נוסף.
 ```
 
-### 3.8 `RESEARCH_CHAT_SYSTEM_PROMPT` (218–230) — מצב `papers`
+### 3.8 `RESEARCH_CHAT_SYSTEM_PROMPT` (279–291) — מצב `papers`
 
 ```text
 אתה מדען-על אנליטי. תפקידך: לענות על שאלות של המשתמש בהתבסס **אך ורק** על המחקרים שסופקו לך.
@@ -293,7 +316,7 @@ ${JARVIS_PERSONA}
 10. אם המשתמש שואל משהו לא קשור למחקרים — אמור "השאלה לא קשורה למחקרים שלפנַי".
 ```
 
-### 3.9 `RESEARCH_CHAT_HYBRID_SYSTEM_PROMPT` (231–251)
+### 3.9 `RESEARCH_CHAT_HYBRID_SYSTEM_PROMPT` (292–312)
 
 ```text
 אתה ג'רוויס — עוזר AI אישי חכם, חד, ישיר, עם גישה למחקרים מדעיים.
@@ -319,7 +342,7 @@ ${JARVIS_PERSONA}
 ## שפה: עברית בלבד.
 ```
 
-### 3.10 `NUTRITION_COACH_SYSTEM_PROMPT` (3859–3873)
+### 3.10 `NUTRITION_COACH_SYSTEM_PROMPT` (4552–4566)
 
 ```text
 אתה J.A.R.V.I.S — תזונאי אישי בעברית, בגובה העיניים. אתה עונה על שאלות של מתבגר בן 15 וחמישה חודשים שמתאמן בקליסטניקס 4-5 פעמים בשבוע, במטרה לבנות שריר ולהישאר חטוב.
@@ -339,7 +362,7 @@ ${JARVIS_PERSONA}
 ## שפה: עברית בלבד.
 ```
 
-### 3.11 `TRAINING_COACH_SYSTEM_PROMPT` (3990–4008)
+### 3.11 `TRAINING_COACH_SYSTEM_PROMPT` (4683–4701)
 
 ```text
 אתה מאמן קליסטניקס מומחה בגובה העיניים. אתה עונה על שאלות של מתבגר בן 15 וחמישה חודשים שמתאמן בקליסטניקס 4-5 פעמים בשבוע ומטרתו Full Planche + Front Lever.
@@ -363,7 +386,7 @@ ${JARVIS_PERSONA}
 ## שפה: עברית בלבד.
 ```
 
-### 3.12 `TRAINING_GENERATE_SYSTEM_PROMPT` (4244–4378)
+### 3.12 `TRAINING_GENERATE_SYSTEM_PROMPT` (5002–5136)
 
 מערך שורות שמצטרף ב-`\n` (שורה 4378). תוכן מלא:
 
@@ -507,22 +530,23 @@ ${JARVIS_PERSONA}
 
 ## 4. איך נקרא Gemini
 
-**הפונקציה המרכזית:** `callGemini` — שורה 813 (עד 960).
-**עטיפה לשיחה חופשית:** `callGeminiWithRetry` — שורה 962.
-**עטיפה ל-JSON:** `callGeminiJSON` — שורה 986.
-**עטיפה לראייה:** `callGeminiVision` — שורה 1229.
+**הפונקציה המרכזית:** `callGemini` — שורה 1020 (עד 1444): שרשרת המודלים, ה-retries ו**שני מסלולי תעבורה** — `generateContent` (JSON) או `streamGenerateContent?alt=sse` ברגע שיש `onDelta`.
+**עטיפה לשיחה חופשית:** `callGeminiWithRetry` — שורה 1314 (מריץ גם את לולאת ה-Function Calling).
+**עטיפה ל-JSON:** `callGeminiJSON` — שורה 1446.
+**עטיפה לראייה:** `callGeminiVision` — שורה 1848.
 
 ### 4.1 מה נשלח בפועל
 
 | רכיב | مقدار |
 |---|---|
-| Endpoint | `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}` (שורה 836) |
+| Endpoint | `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}` (1082), או `…:streamGenerateContent?alt=sse&key=…` (1081) כשנשלח `onDelta` |
 | `model` | לא נשלח בגוף הבקשה — הוא חלק מה-URL. ברירת מחדל: `CONFIG.geminiModel` (`GEMINI_MODEL`, ברירת מחדל `gemini-3.8-flash`) |
-| `systemInstruction` | `{ parts: [{ text: systemInstruction }] }` (שורה 825) |
-| `contents` | מערך `{ role, parts: [{ text }] }` — היסטוריה + השאלה החדשה (`buildConversationContents`, 802) |
+| `systemInstruction` | `{ parts: [{ text: systemInstruction }] }` (שורה 1043) |
+| `contents` | מערך `{ role, parts: [{ text }] }` — היסטוריה + השאלה החדשה (`buildConversationContents`, 868) |
+| `tools` | רק כשה-`/api/ask` לא מריץ סבב "בלי כלים": `{ tools: [{ functionDeclarations: [...] }] }` (1036; ההצהרות עצמן ב-`ask-tools.js`) |
 | `temperature` | ברירת מחדל `0.7` (`callGemini`), `0.3` (`callGeminiJSON`), `0.5` (`callGeminiVision`) |
 | `maxOutputTokens` | ברירת מחדל `2048` (`callGemini`), `8192` (`callGeminiJSON`), `512` (`callGeminiVision`) |
-| `responseMimeType` | רק ב-`callGeminiJSON`: `application/json` (שורה 1006) |
+| `responseMimeType` | רק ב-`callGeminiJSON`: `application/json` (שורה 1473) |
 | timeout | `GEMINI_TIMEOUT_MS` (45s), ראייה 30s, תרגום 15s |
 | `retries` | `DEFAULT_RETRIES` = 2 (`VISION_RETRIES` = 1) |
 | שלא נשלח | `safetySettings`, `responseSchema`, `topP`, `topK`, `candidateCount` |
@@ -533,7 +557,7 @@ ${JARVIS_PERSONA}
 
 | Endpoint / פונקציה | פונקציית הקריאה | `temperature` | `maxOutputTokens` | `systemInstruction` |
 |---|---|---|---|---|
-| `/api/ask` | `callGeminiWithRetry` (962) | 0.7 | 2048 | `SYSTEM_PROMPT` או `KNOWLEDGE_SYSTEM_PROMPT` + צ'אנקים |
+| `/api/ask` | `callGeminiWithRetry` (1314) | 0.7 | 2048 | `SYSTEM_PROMPT` או `KNOWLEDGE_SYSTEM_PROMPT` + צ'אנקים; `tools` מוצעים בכל סבב חוץ מהאחרון |
 | `/api/research` (ניתוח) | `callGemini` (2433) | 0.4 | 2500 | inline (2434) |
 | `/api/research-chat` | `callGemini` (3596) | 0.5 | 2048 | `RESEARCH_CHAT_*` לפי `mode` + תמצית מחקרים |
 | `/api/analytics-chat` | `callGemini` (3703) | 0.6 | 1500 | `ANALYTICS_SYSTEM_PROMPT` + נתוני אנליטיקס + ידע |
@@ -547,7 +571,60 @@ ${JARVIS_PERSONA}
 
 ### 4.3 מה מוחזר
 
-`{ reply, coreLatencyMs, attempts, modelUsed }` מ-`callGemini`; `{ data, coreLatencyMs, attempts, modelUsed }` מ-`callGeminiJSON` (JSON מפורסר); ה-endpoints עוטפים זאת ב-`{ reply / analysis, latencyMs, roundTripMs, attempts, timestamp }`.
+`{ reply, coreLatencyMs, attempts, modelUsed }` מ-`callGemini`, ובנוסף `functionCalls` (הקריאות שהמודל ביקש) ו-`modelParts` (החלקים המקוריים, כולל `functionCall`) בסבב כלים; `{ data, coreLatencyMs, attempts, modelUsed }` מ-`callGeminiJSON` (JSON מפורסר); `callGeminiWithRetry` מוסיף `toolsUsed: [{ name, ok, ms }]`. ה-endpoints עוטפים זאת ב-`{ reply / analysis, latencyMs, roundTripMs, attempts, timestamp }`, ו-`/api/ask` מחזיר גם `toolsUsed`.
+
+### 4.4 Function calling — הכלים של `/api/ask`
+
+`/api/ask` שולח `functionDeclarations` ומאפשר למודל להחליט בעצמו אם להפעיל כלי לפני שהוא עונה.
+ההצהרות, ההרצה ובניית ה-`functionResponse` יושבות ב-`ask-tools.js` (302 שורות) — מודול טהור; כל
+יכולת (דפדפן, YouTube, מאגר ידע) מוזרקת מ-`getAskToolDeps`, ולכן אפשר לבדוק אותו בלי רשת ובלי מפתח.
+
+| כלי | `run(args, deps)` | `summarize(result)` | מקור הנתונים |
+|---|---|---|---|
+| `web_search` | `deps.browse(query)` → עד 5 `{title,url,snippet}` | `N תוצאות בדפדפן` | `browseWithChrome` → `node browser.js` |
+| `youtube_search` | `deps.youtube(query, max_results)` → עד 8 סרטונים | `N סרטונים` | `searchYouTubeVideos` |
+| `knowledge_search` | `deps.knowledge(query)` → עד 4 קטעים | `N קטעים מהמאגר` | `searchKnowledge` (BM25) |
+| `training_data` | `deps.training(topic)` → עד 4 קטעים | `N קטעי אימון` | `trainingKnowledgeChunks` |
+
+**הלופ** (`callGeminiWithRetry`, 1314–1444):
+
+1. `withTools = !forceAnswer && round < askToolsMaxRounds` — כל סבב שולח `tools`, חוץ מהאחרון.
+2. אין `functionCalls` בתשובה → מוחזרת התשובה יחד עם `toolsUsed`.
+3. לכל קריאה: `metrics.totalAskToolCalls += 1` (ובכשל גם `totalAskToolErrors`), `runAskTool` מריצה
+   אותה עם `getAskToolDeps()`, והתוצאה נדחפת כ-`functionResponse` לתור `user` שאחרי תור ה-`model`.
+4. אם נגמרה התקרה `askToolsBudgetMs` — נזרק `GeminiError` עם 504 ("הכלים דרשו יותר מדי זמן").
+5. בסבב האחרון `forceAnswer = true`: נוסף לתור `user` מסר שמחייב תשובה מהמידע שכבר נאסף — כך
+   המודל לא יכול להיתקע בלולאת כלים אינסופית.
+6. כלי שנכשל **לעולם לא זורק**: `runAskTool` מחזיר `{ ok: false, result: { error }, summary: 'הכלי נכשל: …' }`
+   והמודל מנסח את הכשל בתשובה.
+
+מגבלות הטקסט בתוך `ask-tools.js`: שאילתה 300 תווים, כותרת 200, תקציר 400, קטע 1,200; עד 5 תוצאות
+ווב, 8 סרטונים ו-4 קטעים. כלי לא מוכר או `query` חסר מוחזרים כשגיאה למודל — לא כתקלת שרת.
+תשובה שנענתה מנתוני כלים לא נכנסת ל-`askCache`.
+
+### 4.5 SSE — חוזה האירועים של `/api/ask`
+
+`clientWantsStream` (3478) מחליט אם הבקשה סטרימינג: `stream: true` בגוף, `?stream=1|true`, או
+`Accept: text/event-stream`. `ASK_STREAM_DISABLED=1` מכבה את המסלול לגמרי, וכל תשובה חוזרת כ-JSON.
+
+`createAskStream` (3501) מחזיר writer עם `send(event, payload)` ו-`end()`, קובע
+`Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `Connection: keep-alive`
+ו-`X-Accel-Buffering: no` (בלי זה nginx/Render מאגדים את התשובה למכה אחת), ומריץ heartbeat של
+`: ping` כל `ASK_STREAM_HEARTBEAT_MS`. `res.on('close')` מסמן סגירה ומפסיק את ה-heartbeat; ב-`/api/ask`
+הוא גם מפעיל `AbortController`, כדי לא לשלם על טוקנים שאין למי למסור.
+
+| אירוע | data | הערות |
+|---|---|---|
+| `meta` | `{ historyUsed, knowledgeUsed, knowledgeChunks, knowledgeSources }` | פעם אחת, לפני הקריאה למודל |
+| `tool` | `{ name, label, status: 'running'\|'done'\|'error', args?, summary?, ms? }` | `running` לפני ההרצה ו-`done`/`error` אחריה — זוג פריימים לכל קריאת כלי, נכתב מ-`onToolCall` |
+| `delta` | `{ text }` | נכתב לכל `onDelta`; מסמן `answerStreamed` כדי ש-`done` לא ישכפל את הטקסט |
+| `done` | כל ה-payload של `/api/ask` (`reply`, `toolsUsed`, `attempts`, `knowledgeUsed`, …) + `streamed: true` | תמיד האירוע האחרון |
+| `error` | `{ reply, partial, status }` | רק אחרי שהערוץ נפתח (אי אפשר לשנות סטטוס HTTP); `partial: true` = כבר נשלח טקסט |
+
+ולידציה (ריק/ארוך מדי) רצה **לפני** פתיחת הערוץ, ולכן קלט רע מקבל `400`/`413` עם JSON גם כשהבקשה
+ביקשה סטרימינג. בצד הלקוח `consumeAskStream` (ב-`public/js/app.js`) מפצל פריימים ומנתב
+`delta`/`tool`/`done`/`error` ל-callbacks; אירוע `tool` מצייר צ'יפ בבועה (`drawToolEvent`), והצ'יפ
+נשאר תצוגה בלבד — לא נשמר בהיסטוריה ולא מועתק.
 
 ---
 
@@ -563,9 +640,10 @@ ${JARVIS_PERSONA}
 | `compression` | 32 | `node_modules` |
 | `express-rate-limit` | 33 | `node_modules` |
 | `dotenv` | 34 | `node_modules` (`.config()` טוען `.env` מהתיקייה הראשית) |
-| `./gemini-fallback` | 821, 994, 1230 | מודול מקומי — שרשרת fallback בין מודלים |
-| `child_process` | 3186 | מודול מובנה — הרצת `node browser.js "<query>"` |
-| `rebrowser-playwright` | 2620 | `node_modules` — דפדפן headless — בשימוש ב-`browser.js` בלבד |
+| `./gemini-fallback` | 1033, 1458, 1849 | מודול מקומי — שרשרת fallback בין מודלים |
+| `./ask-tools` | 47 | מודול מקומי — הצהרות הכלים, `runAskTool`, `toFunctionResponse` (302 שורות, מוזרק כולו) |
+| `child_process` | 3569 | מודול מובנה — הרצת `node browser.js "<query>"` בתוך `browseWithChrome` |
+| `rebrowser-playwright` | — | לא נטען ב-`server.js` — בשימוש ב-`browser.js` בלבד |
 
 בנוסף: `server.js` מפעיל תהליך חיצוני `node browser.js` (סקרייפינג DuckDuckGo Lite), ו-`whatsapp-bot.js` (לא נטען מהשרת) משתמש ב-`fetch` גלובלי / `node-fetch` מול `/api/ask`.
 
@@ -576,7 +654,7 @@ ${JARVIS_PERSONA}
 | קבוצה | משתנים |
 |---|---|
 | ליבה | `PORT`, `NODE_ENV`, `GEMINI_API_KEY` (חובה — אחרת השרת יוצא ב-`process.exit(1)`), `GEMINI_MODEL` |
-| זמני timeout | `GEMINI_TIMEOUT_MS`, `GEMINI_VISION_TIMEOUT_MS`, `GEMINI_TRANSLATION_TIMEOUT_MS`, `YOUTUBE_TIMEOUT_MS`, `TIKTOK_TIMEOUT_MS`, `RESEARCH_TIMEOUT_MS` |
+| זמני timeout | `GEMINI_TIMEOUT_MS`, `GEMINI_TIMEOUT_CEILING_MS`, `GEMINI_VISION_TIMEOUT_MS`, `GEMINI_TRANSLATION_TIMEOUT_MS`, `YOUTUBE_TIMEOUT_MS`, `TIKTOK_TIMEOUT_MS`, `RESEARCH_TIMEOUT_MS` |
 | מפתחות שירות | `YOUTUBE_API_KEY`, `CORE_API_KEY`, `SEMANTIC_SCHOLAR_KEY` |
 | גבולות קלט | `MAX_PROMPT_LENGTH`, `MAX_RESEARCH_QUERY_LENGTH`, `MAX_IMAGE_SIZE_BYTES` |
 | Rate limiting | `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`, `VISION_RATE_LIMIT_MAX`, `RESEARCH_RATE_LIMIT_MAX` |
@@ -585,8 +663,13 @@ ${JARVIS_PERSONA}
 | זיכרון שיחה | `MAX_HISTORY_MESSAGES` |
 | BM25 | `BM25_K1`, `BM25_B` |
 | מחקר | `RESEARCH_MAX_PER_SOURCE`, `RESEARCH_FINAL_LIMIT`, `RESEARCH_ANALYSIS_TOP_PAPERS`, `RESEARCH_ABSTRACT_SNIPPET_LENGTH`, `RESEARCH_CHAT_CONTEXT_LIMIT` |
+| cache תשובות `/api/ask` | `ASK_CACHE_ENABLED` (`0` מכבה), `ASK_CACHE_TTL_MS` (5 דק׳), `ASK_CACHE_MAX_ENTRIES` (100), `ASK_CACHE_MIN_QUERY_LENGTH` (8), `ASK_CACHE_ALLOW_HISTORY` (`1` = גם עם היסטוריה) |
+| סטרימינג `/api/ask` (SSE) | `ASK_STREAM_DISABLED` (`1` מכבה), `ASK_STREAM_HEARTBEAT_MS` (10,000) |
+| כלים (Function Calling) | `ASK_TOOLS_DISABLED` (`1` מכבה), `ASK_TOOLS_MAX_ROUNDS` (3), `ASK_TOOLS_BUDGET_MS` (100,000), `ASK_TOOL_TIMEOUT_MS` (30,000) |
 
-> `.env.example` מכיל בפועל רק שלושה שמות: `GEMINI_API_KEY`, `GEMINI_MODEL`, `PORT` — כל השאר אופציונליים עם ברירות מחדל ב-`CONFIG` (53–102).
+> `.env.example` מתעד את הליבה (`GEMINI_API_KEY`, `GEMINI_MODEL`, `PORT`), את מפתחות השירות ואת כל
+> משתני `/api/ask` — cache, סטרימינג וכלים (בשורות מוערות). כל השאר אופציונליים עם ברירת מחדל
+> ב-`CONFIG` (56–162).
 
 ---
 
@@ -596,7 +679,7 @@ ${JARVIS_PERSONA}
 
 | קובץ | שורות | מה הוא עושה |
 |---|---|---|
-| `app.js` | 1527 | ליבת האפליקציה הראשית (`index.html`): צ'אט `/api/ask`, היסטוריה, מיקרופון, מצלמה + `/api/vision`, TTS, פולינג `/api/metrics`. |
+| `app.js` | 1891 | ליבת האפליקציה הראשית (`index.html`): צ'אט `/api/ask` (SSE — `consumeAskStream`, `appendStreamBubble`, צ'יפי כלים), היסטוריה, מיקרופון, מצלמה + `/api/vision`, TTS, פולינג `/api/metrics`. |
 | `neural.js` | 476 | אנימציית "מוח חלקיקים" כפול (כדור בפאנל + רקע) עם `prefers-reduced-motion`. |
 | `landing.js` | 299 | עמוד הנחיתה: כדור חלקיקים על קנבס, כפתורי CTA, שמירת שאלה ממתינה ב-`sessionStorage`. |
 | `landing.js.backup` | 64 | גיבוי ישן שאינו נטען. |
@@ -612,7 +695,7 @@ ${JARVIS_PERSONA}
 
 | קובץ | שורות | מה הוא עושה |
 |---|---|---|
-| `main.css` | 1927 | עיצוב האפליקציה הראשית (`index.html`) — HUD קינמטי בזהב/טורקיז. |
+| `main.css` | 1975 | עיצוב האפליקציה הראשית (`index.html`) — HUD קינמטי בזהב/טורקיז, כולל `.tool-trace`/`.tool-chip` לצ'יפי הכלים. |
 | `mobile.css` | 289 | אובריידים למובייל לאפליקציה הראשית (`max-width: 1024px`). |
 | `hud-theme.css` | 316 | טוקנים ופרימיטיבים משותפים (רקע, צבעים, כרטיסים/כפתורים) ל-4 עמודי המודולים. |
 | `hud-chat.css` | 389 | רכיב צ'אט צף משותף: `hud-chat-fab` + חלון שיחה (נטען ב-nutrition/analytics/research). |
@@ -631,7 +714,7 @@ ${JARVIS_PERSONA}
 
 | סוג | מיקום | פירוט |
 |---|---|---|
-| Cache לתגובות AI | **אין** | כל בקשה נקראת מחדש ל-Gemini; אין שכבת cache או dedupe לבקשות. |
+| Cache לתגובות AI | `/api/ask` בלבד — `askCacheGet` (3414), `askCacheSet` (3434), `askCacheInfo` (3457) | LRU בזיכרון: TTL 5 דק׳, עד 100 ערכים, שאילתה ≥ 8 תווים, וברירת מחדל רק בלי היסטוריה (`ASK_CACHE_*`). **תשובה שנעזרה בכלים אינה נכנסת ל-cache** (3820), כי נתוני כלים מתיישנים מיד. אין cache ל-`/api/research` ולשאר ה-endpoints. |
 | אינדקס ידע בזיכרון | `knowledge` (511–519), `loadKnowledgeBase` (688) | `chunks`, `files` (Map), `docFreq` (Map), `vocab` (Set), `avgDocLength`, `loadedAt`. נבנה באתחול (4752) ונבנה מחדש בכל upload/delete/reload (2790, 2830, 2841). |
 | Cache סטטי HTTP | `express.static` (2514–2518) | `maxAge: '1h'` + ETag; `index: false` (כדי ש-`/` יעבור דרך ה-handler). |
 | מטריקות | `metrics` (257–281) | `latencySamples` נשמר ל-50 דגימות אחרונות בלבד (`shift` ב-286); `perSourceHits` Counter פר-מקור. |
@@ -639,7 +722,8 @@ ${JARVIS_PERSONA}
 | צד לקוח | `localStorage` | `jarvis_history_v1`, `jarvis_tts_enabled_v1`, `jarvis_analytics_v1`, `jarvis_analytics_chat_v1`, `jarvis_research_history_v1`, `jarvis_research_chat_history_v1`, `jarvis_nutrition_v2`, `jarvis_training_v1` |
 | צד לקוח | `sessionStorage` | `jarvis_pending_question` (העברת שאלה מהנחיתה לאפליקציה). |
 
-> מסקנה: אין שכבת caching בשרת כלל (לא ל-Gemini ולא למחקרים) — אלא אם מחשיבים את אינדקס הידע הנטען לזיכרון ואת ה-static cache של הדפדפן.
+> מסקנה: אין שכבת caching לשאר הנתיבים — רק ה-LRU של `/api/ask` (מפתח לפי שאילתה, בלי היסטוריה
+> ובלי כלים), אינדקס הידע שנטען לזיכרון, וה-static cache של הדפדפן.
 
 ### 8.2 Retry logic — היכן ואיך
 
@@ -650,11 +734,12 @@ ${JARVIS_PERSONA}
 | `backoffDelay` | 357–359 | `min(1000·2^attempt, 5000)` — 1s, 2s, 4s… תקרה 5s |
 | `fetchWithTimeout` | 361–370 | Abort אחרי `timeoutMs` |
 | זיהוי שגיאות | 372–401 | `isRateLimitError` (429/quota), `isHighDemandError` (503/overloaded), `extractRetryDelay` (Regex `retry in Xs` => ms+1000) |
-| לולאת `callGemini` | 834–956 | לולאה כפולה: מודל × ניסיון. 404 → מודל הבא מיד; 503 → sleep `min(retryDelay, 8000)`; 429 → sleep `min(retryDelay, 10,000)`; 5xx אחר → `backoffDelay`; מיצוי ניסיונות → מודל הבא |
-| לולאת `callGeminiJSON` | 1035–1225 | אותה סכמה בדיוק, עם `responseMimeType: application/json` ופרסור |
-| לולאת `callGeminiVision` | 1290–1375 | אותה סכמה, `VISION_RETRIES`=1 |
+| לולאת `callGemini` | 1091–1444 | לולאה כפולה: מודל × ניסיון. 404 → מודל הבא מיד; 503 → sleep `min(retryDelay, 8000)`; 429 → sleep `min(retryDelay, 10,000)`; 5xx אחר → `backoffDelay`; מיצוי ניסיונות → מודל הבא. שני מסלולי תעבורה: `generateContent` (JSON) או `streamGenerateContent?alt=sse` כשיש `onDelta`, ותקרה קשיחה `deadlineMs` שגם ההמתנות לא חוצות אותה |
+| לולאת `callGeminiJSON` | 1446–1846 | אותה סכמה בדיוק, עם `responseMimeType: application/json` ופרסור |
+| לולאת `callGeminiVision` | 1848–1998 | אותה סכמה, `VISION_RETRIES`=1 |
+| לולאת הכלים | 1335–1444 | סבבי כלים בתוך `callGeminiWithRetry`: כל סבב יורש את `deadlineMs` שנותר מתקציב `ASK_TOOLS_BUDGET_MS`; כלי בודד כפוף ל-`ASK_TOOL_TIMEOUT_MS` (‏`execFile` timeout ב-`web_search`) |
 | Fallback מודלים | `gemini-fallback.js` 8–23 | הראשי + 3 חלופות |
-| תרגום | 1392–1399 | `retries: 1`, timeout 15s, נפילה שקטה למקור במקרה כשל |
+| תרגום | 2000–2020 | `retries: 1`, timeout 15s, נפילה שקטה למקור במקרה כשל |
 | מקורות מחקר | 2359–2393 | **אין retry** — `Promise.allSettled` על 11 מקורות; מקור שנכשל נזרק |
 | YouTube/TikTok | 3281–3437, 4092–4163 | **אין retry** — `fetchWithTimeout` בודד; כשל מחזיר תוצאה ריקה/שגיאה ידידותית |
 
@@ -662,21 +747,29 @@ ${JARVIS_PERSONA}
 
 ## 9. ממצאים תפעוליים (מהמיפוי)
 
-1. ~~`POST /api/training/analyze` שבור~~ **נבדק מחדש (2026-10-28) — עובד.** `TRAINING_ANALYZE_SYSTEM_PROMPT` מוגדר ב-`server.js:4565` (module scope, מאותחל לפני `app.listen`) ומשמש ב-4383; לכן אין `ReferenceError`. אומת אמפירית: בקשה תקינה ל-endpoint מגיעה לקריאת Gemini ומחזירה `GeminiError` (`API key not valid` עם מפתח מזויף) ולא את הודעת השגיאה הגנרית של `ReferenceError`. הטענה הקודמת הוסרה.
+1. ~~`POST /api/training/analyze` שבור~~ **נבדק מחדש (2026-10-28) — עובד.** `TRAINING_ANALYZE_SYSTEM_PROMPT` מוגדר ב-`server.js:5142` (module scope, מאותחל לפני `app.listen`) ומשמש ב-4862/4960; לכן אין `ReferenceError`. אומת אמפירית: בקשה תקינה ל-endpoint מגיעה לקריאת Gemini ומחזירה `GeminiError` (`API key not valid` עם מפתח מזויף) ולא את הודעת השגיאה הגנרית של `ReferenceError`. הטענה הקודמת הוסרה.
 2. ~~קוד יתום~~ **נמחק (2026-10-28):** `POST /api/analyze` הוסר מ-`server.js` יחד עם `POST /api/browse` ו-`POST /api/browser/action` — לשלושתם לא היה קורא בצד הלקוח. `computeAnalyticsSummary` **לא** נמחק כי `/api/analytics-chat` עדיין משתמש בו.
 3. **`/api/training/save` ו-`/api/training/history` לא באמת שומרים דבר** — הראשון מחזיר `savedAt` בלבד, השני מחזיר מערך ריק. האחסון האמיתי הוא `localStorage` (`jarvis_training_v1`).
-4. **`.env.example` לא מסונכרן** — מכיל רק `GEMINI_API_KEY`, `GEMINI_MODEL`, `PORT`, והמודל שמופיע בו (`gemini-3.6-flash`) שונה מברירת המחדל בקוד (`gemini-3.8-flash`). כל שאר 40+ המשתנים ב-§6 אינם מתועדים שם.
+4. ~~**`.env.example` לא מסונכרן**~~ **נסגר (2026-10-28):** `.env.example` מתעד עכשיו את הליבה, את מפתחות השירות (`YOUTUBE_API_KEY`, `SEMANTIC_SCHOLAR_KEY`, `CORE_API_KEY`) ואת כל משתני `/api/ask` — `ASK_CACHE_*`, `ASK_STREAM_*`, `ASK_TOOLS_*`, `ASK_TOOL_TIMEOUT_MS` (בשורות מוערות). המודל עודכן ל-`gemini-3.8-flash` בהתאם ל-`CONFIG`. שאר 40+ המשתנים מופיעים רק בטבלה ב-§6.
 5. **סודות בקוד מקור** — `whatsapp-bot.js` מכיל מזהה מופע וטוקן של Green API Hardcoded (שורות 9–10 בקובץ). יש להעביר ל-`.env` ולסובב את הטוקן; הקובץ לא נטען מהשרת אבל נמצא ב-Git.
 6. **קבצי גיבוי/שאריות בריפו** — `server.js.broken`, `landing.js.backup`, `landing.css.backup`, `landing.html.backup`, ותיקיית `.aider.tags.cache.v4` (מטמון SQLite של aider). אינם נטענים ע"י השרת.
-7. ~~אין בדיקות אוטומטיות~~ **נסגר (2026-10-28):** נוסף `test/smoke.test.js` (`node:test`, ללא תלות חדשה) ו-`npm test` מריץ אותו. הבדיקות מרימות את השרת על פורט פנוי עם `GEMINI_API_KEY` דמה (אין עלות טוקנים) ומכסות: תחביר של כל קובצי ה-JS, `/api/health`, `/api/metrics`, `/api/knowledge`, `/api/mega-prompt`, הדפים `/` ו-`/app`, היעדרות שלושת ה-endpoints שנמחקו, ווולידציית קלט (`/api/ask` → 400/413, `/api/training/analyze` → 400). `npm run check` נשאר לבדיקת תחביר מהירה של `server.js` בלבד.
+7. ~~אין בדיקות אוטומטיות~~ **נסגר (2026-10-28):** נוסף `test/smoke.test.js` (`node:test`, ללא תלות חדשה) ו-`npm test` מריץ `node --test` על שני קבצים. הבדיקות מרימות את השרת על פורט פנוי עם `GEMINI_API_KEY` דמה (אין עלות טוקנים) ומכסות: תחביר של כל קובצי ה-JS (כולל `ask-tools.js`), `/api/health`, `/api/metrics`, `/api/knowledge`, `/api/mega-prompt`, הדפים `/` ו-`/app`, היעדרות שלושת ה-endpoints שנמחקו, ווולידציית קלט (`/api/ask` → 400/413, `/api/training/analyze` → 400). נוספו גם בדיקות לחוזה ה-SSE (`text/event-stream`, `delta` שמסתכם ל-`reply`, `done` אחרון, JSON כשלא ביקשו סטרימינג) וליחידות של שכבת הכלים (`test/ask-tools.test.js`). סה"כ 27 בדיקות. `npm run check` נשאר לבדיקת תחביר מהירה של `server.js` בלבד.
+8. **ניתוב "חפש/מצא" הישן מקדים את הכלים** — `/api/ask` מנתב בקשה שמכילה `חפש`/`מצא`/`search`/`google` ל-YouTube או ל-`browser.js` **לפני** Gemini (נתיב ישן מלפני ה-Function Calling). בשאלות כאלה המודל לא נקרא, אין אירועי `tool` בבועה, והתשובה היא פלט הסקרייפר. זה גם מה שמאפשר לבדיקות ה-SSE לרוץ בלי טוקנים (`prompt: 'חפש'` נעצר בוולידציה).
+9. **צ'יפי הכלים קיימים רק במסלול ה-SSE** — הבקשה הלא-סטרימינג מחזירה `toolsUsed` ב-JSON, אבל `public/js/app.js` מצייר צ'יפים רק מאירועי `tool`, ולכן שם הם לא מוצגים. כמו כן הצ'יפים אינם נשמרים ב-`jarvis_history_v1` — הם תצוגה חיה בלבד.
+10. **מדדי הכלים נחשפים רק דרך metrics** — `totalAskToolCalls` / `totalAskToolErrors` (ו-`totalAskStreamRequests`) מוחזרים ב-`/api/health` וב-`/api/metrics`; אין התראה או סף על אחוז כשל של כלים.
 
 ---
 
 ## 10. אימות שנעשה עבור מסמך זה
 
-- `node --check server.js` — עובר (תחביר תקין; השגיאה ב-§9 היא שגיאת ריצה, לא תחביר).
+- `node --check server.js` — עובר (תחביר תקין).
 - הרמת השרת בפועל (`PORT=4023`) — `GET /api/health` החזיר `status: ok`, `model: gemini-3.8-flash`, `knowledgeFiles: 8`.
-- קריאה ל-`POST /api/training/analyze` — החזירה `500`, והלוג הראה `Unhandled error ReferenceError: TRAINING_ANALYZE_SYSTEM_PROMPT is not defined` ואחריו `POST /api/training/analyze → 500 (19ms)`.
-- מספרי השורות במסמך נבדקו מול `server.js` (גרסה בת 5,053 שורות) ומול ספירת השורות בפועל של כל קובץ ב-`public/js` ו-`public/css`.
+- ~~קריאה ל-`POST /api/training/analyze` החזירה `500` עם `ReferenceError`~~ — **בוטל ב-2026-10-28:** ה-endpoint עובד (`TRAINING_ANALYZE_SYSTEM_PROMPT` מוגדר ב-module scope); ראה §9.1.
+- `npm test` — 27/27 עוברות (smoke + יחידות שכבת הכלים), כולל בדיקות חוזה ה-SSE.
+- **SSE + כלים, בדיקה חיה (2026-10-28):** בקשה על `/api/ask` עם `stream: true` —
+  שאלת YouTube הפיקה שני אירועי `tool` שהסתיימו ב-`✅ 4 סרטונים`, ושאלת מחירים הפיקה שלושה;
+  `totalAskToolCalls` ב-`/api/health` עלה 0→2 ואז 2→5, ובלי כלים `trace.hidden` נשאר `true`.
+  אומת גם מסלול ה-JSON (בלי `stream`) — אותה תשובה, בלי אירועי `tool`.
+- מספרי השורות במסמך נבדקו מול `server.js` (גרסה בת 5,630 שורות) ומול ספירת השורות בפועל של כל קובץ ב-`public/js` ו-`public/css`. השורות של נתיב ה-ask, `/api/health`, `/api/metrics`, ה-rate limiters ופונקציות ה-ask נבדקו מחדש ב-2026-10-28; השאר טרם רועננו.
 
-_עודכן: 2026-10-24_
+_עודכן: 2026-10-28_

@@ -1,6 +1,6 @@
 /**
  * ⚡ J.A.R.V.I.S // CLIENT CORE v3.3
- * Cinematic HUD + History + Mic (mobile-fixed) + Camera + Vision + TTS
+ * Cinematic HUD + History + Mic (mobile-fixed) + Camera + Vision + TTS + Streaming answers (SSE)
  */
 
 (function () {
@@ -32,6 +32,8 @@
         typingCharsPerSecond: 100,
         typingMinDelayMs: 8,
         typingSkipThresholdChars: 300,
+        // Answers stream over SSE: the bubble grows token by token instead of appearing at once.
+        askStreamEnabled: true,
         micSpectrumBars: 24,
         maxHistoryMessages: 12,
         maxHistoryMessagesSent: 12,
@@ -101,6 +103,9 @@
         // Typing
         typingTimer: null,
         typingActive: false,
+
+        // Streaming (SSE)
+        askAbort: null,
 
         loadValue: 0,
     };
@@ -326,9 +331,11 @@
         copyBtn.className = 'msg-action-btn';
         copyBtn.setAttribute('aria-label', 'העתק הודעה');
         copyBtn.textContent = '📋';
+        // Mutable: a streamed bubble is created empty and only gets its text once it is complete.
+        let copyText = text;
         copyBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            copyToClipboard(text, copyBtn);
+            copyToClipboard(copyText, copyBtn);
         });
         actions.appendChild(copyBtn);
 
@@ -336,7 +343,11 @@
         wrapper.appendChild(meta);
         wrapper.appendChild(body);
 
-        return { wrapper, body };
+        return {
+            wrapper,
+            body,
+            setCopyText: (value) => { copyText = value; },
+        };
     }
 
     function appendMessageToDOM(role, text, ts, options) {
@@ -345,13 +356,7 @@
         const { wrapper, body } = createMessageElement(role, text, ts, opts);
         el.chatLog.appendChild(wrapper);
 
-        if (state.autoScroll) {
-            requestAnimationFrame(() => {
-                if (el.chatLog && state.autoScroll) {
-                    el.chatLog.scrollTop = el.chatLog.scrollHeight;
-                }
-            });
-        }
+        if (state.autoScroll) requestAnimationFrame(scrollChatToBottom);
 
         if (opts.typing && text) {
             typeText(body, text);
@@ -383,6 +388,140 @@
         appendToHistory(role, text);
         const index = state.history.length;
         return appendMessageToDOM(role, text, Date.now(), { ...(options || {}), index });
+    }
+
+    function scrollChatToBottom() {
+        if (!el.chatLog || !state.autoScroll) return;
+        el.chatLog.scrollTop = el.chatLog.scrollHeight;
+    }
+
+    // Creates the empty bubble a streamed answer grows into. Nothing goes into the history yet —
+    // an answer that arrives empty (or gets cancelled) must not become a message.
+    function appendStreamBubble() {
+        if (!el.chatLog) return null;
+        const { wrapper, body, setCopyText } = createMessageElement('jarvis', '', Date.now(), {
+            index: state.history.length + 1,
+            typing: true,
+        });
+        // Tool activity sits above the answer, inside the same bubble. It stays hidden until the
+        // model actually runs a tool, and it is never part of the message: not stored, not copied.
+        const trace = document.createElement('span');
+        trace.className = 'tool-trace';
+        trace.setAttribute('role', 'status');
+        trace.setAttribute('aria-live', 'polite');
+        trace.hidden = true;
+        wrapper.insertBefore(trace, body);
+        el.chatLog.appendChild(wrapper);
+        return { wrapper, body, setCopyText, trace };
+    }
+
+    /**
+     * Commits a streamed answer: renders its final markup and stores it in the history.
+     *
+     * `notice` is appended on screen only (a truncated answer keeps the text that did arrive)
+     * and is never written to the stored message.
+     */
+    function commitStreamedBubble(bubble, text, notice) {
+        const finalText = cleanReplyText(text);
+        if (!finalText) return '';
+
+        if (bubble && bubble.body) {
+            bubble.body.innerHTML = renderReplyHtml(notice ? `${finalText}\n\n${notice}` : finalText);
+        }
+
+        appendToHistory('jarvis', finalText);
+        scrollChatToBottom();
+        return finalText;
+    }
+
+    function removeStreamBubble(bubble) {
+        if (bubble && bubble.wrapper && bubble.wrapper.parentNode) {
+            bubble.wrapper.parentNode.removeChild(bubble.wrapper);
+        }
+    }
+
+    // ── Tool activity (Gemini function calling) ──
+    // The model decides on its own whether to run a tool; the server reports every call as a
+    // `tool` event. Each call becomes one chip in the bubble: a gerund while it runs, then the
+    // server's own summary ("5 תוצאות בדפדפן"). Unknown tools still get a chip.
+    const TOOL_CHIP_LOOK = {
+        web_search: { icon: '🔍', running: 'מחפש בדפדפן…' },
+        youtube_search: { icon: '▶️', running: 'מחפש ב-YouTube…' },
+        knowledge_search: { icon: '📚', running: 'מחפש במאגר הידע…' },
+        training_data: { icon: '🏋️', running: 'קורא נתוני אימון…' },
+    };
+    const TOOL_CHIP_DEFAULT = { icon: '🔧', running: 'מפעיל כלי…' };
+
+    function toolChipLook(name) {
+        return TOOL_CHIP_LOOK[name] || TOOL_CHIP_DEFAULT;
+    }
+
+    // The one line a chip shows. Settled chips prefer the server's summary, which already carries
+    // the count ("5 תוצאות בדפדפן"), and degrade to a neutral word on an older server.
+    function toolChipText(info) {
+        const look = toolChipLook(info && info.name);
+        if (!info || !info.status || info.status === 'running') {
+            return `${look.icon} ${look.running}`;
+        }
+        const failed = info.status === 'error';
+        const summary = typeof info.summary === 'string' ? info.summary.trim() : '';
+        return `${failed ? '⚠️' : '✅'} ${summary || (failed ? 'הכלי נכשל' : 'הושלם')}`;
+    }
+
+    function createToolChip(info) {
+        const chip = document.createElement('span');
+        chip.className = 'tool-chip';
+        chip.dataset.tool = String((info && info.name) || '');
+        chip.dataset.state = 'running';
+        chip.textContent = toolChipText(info);
+        // Hovering shows what was actually asked for — the chip itself stays short.
+        const args = (info && info.args) || {};
+        const subject = args.query || args.topic;
+        if (subject) chip.title = String(subject);
+        return chip;
+    }
+
+    function settleToolChip(chip, info) {
+        if (!chip) return;
+        chip.dataset.state = info && info.status === 'error' ? 'error' : 'done';
+        chip.textContent = toolChipText(info);
+        const ms = Number(info && info.ms);
+        if (Number.isFinite(ms) && ms > 0) {
+            const spent = `${(ms / 1000).toFixed(1)}s`;
+            chip.title = chip.title ? `${chip.title} · ${spent}` : spent;
+        }
+    }
+
+    // The chip a settled event belongs to: the newest still-running chip of that tool.
+    function lastRunningToolChip(trace, name) {
+        if (!trace) return null;
+        const chips = trace.querySelectorAll('.tool-chip[data-state="running"]');
+        for (let i = chips.length - 1; i >= 0; i--) {
+            if (!name || chips[i].dataset.tool === name) return chips[i];
+        }
+        return null;
+    }
+
+    /**
+     * Draws one `tool` event into the bubble's trace.
+     *
+     * A `running` event opens a chip; `done` / `error` settles it. A settled event with no chip to
+     * settle (server that reports only outcomes) draws its own.
+     */
+    function drawToolEvent(trace, info) {
+        if (!trace) return null;
+        trace.hidden = false;
+
+        if (!info.status || info.status === 'running') {
+            const chip = createToolChip(info);
+            trace.appendChild(chip);
+            return chip;
+        }
+
+        const chip = lastRunningToolChip(trace, info.name) || createToolChip(info);
+        if (!chip.parentNode) trace.appendChild(chip);
+        settleToolChip(chip, info);
+        return chip;
     }
 
     // ==============================
@@ -775,6 +914,8 @@
             return;
         }
         if (!confirm('להתחיל שיחה חדשה? השיחה הנוכחית תימחק (אפשר לייצא קודם).')) return;
+        // A streamed answer still in flight would otherwise write into the conversation being wiped.
+        abortAskStream();
         clearHistory();
         renderFullHistory();
         closeHistoryModal();
@@ -1325,7 +1466,203 @@
     function handleVisionClick() { sendVisionRequest(''); }
 
     // ==============================
-    // 19. SEND MESSAGE
+    // 19. ASK STREAM (SSE)
+    // ==============================
+
+    // Feeds raw bytes into a frame splitter. SSE frames are separated by a blank line and the
+    // server may split a single frame across TCP chunks, so the tail comes back as the next buffer.
+    function splitSseFrames(buffer, onFrame) {
+        let boundary = buffer.search(/\r?\n\r?\n/);
+
+        while (boundary !== -1) {
+            const frame = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + (buffer[boundary] === '\r' ? 4 : 2));
+
+            let eventName = 'message';
+            const dataLines = [];
+
+            for (const line of frame.split(/\r?\n/)) {
+                if (line.startsWith(':')) continue; // heartbeat comment
+                if (line.startsWith('event:')) eventName = line.slice(6).trim();
+                else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+            }
+
+            if (dataLines.length) {
+                let payload = null;
+                try { payload = JSON.parse(dataLines.join('\n')); } catch (e) { payload = null; }
+                if (payload) onFrame(eventName, payload);
+            }
+
+            boundary = buffer.search(/\r?\n\r?\n/);
+        }
+
+        return buffer;
+    }
+
+    /**
+     * Reads the /api/ask SSE response until its terminal event.
+     *
+     * Resolves with `{ done, error }` — the payload of the `done` event, or of an `error` event
+     * (the server reports failures inside the stream once the 200 status is already out).
+     * Network drops and cancellations reject, so callers can treat them like any fetch failure.
+     */
+    async function consumeAskStream(res, handlers) {
+        const callbacks = handlers || {};
+
+        if (!res.body || typeof res.body.getReader !== 'function') {
+            throw new Error('streaming is not supported by this browser');
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let donePayload = null;
+        let errorPayload = null;
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            buffer = splitSseFrames(buffer, (eventName, payload) => {
+                if (eventName === 'delta') {
+                    if (typeof payload.text === 'string' && payload.text && callbacks.onDelta) {
+                        callbacks.onDelta(payload.text);
+                    }
+                } else if (eventName === 'tool') {
+                    // Function calling: the model decided to run one of its tools.
+                    if (callbacks.onTool) callbacks.onTool(payload);
+                } else if (eventName === 'done') {
+                    donePayload = payload;
+                    if (callbacks.onDone) callbacks.onDone(payload);
+                } else if (eventName === 'error') {
+                    errorPayload = payload;
+                }
+            });
+
+            // A terminal event ends the answer — no reason to keep reading the connection.
+            if (donePayload || errorPayload) {
+                try { await reader.cancel(); } catch (e) { /* already closed */ }
+                break;
+            }
+        }
+
+        return { done: donePayload, error: errorPayload };
+    }
+
+    /**
+     * Renders one streamed answer: the bubble appears with the first token and grows until the
+     * server's `done` event, then the final text is rendered, stored in the history and spoken.
+     *
+     * A failure after the first token keeps what did arrive and appends the server's notice, so a
+     * broken connection never erases an answer the user was already reading.
+     */
+    async function handleStreamedReply(res, clientStart) {
+        const bubble = { wrapper: null, body: null, setCopyText: null, trace: null };
+        let answer = '';
+        let result;
+
+        const ensureBubble = () => {
+            if (bubble.wrapper) return bubble;
+            const created = appendStreamBubble();
+            if (created) {
+                bubble.wrapper = created.wrapper;
+                bubble.body = created.body;
+                bubble.setCopyText = created.setCopyText;
+                bubble.trace = created.trace;
+            }
+            return bubble;
+        };
+
+        try {
+            result = await consumeAskStream(res, {
+                onDelta: (delta) => {
+                    if (!bubble.wrapper) {
+                        hideTyping();
+                        ensureBubble();
+                    }
+                    answer += delta;
+                    // Plain text while it streams; markup and links are rendered at the end, so a
+                    // half-arrived link never flashes as broken HTML.
+                    if (bubble.body) bubble.body.textContent = answer;
+                    scrollChatToBottom();
+                },
+                onTool: (info) => {
+                    if (!info || typeof info !== 'object') return;
+                    if (!bubble.wrapper) {
+                        hideTyping();
+                        ensureBubble();
+                    }
+                    // Text the model streamed before asking for a tool belongs to a round that was
+                    // thrown away — the real answer is written after the tool returns.
+                    if (answer && info.status === 'running') {
+                        answer = '';
+                        if (bubble.body) bubble.body.textContent = '';
+                    }
+                    drawToolEvent(bubble.trace, info);
+                    scrollChatToBottom();
+                },
+            });
+        } catch (err) {
+            if (err && err.name === 'AbortError') {
+                // Cancelled from this side (new conversation / page unload) — leave no trace.
+                hideTyping();
+                removeStreamBubble(bubble);
+                return;
+            }
+            result = {
+                done: null,
+                error: {
+                    reply: 'אדון, נותק קשר עם רשת המוח הנוירונלית.',
+                    partial: answer.length > 0,
+                    status: 502,
+                },
+            };
+        }
+
+        hideTyping();
+
+        const failure = result.error;
+        const serverReply = result.done && typeof result.done.reply === 'string' ? result.done.reply : '';
+        // The server trims its final reply, so it wins over the raw accumulation of deltas.
+        const finalText = cleanReplyText(serverReply || answer);
+
+        if (finalText) {
+            ensureBubble();
+            const notice = failure ? cleanReplyText(failure.reply) : '';
+            commitStreamedBubble(bubble, finalText, notice);
+            if (bubble.setCopyText) bubble.setCopyText(finalText);
+            speak(finalText);
+            pulseNeural(8);
+        } else {
+            removeStreamBubble(bubble);
+            const message = failure && failure.reply
+                ? cleanReplyText(failure.reply)
+                : 'אדון, לא התקבלה תגובה מהליבה.';
+            appendMessage('jarvis', message);
+        }
+
+        const coreLat = Number(result.done && result.done.latencyMs);
+        const shownLat = Number.isFinite(coreLat) && coreLat > 0 ? coreLat : Math.round(performance.now() - clientStart);
+        flipNumber(el.latencyStatus, `${shownLat} ms`);
+        setLoadBar(shownLat);
+
+        if (failure && failure.status >= 500) {
+            state.metricsFailures = CONFIG.metricsFailureThreshold;
+            setOffline();
+        } else {
+            setOnline();
+        }
+    }
+
+    function abortAskStream() {
+        if (!state.askAbort) return;
+        try { state.askAbort.abort(); } catch (e) { /* already aborted */ }
+        state.askAbort = null;
+    }
+
+    // ==============================
+    // 20. SEND MESSAGE
     // ==============================
 
     async function sendMessage(prompt) {
@@ -1360,15 +1697,37 @@
 
         try {
             const historyForServer = state.history.slice(0, -1).slice(-CONFIG.maxHistoryMessagesSent);
+            const controller = new AbortController();
+            state.askAbort = controller;
 
             const res = await fetch('/api/ask', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    // Ask for SSE explicitly; a server that ignores it still answers with JSON.
+                    Accept: CONFIG.askStreamEnabled ? 'text/event-stream, application/json' : 'application/json',
+                },
                 body: JSON.stringify({
                     prompt,
                     history: historyForServer.map((m) => ({ role: m.role, text: m.text })),
+                    stream: CONFIG.askStreamEnabled,
                 }),
+                signal: controller.signal,
             });
+
+            const contentType = String(res.headers.get('content-type') || '');
+            const streaming = CONFIG.askStreamEnabled
+                && res.ok
+                && res.body
+                && typeof res.body.getReader === 'function'
+                && contentType.indexOf('text/event-stream') !== -1;
+
+            // A streamed answer renders itself, token by token. Everything else — validation
+            // errors, a disabled feature flag, an older server build — keeps the JSON contract.
+            if (streaming) {
+                await handleStreamedReply(res, clientStart);
+                return;
+            }
 
             const data = await res.json().catch(() => ({}));
             const clientElapsed = Math.round(performance.now() - clientStart);
@@ -1394,10 +1753,14 @@
             } else setOnline();
         } catch (err) {
             hideTyping();
+            // Cancelled on purpose (new conversation / page unload) — not a connectivity failure.
+            if (err && err.name === 'AbortError') return;
+
             appendMessage('jarvis', 'אדון, נותק קשר עם רשת המוח הנוירונלית.');
             state.metricsFailures = CONFIG.metricsFailureThreshold;
             setOffline();
         } finally {
+            state.askAbort = null;
             state.isSending = false;
             if (el.userInput) {
                 el.userInput.disabled = false;
@@ -1411,7 +1774,7 @@
     }
 
     // ==============================
-    // 20. HANDLERS
+    // 21. HANDLERS
     // ==============================
 
     function handleSubmit(e) {
@@ -1443,7 +1806,7 @@
     }
 
     // ==============================
-    // 21. INIT
+    // 22. INIT
     // ==============================
 
     function init() {
@@ -1499,6 +1862,7 @@
         startMetricsPolling();
 
         window.addEventListener('beforeunload', () => {
+            abortAskStream();
             if (state.metricsTimer) clearInterval(state.metricsTimer);
             if (state.autoSendTimer) clearTimeout(state.autoSendTimer);
             if (state.typingTimer) clearInterval(state.typingTimer);

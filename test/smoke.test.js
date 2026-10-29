@@ -6,7 +6,8 @@
  * No call reaches Gemini: the server is booted with a dummy GEMINI_API_KEY
  * (dotenv never overrides an existing env var, so a real key in `.env` is
  * never used here) and every assertion targets static files, health/metrics
- * routes, input validation and route removal — none of which spend tokens.
+ * routes, input validation, the /api/ask SSE envelope and route removal — none
+ * of which spend tokens.
  *
  * Run with: npm test
  */
@@ -107,10 +108,53 @@ const postJson = (route, body) => fetch(`${baseUrl}${route}`, {
     signal: AbortSignal.timeout(10000),
 });
 
+/**
+ * Reads an SSE response to the end and returns the parsed frames in arrival order.
+ * Comment frames (`: ping` keep-alives) carry no data and are dropped.
+ */
+async function readSseEvents(response) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const events = [];
+    let buffer = '';
+
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+
+        let boundary = buffer.indexOf('\n\n');
+        while (boundary !== -1) {
+            const frame = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+
+            const event = { event: 'message', data: null };
+            for (const line of frame.split('\n')) {
+                if (line.startsWith('event:')) event.event = line.slice(6).trim();
+                else if (line.startsWith('data:')) {
+                    const raw = line.slice(5).trim();
+                    try {
+                        event.data = JSON.parse(raw);
+                    } catch {
+                        event.data = raw;
+                    }
+                }
+            }
+            if (event.data !== null) events.push(event);
+
+            boundary = buffer.indexOf('\n\n');
+        }
+    }
+
+    return events;
+}
+
 
 test('every JavaScript file parses', () => {
     const files = [
         SERVER_ENTRY,
+        path.join(ROOT, 'ask-tools.js'),
         path.join(ROOT, 'browser.js'),
         path.join(ROOT, 'gemini-fallback.js'),
         path.join(ROOT, 'whatsapp-bot.js'),
@@ -198,6 +242,70 @@ test('input validation rejects bad payloads without calling the model', async ()
 
     const emptyTraining = await postJson('/api/training/analyze', { days: [] });
     assert.equal(emptyTraining.status, 400);
+});
+
+test('POST /api/ask streams deltas and a final done event over SSE', async () => {
+    // "חפש" on its own short-circuits before Gemini and before browser.js, so the whole SSE path
+    // is exercised without spending tokens or touching the network.
+    const res = await fetch(`${baseUrl}/api/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+        body: JSON.stringify({ prompt: 'חפש', stream: true }),
+        signal: AbortSignal.timeout(10000),
+    });
+
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type') || '', /text\/event-stream/);
+    assert.equal(res.headers.get('cache-control'), 'no-cache, no-transform');
+    assert.equal(res.headers.get('x-accel-buffering'), 'no');
+
+    const events = await readSseEvents(res);
+    const kinds = events.map((e) => e.event);
+
+    assert.ok(kinds.includes('delta'), `expected a delta event, got: ${kinds.join(',') || 'nothing'}`);
+    assert.equal(kinds[kinds.length - 1], 'done', 'done must be the last event');
+
+    const streamedText = events
+        .filter((e) => e.event === 'delta')
+        .map((e) => e.data.text)
+        .join('');
+    const done = events.find((e) => e.event === 'done');
+
+    assert.ok(streamedText.length > 0);
+    assert.equal(streamedText, done.data.reply, 'the deltas must add up to the full reply');
+    assert.equal(done.data.streamed, true);
+});
+
+test('?stream=1 also opts a request into SSE', async () => {
+    const res = await fetch(`${baseUrl}/api/ask?stream=1`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: 'חפש' }),
+        signal: AbortSignal.timeout(10000),
+    });
+
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type') || '', /text\/event-stream/);
+
+    const events = await readSseEvents(res);
+    assert.equal(events[events.length - 1].event, 'done');
+});
+
+test('POST /api/ask still answers with plain JSON when streaming is not requested', async () => {
+    const res = await postJson('/api/ask', { prompt: 'חפש' });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type') || '', /application\/json/);
+
+    const body = await res.json();
+    assert.equal(body.reply, 'אדוני, אנא ספק מילת חיפוש מדויקת יותר.');
+});
+
+test('a streaming request still fails fast with JSON on bad input', async () => {
+    // Validation runs before the channel opens, so clients can check res.ok instead of
+    // digging an error out of a 200 stream.
+    const res = await postJson('/api/ask', { prompt: '', stream: true });
+    assert.equal(res.status, 400);
+    assert.match(res.headers.get('content-type') || '', /application\/json/);
 });
 
 test('unknown API routes return 404', async () => {
