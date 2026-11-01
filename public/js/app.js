@@ -234,11 +234,67 @@
         return str.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
 
+    // A reply carries links in three shapes: markdown `[label](url)`, an autolink `<url>` and —
+    // what function calling keeps producing — a bare URL pasted after the answer. All three have
+    // to end up as a real anchor; a bare URL that closes a sentence keeps its punctuation outside.
+    const REPLY_LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|<(https?:\/\/[^\s>]+)>|(https?:\/\/[^\s<>"'`]+)/g;
+    const REPLY_TOKEN_RE = /\u0000(\d+)\u0000/g;
+
+    // Sentence punctuation and an unbalanced ")" are not part of the URL (Wikipedia links end
+    // with one), so they are handed back to the surrounding text instead of swallowed by href.
+    function splitUrlTail(raw) {
+        let url = raw;
+        let tail = '';
+        for (;;) {
+            const last = url.charAt(url.length - 1);
+            if (last && '.,;:!?'.indexOf(last) !== -1) {
+                tail = last + tail;
+                url = url.slice(0, -1);
+                continue;
+            }
+            if (last === ')') {
+                const open = (url.match(/\(/g) || []).length;
+                const close = (url.match(/\)/g) || []).length;
+                if (close > open) {
+                    tail = last + tail;
+                    url = url.slice(0, -1);
+                    continue;
+                }
+            }
+            return { url, tail };
+        }
+    }
+
+    // Links are lifted out of the raw text as tokens first, so href and label can each be escaped
+    // exactly once — a URL that carries & or quotes must not be mangled, and the text around it
+    // must still be escaped as HTML.
     function renderReplyHtml(text) {
-        return escapeHtml(text).replace(
-            /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-            '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
-        );
+        if (typeof text !== 'string' || !text) return '';
+
+        const links = [];
+        const tokenize = (match, markdownLabel, markdownUrl, angleUrl, bareUrl) => {
+            const url = markdownUrl || angleUrl || bareUrl || '';
+            if (!url) return match;
+
+            let href = url;
+            let tail = '';
+            if (bareUrl) {
+                const split = splitUrlTail(bareUrl);
+                href = split.url;
+                tail = split.tail;
+            }
+            if (!href) return match;
+
+            links.push({ url: href, label: markdownLabel || '' });
+            return `\u0000${links.length - 1}\u0000${tail}`;
+        };
+
+        return escapeHtml(text.replace(REPLY_LINK_RE, tokenize)).replace(REPLY_TOKEN_RE, (match, index) => {
+            const link = links[Number(index)];
+            if (!link) return match;
+            const label = escapeHtml(link.label || link.url);
+            return `<a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+        });
     }
 
     // ==============================

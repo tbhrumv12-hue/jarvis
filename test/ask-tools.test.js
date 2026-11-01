@@ -66,6 +66,17 @@ test('askToolLabel falls back to the raw name', () => {
     assert.equal(askToolLabel(undefined), '');
 });
 
+test('web_search tells the model to answer before it lists links', () => {
+    const spec = ASK_TOOL_SPECS.find((s) => s.name === 'web_search');
+    assert.ok(spec, 'web_search spec exists');
+
+    // A wall of links is not an answer: the tool prompt has to demand a direct sentence first,
+    // and Markdown links (not naked URLs) after it.
+    assert.match(spec.description, /תשובה ישירה/);
+    assert.match(spec.description, /\[כותרת\]\(https:\/\//);
+    assert.match(spec.description, /כישלון/);
+});
+
 test('parseBrowserResults reads browser.js output and ignores its banners', () => {
     const stdout = [
         '[Browser] Searching DuckDuckGo Lite for: "full planche"',
