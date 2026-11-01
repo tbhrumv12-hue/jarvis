@@ -1138,3 +1138,417 @@ section {
     .brand .subtitle { display: none; }
     .summary-target { font-size: 9.5px; }
 }
+
+/* 13. daily progress — four donut gauges + the sentence under them */
+.progress-badge {
+    padding: 5px 12px;
+    font-family: var(--hud-mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    color: var(--hud-turquoise-bright);
+    background: rgba(77, 208, 196, 0.08);
+    border: 1px solid rgba(77, 208, 196, 0.26);
+    border-radius: var(--hud-radius-pill);
+    box-shadow: inset 0 0 14px rgba(77, 208, 196, 0.10);
+    white-space: nowrap;
+}
+
+.progress-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.progress-ring {
+    --ring-color: var(--hud-turquoise);
+    --ring-glow: rgba(77, 208, 196, 0.55);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 12px 14px;
+    overflow: hidden;
+    text-align: center;
+    background: linear-gradient(165deg, rgba(23, 34, 56, 0.66) 0%, rgba(11, 16, 28, 0.9) 100%);
+    border: 1px solid var(--hud-line);
+    border-radius: var(--hud-radius);
+    transition: transform 0.22s var(--hud-ease),
+                border-color 0.22s var(--hud-ease),
+                box-shadow 0.22s var(--hud-ease);
+}
+/* אור רך מעל הרגע — הטבעת יושבת בתוך מסגרת ולא על ריבוע שטוח */
+.progress-ring::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 0%, rgba(77, 208, 196, 0.09), transparent 62%);
+    pointer-events: none;
+}
+.progress-ring:hover {
+    transform: translateY(-2px);
+    border-color: rgba(77, 208, 196, 0.24);
+    box-shadow: var(--hud-shadow-lift);
+}
+
+/* קלוריות היא המדד המוביל → זהב; השאר מתחלפים טורקיז/זהב כדי שארבע טבעות
+   ייבדלו זו מזו בלי לצאת משתי הצבעים של ה-HUD. */
+.progress-ring[data-metric="kcal"] { --ring-color: var(--hud-gold); --ring-glow: rgba(212, 175, 55, 0.58); }
+.progress-ring[data-metric="protein"] { --ring-color: var(--hud-turquoise); --ring-glow: rgba(77, 208, 196, 0.58); }
+.progress-ring[data-metric="carbs"] { --ring-color: var(--hud-turquoise-bright); --ring-glow: rgba(138, 245, 234, 0.48); }
+.progress-ring[data-metric="fats"] { --ring-color: var(--hud-gold-bright); --ring-glow: rgba(244, 212, 124, 0.48); }
+
+/* --- הגרף עצמו --- */
+.ring-chart {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 108px;
+    height: 108px;
+}
+.ring-chart svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    /* הקשת מתחילה ב-12 ולא ב-3 */
+    transform: rotate(-90deg);
+}
+.ring-track {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.07);
+    stroke-width: 8;
+}
+.ring-value {
+    fill: none;
+    stroke: var(--ring-color);
+    stroke-width: 8;
+    stroke-linecap: round;
+    /* pathLength="100" שבסימון → יחידות ה-dash הן אחוזים */
+    stroke-dasharray: 100;
+    stroke-dashoffset: 100;
+    filter: drop-shadow(0 0 5px var(--ring-glow));
+    transition: stroke-dashoffset 0.75s var(--hud-ease),
+                stroke 0.3s linear,
+                filter 0.3s linear;
+}
+
+.ring-center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    pointer-events: none;
+}
+.ring-pct {
+    font-family: var(--hud-mono);
+    font-size: 19px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.5px;
+    color: var(--hud-text);
+    font-variant-numeric: tabular-nums;
+}
+.ring-pct .ring-unit {
+    margin-inline-start: 1px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--hud-text-3);
+}
+.ring-amount {
+    /* "1,200 / 2,650" לא יתהפך בתוך עמוד RTL */
+    direction: ltr;
+    unicode-bidi: isolate;
+    font-family: var(--hud-mono);
+    font-size: 9px;
+    letter-spacing: 0.2px;
+    color: var(--hud-text-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.ring-label {
+    margin: 0;
+    font-family: var(--hud-mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: var(--hud-text-2);
+}
+.ring-sub {
+    margin: 0;
+    font-family: var(--hud-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.2px;
+    color: var(--hud-text-3);
+}
+
+/* --- מצבים: ריק → נמוך → גבוה → הושלם → מעל היעד --- */
+.progress-ring.is-empty .ring-value { stroke: rgba(255, 255, 255, 0.12); filter: none; }
+.progress-ring.is-low .ring-value { filter: drop-shadow(0 0 3px var(--ring-glow)); }
+.progress-ring.is-high .ring-value { filter: drop-shadow(0 0 7px var(--ring-glow)); }
+
+.progress-ring.is-done { border-color: rgba(74, 222, 128, 0.28); }
+.progress-ring.is-done .ring-value {
+    stroke: var(--hud-success);
+    filter: drop-shadow(0 0 8px rgba(74, 222, 128, 0.60));
+}
+.progress-ring.is-done .ring-sub { color: var(--hud-success); }
+
+.progress-ring.is-over { border-color: rgba(251, 191, 36, 0.30); }
+.progress-ring.is-over .ring-value {
+    stroke: var(--hud-warning);
+    filter: drop-shadow(0 0 9px rgba(251, 191, 36, 0.65));
+}
+.progress-ring.is-over .ring-sub { color: var(--hud-warning); }
+
+/* --- הסיכום הטקסטואלי --- */
+.progress-summary {
+    margin: 16px 0 0;
+    padding-top: 14px;
+    border-top: 1px solid var(--hud-line);
+    font-size: 14px;
+    line-height: 1.8;
+    color: var(--hud-text-2);
+    text-align: start;
+}
+.progress-summary strong {
+    font-family: var(--hud-mono);
+    font-weight: 700;
+    color: var(--hud-turquoise-bright);
+    font-variant-numeric: tabular-nums;
+}
+.progress-summary .ps-warn { color: var(--hud-warning); }
+.progress-summary .ps-ok { color: var(--hud-success); }
+
+@media (max-width: 1100px) {
+    .progress-grid { gap: 12px; }
+    .ring-chart { width: 100px; height: 100px; }
+}
+
+@media (max-width: 900px) {
+    .progress-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+    .progress-grid { gap: 10px; }
+    .progress-ring { padding: 14px 10px 12px; gap: 7px; }
+    .ring-chart { width: 92px; height: 92px; }
+    .ring-pct { font-size: 17px; }
+    .ring-label { font-size: 9.5px; letter-spacing: 1.1px; }
+    .ring-sub { font-size: 10px; }
+    .progress-summary { font-size: 13px; line-height: 1.75; }
+    .progress-badge { font-size: 9.5px; padding: 4px 10px; }
+}
+
+@media (max-width: 400px) {
+    .ring-chart { width: 84px; height: 84px; }
+    .ring-amount { font-size: 8px; }
+    .ring-pct { font-size: 15.5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ring-value { transition: none; }
+    .progress-ring:hover { transform: none; }
+}
+
+/* =============================================================
+   14. TREND — 7-day line chart (inline SVG, no chart libraries)
+   ============================================================= */
+
+.trend-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.trend-delta {
+    font-family: var(--hud-mono);
+    font-size: 10px;
+    letter-spacing: 0.4px;
+    color: var(--hud-text-2);
+}
+
+/* ── metric switch ── */
+.trend-switch {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.trend-switch-btn {
+    flex: 1 1 auto;
+    min-width: 68px;
+    padding: 7px 10px;
+    border: 1px solid var(--hud-border);
+    border-radius: var(--hud-radius-pill);
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--hud-text-2);
+    font-family: var(--hud-font);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    transition: color 0.2s var(--hud-ease), border-color 0.2s var(--hud-ease), background 0.2s var(--hud-ease);
+}
+
+.trend-switch-btn:hover {
+    color: var(--hud-text);
+    border-color: var(--hud-border-strong);
+}
+
+.trend-switch-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--hud-focus);
+}
+
+.trend-switch-btn.is-active {
+    color: var(--hud-gold-bright);
+    border-color: var(--hud-line-gold);
+    background: var(--hud-gold-dim);
+    box-shadow: var(--hud-glow-gold);
+}
+
+/* ── chart canvas ── */
+.trend-chart {
+    position: relative;
+    width: 100%;
+    direction: ltr; /* זמן: שמאל → ימין */
+}
+
+.trend-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 320 / 132;
+    overflow: visible;
+}
+
+.trend-fill-top { stop-color: var(--hud-turquoise); stop-opacity: 0.28; }
+.trend-fill-bottom { stop-color: var(--hud-turquoise); stop-opacity: 0; }
+
+.trend-grid-line {
+    stroke: var(--hud-line);
+    stroke-width: 1;
+    stroke-dasharray: 2 4;
+}
+
+.trend-target-line {
+    stroke: var(--hud-gold);
+    stroke-width: 1;
+    stroke-dasharray: 5 5;
+    opacity: 0.55;
+}
+
+.trend-area { fill: url(#trend-fill); stroke: none; }
+
+.trend-line {
+    fill: none;
+    stroke: var(--hud-turquoise);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 6px rgba(77, 208, 196, 0.45));
+    transition: stroke-dashoffset 0.55s var(--hud-ease);
+}
+
+.trend-point {
+    fill: var(--hud-bg);
+    stroke: var(--hud-turquoise);
+    stroke-width: 2;
+}
+
+.trend-point.is-today {
+    fill: var(--hud-gold-bright);
+    stroke: var(--hud-gold);
+    filter: drop-shadow(0 0 5px rgba(244, 212, 124, 0.6));
+}
+
+.trend-chart.is-empty .trend-svg { opacity: 0.35; }
+
+.trend-empty {
+    margin: 6px 0 0;
+    text-align: center;
+    font-size: 11.5px;
+    color: var(--hud-text-3);
+}
+
+/* ── legend ── */
+.trend-legend {
+    display: flex;
+    gap: 6px;
+    direction: ltr; /* תואם לכיוון הגרף */
+}
+
+.trend-legend-item {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    font-family: var(--hud-mono);
+    font-size: 9.5px;
+    color: var(--hud-text-3);
+    white-space: nowrap;
+}
+
+.trend-legend-value {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--hud-text);
+}
+
+.trend-legend-item.is-today .trend-legend-value { color: var(--hud-gold-bright); }
+.trend-legend-item.is-empty .trend-legend-value { color: var(--hud-text-3); font-weight: 500; }
+
+/* ── chat context strip (nutrition page only) ── */
+.hud-chat-context {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--hud-line);
+    background: rgba(77, 208, 196, 0.05);
+    font-family: var(--hud-mono);
+    font-size: 10px;
+    color: var(--hud-text-2);
+}
+
+.hud-chat-context-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.hud-chat-context-clear {
+    flex: 0 0 auto;
+    padding: 3px 9px;
+    border: 1px solid var(--hud-border);
+    border-radius: var(--hud-radius-pill);
+    background: transparent;
+    color: var(--hud-text-3);
+    font-family: var(--hud-font);
+    font-size: 10px;
+    cursor: pointer;
+    transition: color 0.2s var(--hud-ease), border-color 0.2s var(--hud-ease);
+}
+
+.hud-chat-context-clear:hover {
+    color: var(--hud-danger);
+    border-color: rgba(255, 92, 92, 0.4);
+}
+
+/* ── mobile ── */
+@media (max-width: 640px) {
+    .trend-switch-btn { min-width: 60px; padding: 6px 8px; font-size: 11px; }
+    .trend-legend-item { font-size: 9px; }
+    .trend-legend-value { font-size: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .trend-line { transition: none; }
+}

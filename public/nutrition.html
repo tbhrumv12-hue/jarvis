@@ -44,6 +44,118 @@
             </div>
         </section>
 
+        <!-- === Daily Progress — donut gauges vs. the daily targets === -->
+        <section id="daily-progress" class="progress-section hud-card" aria-labelledby="daily-progress-title">
+            <div class="section-header-row">
+                <h2 id="daily-progress-title" class="section-title">🎯 התקדמות מול יעדים</h2>
+                <span class="progress-badge hud-badge" id="progress-overall">כיסוי יעדים 0%</span>
+            </div>
+
+            <div class="progress-grid">
+                <article class="progress-ring" data-metric="kcal">
+                    <div class="ring-chart">
+                        <svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+                            <circle class="ring-track" cx="50" cy="50" r="42"></circle>
+                            <circle class="ring-value" cx="50" cy="50" r="42" pathLength="100"
+                                    stroke-dasharray="100" stroke-dashoffset="100"></circle>
+                        </svg>
+                        <div class="ring-center">
+                            <span class="ring-pct" data-role="pct">0<span class="ring-unit">%</span></span>
+                            <span class="ring-amount" data-role="amount">0 / 2,650</span>
+                        </div>
+                    </div>
+                    <h3 class="ring-label">קלוריות</h3>
+                    <p class="ring-sub" data-role="remaining">יעד יומי: 2,650 קק"ל</p>
+                </article>
+
+                <article class="progress-ring" data-metric="protein">
+                    <div class="ring-chart">
+                        <svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+                            <circle class="ring-track" cx="50" cy="50" r="42"></circle>
+                            <circle class="ring-value" cx="50" cy="50" r="42" pathLength="100"
+                                    stroke-dasharray="100" stroke-dashoffset="100"></circle>
+                        </svg>
+                        <div class="ring-center">
+                            <span class="ring-pct" data-role="pct">0<span class="ring-unit">%</span></span>
+                            <span class="ring-amount" data-role="amount">0 / 140</span>
+                        </div>
+                    </div>
+                    <h3 class="ring-label">חלבון</h3>
+                    <p class="ring-sub" data-role="remaining">יעד יומי: 140 גרם</p>
+                </article>
+
+                <article class="progress-ring" data-metric="carbs">
+                    <div class="ring-chart">
+                        <svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+                            <circle class="ring-track" cx="50" cy="50" r="42"></circle>
+                            <circle class="ring-value" cx="50" cy="50" r="42" pathLength="100"
+                                    stroke-dasharray="100" stroke-dashoffset="100"></circle>
+                        </svg>
+                        <div class="ring-center">
+                            <span class="ring-pct" data-role="pct">0<span class="ring-unit">%</span></span>
+                            <span class="ring-amount" data-role="amount">0 / 325</span>
+                        </div>
+                    </div>
+                    <h3 class="ring-label">פחמימות</h3>
+                    <p class="ring-sub" data-role="remaining">יעד יומי: 325 גרם</p>
+                </article>
+
+                <article class="progress-ring" data-metric="fats">
+                    <div class="ring-chart">
+                        <svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+                            <circle class="ring-track" cx="50" cy="50" r="42"></circle>
+                            <circle class="ring-value" cx="50" cy="50" r="42" pathLength="100"
+                                    stroke-dasharray="100" stroke-dashoffset="100"></circle>
+                        </svg>
+                        <div class="ring-center">
+                            <span class="ring-pct" data-role="pct">0<span class="ring-unit">%</span></span>
+                            <span class="ring-amount" data-role="amount">0 / 85</span>
+                        </div>
+                    </div>
+                    <h3 class="ring-label">שומן</h3>
+                    <p class="ring-sub" data-role="remaining">יעד יומי: 85 גרם</p>
+                </article>
+            </div>
+
+            <p id="progress-summary" class="progress-summary" aria-live="polite">
+                עוד לא רשמת ארוחות היום — היעד היומי הוא 2,650 קלוריות ו-140 גרם חלבון.
+            </p>
+        </section>
+
+        <!-- === 7-Day Trend — inline SVG only, one metric at a time (no chart libs) === -->
+        <section id="trend-section" class="trend-section hud-card" aria-labelledby="trend-title" hidden>
+            <div class="section-header-row">
+                <h2 id="trend-title" class="section-title">📈 מגמה — 7 ימים אחרונים</h2>
+                <span id="trend-delta" class="trend-delta hud-badge">—</span>
+            </div>
+
+            <div id="trend-switch" class="trend-switch" role="group" aria-label="בחירת מדד להצגה בגרף">
+                <button type="button" class="trend-switch-btn is-active" data-metric="kcal" aria-pressed="true">קלוריות</button>
+                <button type="button" class="trend-switch-btn" data-metric="protein" aria-pressed="false">חלבון</button>
+                <button type="button" class="trend-switch-btn" data-metric="carbs" aria-pressed="false">פחמימות</button>
+                <button type="button" class="trend-switch-btn" data-metric="fats" aria-pressed="false">שומן</button>
+            </div>
+
+            <div id="trend-chart" class="trend-chart">
+                <svg id="trend-svg" class="trend-svg" viewBox="0 0 320 132" role="img" aria-label="גרף מגמה של הימים האחרונים">
+                    <defs>
+                        <linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1">
+                            <stop class="trend-fill-top" offset="0%"></stop>
+                            <stop class="trend-fill-bottom" offset="100%"></stop>
+                        </linearGradient>
+                    </defs>
+                    <g id="trend-grid" class="trend-grid"></g>
+                    <line id="trend-target-line" class="trend-target-line" x1="0" y1="0" x2="320" y2="0"></line>
+                    <path id="trend-area" class="trend-area" d=""></path>
+                    <path id="trend-line" class="trend-line" d=""></path>
+                    <g id="trend-points" class="trend-points"></g>
+                </svg>
+                <p id="trend-empty" class="trend-empty" hidden>צריך לפחות יומיים של נתונים כדי להציג מגמה</p>
+            </div>
+
+            <div id="trend-legend" class="trend-legend"></div>
+        </section>
+
         <!-- === Water Tracker === -->
         <section class="water-section hud-card">
             <h2 class="section-title">💧 מים</h2>
@@ -168,6 +280,11 @@
             </div>
             <button type="button" id="nutrition-chat-close" class="hud-chat-close" aria-label="סגור">✕</button>
         </header>
+
+        <div id="nutrition-chat-context" class="hud-chat-context" hidden>
+            <span id="nutrition-chat-context-text" class="hud-chat-context-text">—</span>
+            <button type="button" id="nutrition-chat-clear" class="hud-chat-context-clear" aria-label="נקה שיחה">נקה</button>
+        </div>
 
         <div id="nutrition-chat-messages" class="hud-chat-messages">
             <div class="hud-chat-empty">

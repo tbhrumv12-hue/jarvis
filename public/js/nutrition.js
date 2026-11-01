@@ -16,6 +16,8 @@
     const MIN_DESC_LENGTH = 2;
     const MAX_DESC_LENGTH = 500;
     const QUICK_ADD_MAX_MEALS = 30;
+    const TREND_DAYS = 7;          // חלון גרף המגמה
+    const TREND_PREV_DAYS = 7;     // חלון ההשוואה — השבוע שקדם לחלון
 
     const TARGETS = Object.freeze({
         kcal: 2650,
@@ -26,6 +28,19 @@
         sugar: 50,
         water: WATER_TARGET
     });
+
+    // ארבע הטבעות ב-#daily-progress — סדר התצוגה, היחידה להצגה והיעד מכל TARGETS.
+    // unit = היחידה במשפט התחתון, shortUnit = היחידה שמתחת לטבעת (מקום צר).
+    const PROGRESS_METRICS = Object.freeze([
+        { key: 'kcal', label: 'קלוריות', unit: 'קלוריות', shortUnit: 'קק"ל', target: TARGETS.kcal },
+        { key: 'protein', label: 'חלבון', unit: 'גרם', shortUnit: 'גרם', target: TARGETS.protein },
+        { key: 'carbs', label: 'פחמימות', unit: 'גרם', shortUnit: 'גרם', target: TARGETS.carbs },
+        { key: 'fats', label: 'שומן', unit: 'גרם', shortUnit: 'גרם', target: TARGETS.fats }
+    ]);
+
+    const PROGRESS_NEAR = 50;   // מתחת לזה הטבעת דהויה (is-low)
+    const PROGRESS_DONE = 100;  // היעד הושלם
+    const PROGRESS_OVER = 110;  // מעל זה מצב אזהרה — מרווח של 10% כדי שארוחה גדולה לא תיצבע כאזהרה
 
     const AMINO_ORDER = Object.freeze([
         'Histidine', 'Isoleucine', 'Leucine', 'Lysine', 'Methionine',
@@ -77,12 +92,17 @@
     // Date helpers
     // ─────────────────────────────────────────────────────────────
 
-    function todayKey() {
-        const d = new Date();
+    // ISO מקומי (YYYY-MM-DD) — לא UTC, כדי לא לזלוג יום אחורה בשעות הערב.
+    function isoKey(date) {
+        const d = date instanceof Date ? date : new Date();
         const y = d.getFullYear();
         const m = String(d.getMonth() + 1).padStart(2, '0');
         const day = String(d.getDate()).padStart(2, '0');
         return `${y}-${m}-${day}`;
+    }
+
+    function todayKey() {
+        return isoKey(new Date());
     }
 
     function formatHebrewDate(iso) {
@@ -354,6 +374,86 @@
     }
 
     // ─────────────────────────────────────────────────────────────
+    // Trend — 7 הימים האחרונים (נתונים לגרף ולקונטקסט של הצ'אט)
+    // ─────────────────────────────────────────────────────────────
+
+    // מפתחות הימים האחרונים, מהמוקדם למאוחר. endOffset=0 → החלון מסתיים היום.
+    function trendDayKeys(count, endOffset) {
+        const now = new Date();
+        const keys = [];
+        const total = Math.max(1, Number(count) || TREND_DAYS);
+        const offset = Math.max(0, Number(endOffset) || 0);
+
+        for (let i = total - 1; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i - offset);
+            keys.push(isoKey(d));
+        }
+        return keys;
+    }
+
+    // יום "ריק" נוצר אוטומטית ע"י getToday — אסור שיוצג כערך אמיתי בגרף.
+    function dayHasData(day) {
+        if (!day || typeof day !== 'object') return false;
+        const totals = day.totals && typeof day.totals === 'object' ? day.totals : {};
+
+        return toNumber(totals.kcal, 0) > 0
+            || (Array.isArray(day.meals) && day.meals.length > 0)
+            || toNumber(day.water, 0) > 0;
+    }
+
+    // סדרת נקודות למדד אחד (kcal/protein/carbs/fats) — הבסיס לגרף.
+    function buildTrendSeries(store, metricKey, count, endOffset) {
+        const days = store && store.days && typeof store.days === 'object' ? store.days : {};
+        const metric = PROGRESS_METRICS.find((m) => m.key === metricKey) || PROGRESS_METRICS[0];
+
+        return trendDayKeys(count == null ? TREND_DAYS : count, endOffset).map((key) => {
+            const day = days[key] || null;
+            const totals = day && day.totals && typeof day.totals === 'object' ? day.totals : {};
+            const hasData = dayHasData(day);
+
+            return {
+                key,
+                label: `${key.slice(8)}/${key.slice(5, 7)}`,
+                value: hasData ? Math.round(toNumber(totals[metric.key], 0) * 10) / 10 : 0,
+                hasData,
+                isToday: key === todayKey(),
+                target: metric.target,
+                metric: metric.key,
+                unit: metric.shortUnit
+            };
+        });
+    }
+
+    // טוטאלים יומיים קומפקטיים — נשלחים ל-/api/nutrition/chat כקונטקסט מגמה.
+    // מחזיר רק ימים עם נתון אמיתי, מהמוקדם למאוחר.
+    function dailyTotalsWindow(count, endOffset) {
+        try {
+            const store = loadStore();
+            const days = store.days || {};
+
+            return trendDayKeys(count == null ? TREND_DAYS : count, endOffset)
+                .map((key) => {
+                    const day = days[key] || null;
+                    if (!dayHasData(day)) return null;
+                    const t = day.totals && typeof day.totals === 'object' ? day.totals : {};
+
+                    return {
+                        date: key,
+                        kcal: Math.round(toNumber(t.kcal, 0)),
+                        protein: Math.round(toNumber(t.protein, 0)),
+                        carbs: Math.round(toNumber(t.carbs, 0)),
+                        fats: Math.round(toNumber(t.fats, 0)),
+                        meals: Array.isArray(day.meals) ? day.meals.length : 0
+                    };
+                })
+                .filter(Boolean);
+        } catch (err) {
+            console.warn('[Nutrition] dailyTotalsWindow failed:', err);
+            return [];
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
     // Renderers
     // ─────────────────────────────────────────────────────────────
 
@@ -381,6 +481,145 @@
                 </div>
             `;
         }).join('');
+    }
+
+    // ── Daily progress — donut gauges vs. the daily targets ─────
+
+    function formatNumber(value) {
+        const n = Math.round(Math.max(0, toNumber(value, 0)));
+        return n.toLocaleString('he-IL');
+    }
+
+    // "א, ב ו-ג" — חיבור עברי תקין, בלי פסיק תלוי בסוף.
+    function joinHebrew(items) {
+        const list = items.filter(Boolean);
+        if (list.length === 0) return '';
+        if (list.length === 1) return list[0];
+        const last = list[list.length - 1];
+        // מספרים מקבלים מקף ("ו-30 גרם"), מילים מתחברות ישירות ("ושומן")
+        const glue = /^\d/.test(last) ? ' ו-' : ' ו';
+        return list.slice(0, -1).join(', ') + glue + last;
+    }
+
+    // totals → שורה לכל טבעת, עם כל מה שהטבעת והמשפט צריכים ממנה.
+    function progressRows(totals) {
+        return PROGRESS_METRICS.map((metric) => {
+            const value = Math.max(0, toNumber(totals[metric.key], 0));
+            const pct = metric.target > 0 ? (value / metric.target) * 100 : 0;
+            const diff = value - metric.target;
+            return {
+                metric,
+                value,
+                pct,
+                remaining: diff < 0 ? -diff : 0,
+                over: diff > 0 ? diff : 0
+            };
+        });
+    }
+
+    function progressState(pct) {
+        if (pct > PROGRESS_OVER) return 'is-over';
+        if (pct >= PROGRESS_DONE) return 'is-done';
+        if (pct >= PROGRESS_NEAR) return 'is-high';
+        if (pct > 0) return 'is-low';
+        return 'is-empty';
+    }
+
+    function ringCaption(row) {
+        const metric = row.metric;
+        if (Math.round(row.over) > 0) {
+            return `מעל היעד ב-${formatNumber(row.over)} ${metric.shortUnit}`;
+        }
+        if (Math.round(row.remaining) > 0) {
+            if (row.value <= 0) return `יעד יומי: ${formatNumber(metric.target)} ${metric.shortUnit}`;
+            return `חסר ${formatNumber(row.remaining)} ${metric.shortUnit}`;
+        }
+        return 'היעד הושלם';
+    }
+
+    function renderProgressRing(ring, row) {
+        const pct = row.pct;
+
+        // pathLength="100" שבסימון → dashoffset הוא אחוז ישירות, והמילוי נעצר ב-100%
+        const arc = ring.querySelector('.ring-value');
+        if (arc) arc.style.strokeDashoffset = Math.max(0, 100 - Math.min(100, pct)).toFixed(2);
+
+        ring.classList.remove('is-empty', 'is-low', 'is-high', 'is-done', 'is-over');
+        ring.classList.add(progressState(pct));
+
+        const pctEl = ring.querySelector('[data-role="pct"]');
+        if (pctEl) pctEl.innerHTML = `${Math.round(pct)}<span class="ring-unit">%</span>`;
+
+        safeText(
+            ring.querySelector('[data-role="amount"]'),
+            `${formatNumber(row.value)} / ${formatNumber(row.metric.target)}`
+        );
+        safeText(ring.querySelector('[data-role="remaining"]'), ringCaption(row));
+    }
+
+    // המשפט שמתחת לטבעות: קלוריות קודם, אחר כך החוסרים במאקרו, ואז חריגות.
+    function progressSentence(rows, mealCount) {
+        const kcalRow = rows[0];
+
+        if (mealCount === 0) {
+            return 'עוד לא רשמת ארוחות היום — היעד היומי הוא ' +
+                `${formatNumber(PROGRESS_METRICS[0].target)} קלוריות ו-` +
+                `${formatNumber(PROGRESS_METRICS[1].target)} גרם חלבון.`;
+        }
+
+        const parts = [
+            `אכלת <strong>${formatNumber(kcalRow.value)}</strong> קלוריות ` +
+            `(<strong>${Math.round(kcalRow.pct)}%</strong> מהיעד).`
+        ];
+
+        const missing = rows.slice(1).filter((row) => Math.round(row.remaining) > 0);
+        const over = rows.filter((row) => Math.round(row.over) > 0);
+
+        // יום מושלם — משפט אחד קצר, בלי לחזור על "השלמת את כל יעדי המאקרו"
+        if (missing.length === 0 && over.length === 0 && Math.round(kcalRow.remaining) === 0) {
+            parts.push('<span class="ps-ok">כל היעדים של היום הושלמו 🎯</span>');
+            return parts.join(' ');
+        }
+
+        if (missing.length > 0) {
+            parts.push('חסר לך ' + joinHebrew(missing.map((row) =>
+                `${formatNumber(row.remaining)} ${row.metric.unit} ${row.metric.label}`)) + '.');
+        } else {
+            parts.push('השלמת את כל יעדי המאקרו.');
+        }
+
+        if (over.length > 0) {
+            parts.push(`<span class="ps-warn">מעל היעד: ${joinHebrew(over.map((row) =>
+                `${row.metric.label} +${formatNumber(row.over)} ${row.metric.shortUnit}`))}.</span>`);
+        } else if (missing.length === 0 && Math.round(kcalRow.remaining) > 0) {
+            parts.push(`נשארו עוד ${formatNumber(kcalRow.remaining)} קלוריות ליעד היומי.`);
+        }
+
+        return parts.join(' ');
+    }
+
+    function renderProgress(totals, meals) {
+        const section = $('daily-progress');
+        if (!section) return;
+
+        const rows = progressRows(totals || {});
+        const mealCount = Array.isArray(meals) ? meals.length : 0;
+
+        for (const row of rows) {
+            const ring = section.querySelector(`.progress-ring[data-metric="${row.metric.key}"]`);
+            if (ring) renderProgressRing(ring, row);
+        }
+
+        // כיסוי כללי = ממוצע ארבעת האחוזים (כל אחד נחתך ב-100), למבט מהיר ב-badge אחד
+        const covered = rows.reduce((sum, row) => sum + Math.min(100, Math.max(0, row.pct)), 0) / rows.length;
+
+        const badge = $('progress-overall');
+        if (badge) {
+            badge.textContent = `כיסוי יעדים ${Math.round(covered)}%`;
+            badge.title = rows.map((row) => `${row.metric.label} ${Math.round(row.pct)}%`).join(' · ');
+        }
+
+        safeHtml($('progress-summary'), progressSentence(rows, mealCount));
     }
 
     function renderWater(water) {
@@ -555,6 +794,164 @@
         }).join('');
     }
 
+    // ── Trend chart — 7 ימים, מדד אחד בכל פעם (SVG, בלי ספריות) ──
+
+    let trendMetric = 'kcal';
+
+    const TREND_VIEW_W = 320;
+    const TREND_VIEW_H = 132;
+    const TREND_PAD_X = 14;
+    const TREND_PAD_T = 14;
+    const TREND_PAD_B = 12;
+
+    function trendMetricMeta(key) {
+        return PROGRESS_METRICS.find((m) => m.key === key) || PROGRESS_METRICS[0];
+    }
+
+    function trendSummary(series, target) {
+        const filled = series.filter((p) => p.hasData);
+        const total = filled.reduce((sum, p) => sum + p.value, 0);
+        const avg = filled.length ? Math.round(total / filled.length) : 0;
+
+        return {
+            count: filled.length,
+            avg,
+            pct: target > 0 ? Math.round((avg / target) * 100) : 0
+        };
+    }
+
+    // תקרת הציר — היעד או השיא, הגדול מביניהם, ועוד 12% אוויר.
+    function trendMaxY(series, target) {
+        const peak = series.reduce((max, p) => (p.hasData && p.value > max ? p.value : max), 0);
+        return Math.max(1, Math.round(Math.max(peak, target || 0, 1) * 1.12));
+    }
+
+    function trendYScale(maxY) {
+        const usableH = TREND_VIEW_H - TREND_PAD_T - TREND_PAD_B;
+        return (value) => {
+            const clamped = Math.max(0, Math.min(toNumber(value, 0), maxY));
+            return Math.round((TREND_PAD_T + usableH - (clamped / maxY) * usableH) * 10) / 10;
+        };
+    }
+
+    function trendPointCoords(series, yOf) {
+        const usableW = TREND_VIEW_W - TREND_PAD_X * 2;
+        const step = series.length > 1 ? usableW / (series.length - 1) : 0;
+
+        return series.map((p, i) => {
+            const x = series.length > 1 ? TREND_PAD_X + step * i : TREND_VIEW_W / 2;
+            return {
+                ...p,
+                x: Math.round(x * 10) / 10,
+                y: yOf(p.value)
+            };
+        });
+    }
+
+    function renderTrend(store) {
+        const section = $('trend-section');
+        if (!section) return;
+
+        const series = buildTrendSeries(store, trendMetric, TREND_DAYS, 0);
+        const filled = series.filter((p) => p.hasData);
+
+        // יום ריק נוצר אוטומטית ע"י getToday — אסור שיוצג כנתון אמיתי.
+        if (filled.length === 0) {
+            section.hidden = true;
+            return;
+        }
+
+        section.hidden = false;
+        syncTrendSwitch();
+
+        const meta = trendMetricMeta(trendMetric);
+        const maxY = trendMaxY(series, meta.target);
+        const yOf = trendYScale(maxY);
+        const points = trendPointCoords(series, yOf);
+        const filledPoints = points.filter((p) => p.hasData);
+        const enough = filledPoints.length >= 2;
+
+        const chart = $('trend-chart');
+        const empty = $('trend-empty');
+        if (chart) chart.classList.toggle('is-empty', !enough);
+        if (empty) empty.hidden = enough;
+
+        const targetLine = $('trend-target-line');
+        if (targetLine) {
+            targetLine.setAttribute('x1', TREND_PAD_X);
+            targetLine.setAttribute('x2', TREND_VIEW_W - TREND_PAD_X);
+            targetLine.setAttribute('y1', yOf(meta.target));
+            targetLine.setAttribute('y2', yOf(meta.target));
+        }
+
+        const grid = $('trend-grid');
+        if (grid) {
+            grid.innerHTML = [0.25, 0.5, 0.75].map((ratio) => {
+                const y = yOf(maxY * ratio);
+                return `<line class="trend-grid-line" x1="${TREND_PAD_X}" y1="${y}" x2="${TREND_VIEW_W - TREND_PAD_X}" y2="${y}"></line>`;
+            }).join('');
+        }
+
+        const line = $('trend-line');
+        const area = $('trend-area');
+        if (line && area) {
+            if (enough) {
+                const path = filledPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+                const baseY = yOf(0);
+                const first = filledPoints[0];
+                const last = filledPoints[filledPoints.length - 1];
+
+                line.setAttribute('d', path);
+                area.setAttribute('d', `${path} L${last.x},${baseY} L${first.x},${baseY} Z`);
+            } else {
+                line.setAttribute('d', '');
+                area.setAttribute('d', '');
+            }
+        }
+
+        const pointsBox = $('trend-points');
+        if (pointsBox) {
+            pointsBox.innerHTML = filledPoints.map((p) => {
+                const cls = p.isToday ? 'trend-point is-today' : 'trend-point';
+                return `<circle class="${cls}" cx="${p.x}" cy="${p.y}" r="${p.isToday ? 4 : 3}"></circle>`;
+            }).join('');
+        }
+
+        const legend = $('trend-legend');
+        if (legend) {
+            legend.innerHTML = points.map((p) => {
+                const cls = ['trend-legend-item', p.isToday ? 'is-today' : '', p.hasData ? '' : 'is-empty']
+                    .filter(Boolean)
+                    .join(' ');
+                const value = p.hasData ? formatNumber(p.value) : '—';
+                return `<span class="${cls}"><span class="trend-legend-date">${escapeHtml(p.label)}</span>`
+                    + `<span class="trend-legend-value">${value}</span></span>`;
+            }).join('');
+        }
+
+        // badge — ממוצע החלון מול היעד, וחץ מגמה מול השבוע שלפניו
+        const badge = $('trend-delta');
+        if (badge) {
+            const current = trendSummary(series, meta.target);
+            const previous = trendSummary(buildTrendSeries(store, trendMetric, TREND_PREV_DAYS, TREND_DAYS), meta.target);
+
+            let text = `ממוצע ${formatNumber(current.avg)} · ${current.pct}% מהיעד`;
+            if (current.avg > 0 && previous.avg > 0) {
+                const delta = Math.round(((current.avg - previous.avg) / previous.avg) * 100);
+                if (delta !== 0) text += ` · ${delta > 0 ? '↑' : '↓'}${Math.abs(delta)}%`;
+            }
+            badge.textContent = text;
+        }
+    }
+
+    function syncTrendSwitch() {
+        document.querySelectorAll('.trend-switch-btn').forEach((btn) => {
+            const active = btn.getAttribute('data-metric') === trendMetric;
+            btn.classList.toggle('is-active', active);
+            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+    }
+
     function renderAll() {
         try {
             const { store, today } = getToday();
@@ -563,12 +960,18 @@
             if (dateEl) dateEl.textContent = formatHebrewDate(todayKey());
 
             renderSummary(today.totals || {}, today.water || 0);
+            renderProgress(today.totals || {}, today.meals || []);
             renderWater(today.water || 0);
             renderMeals(today.meals || []);
             renderMicros(today.vitamins || [], today.minerals || []);
             renderAminos(today.aminos || []);
             renderInsights(today.insights || '');
             renderHistory(store);
+            try {
+                renderTrend(store);
+            } catch (trendErr) {
+                console.warn('[Nutrition] renderTrend failed:', trendErr);
+            }
 
             const footer = $('footer-updated');
             if (footer) footer.textContent = nowTimeHHMM();
@@ -791,7 +1194,35 @@
 
         const clearBtn = $('btn-clear');
         if (clearBtn) clearBtn.addEventListener('click', clearToday);
+
+        document.querySelectorAll('.trend-switch-btn').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const metric = btn.getAttribute('data-metric');
+                if (!metric || metric === trendMetric) return;
+                trendMetric = metric;
+                try {
+                    renderTrend(loadStore());
+                } catch (err) {
+                    console.warn('[Nutrition] renderTrend failed:', err);
+                }
+            });
+        });
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // Public bridge — מקור אמת אחד לתזונה (הגרף והצ'אט קוראים מכאן)
+    // ─────────────────────────────────────────────────────────────
+
+    window.JarvisNutrition = Object.freeze({
+        TARGETS,
+        METRICS: PROGRESS_METRICS,
+        TREND_DAYS,
+        getTodayKey: todayKey,
+        getStore: loadStore,
+        hasData: dayHasData,
+        getSeries: buildTrendSeries,
+        getDailyTotals: dailyTotalsWindow
+    });
 
     // ─────────────────────────────────────────────────────────────
     // Init

@@ -4565,6 +4565,86 @@ const NUTRITION_COACH_SYSTEM_PROMPT = `אתה J.A.R.V.I.S — תזונאי אי�
 
 ## שפה: עברית בלבד.`;
 
+// ── Nutrition chat v2.1 — trend context (7 ימים) + חוקי מגמה ──
+const NUTRITION_TREND_RULES = `
+
+## חוקים נוספים — מגמה והיסטוריה
+11. יש לך בלוק "מגמה" עם טוטאלים של עד 7 הימים האחרונים (כולל היום). בכל שאלה על התקדמות, שינוי או "איך אני מתקדם" — הסתמך על המספרים שבבלוק, לא על הערכות.
+12. אם הבלוק חסר או ריק — אמור בפשטות שאין עדיין היסטוריה מספקת, ואל תמציא ימים, מספרים או מגמות.
+13. השווה בין ימים רק כשיש לפחות שני ימים עם נתונים; אחרת התייחס ליום בודד וציין שזו נקודת התחלה.`;
+
+const NUTRITION_TREND_DAY_LIMIT = 10;
+
+// קלט מהדפדפן אינו מהימן — שדות נומריים בלבד, בלי טקסט חופשי.
+function sanitizeNutritionHistory7d(raw) {
+    if (!Array.isArray(raw)) return [];
+
+    const dayPattern = /^\d{4}-\d{2}-\d{2}$/;
+    const clampNumber = (value, max) => {
+        const n = Math.round((Number(value) || 0) * 10) / 10;
+        return Math.max(0, Math.min(n, max));
+    };
+
+    return raw
+        .slice(0, 14)
+        .filter((entry) => entry && typeof entry === 'object')
+        .map((entry) => {
+            const date = typeof entry.date === 'string' ? entry.date.trim() : '';
+            if (!dayPattern.test(date)) return null;
+            return {
+                date,
+                kcal: clampNumber(entry.kcal, 20000),
+                protein: clampNumber(entry.protein, 1000),
+                carbs: clampNumber(entry.carbs, 2000),
+                fats: clampNumber(entry.fats, 1000),
+                meals: clampNumber(entry.meals, 60),
+            };
+        })
+        .filter(Boolean)
+        .slice(-NUTRITION_TREND_DAY_LIMIT);
+}
+
+function buildNutritionTrendBlock(rows, targets) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+        return '\n### מגמה — 7 הימים האחרונים\nאין נתוני עבר זמינים (המשתמש עוד לא צבר היסטוריה).';
+    }
+
+    const goal = (key) => Math.round(Number(targets && targets[key]) || 0);
+    const withData = rows.filter((row) => row.kcal > 0 || row.meals > 0);
+    const avg = (key) => (withData.length
+        ? Math.round(withData.reduce((sum, row) => sum + row[key], 0) / withData.length)
+        : 0);
+
+    const lines = rows.map((row) => {
+        const emptyMark = row.kcal > 0 || row.meals > 0 ? '' : ' (ללא נתונים)';
+        return `- ${row.date}: ${row.kcal} קק"ל · חלבון ${row.protein}g · פחמימות ${row.carbs}g · שומן ${row.fats}g · ${row.meals} ארוחות${emptyMark}`;
+    });
+
+    const kcalTarget = goal('kcal');
+    const proteinTarget = goal('protein');
+    const kcalAvg = avg('kcal');
+    const proteinAvg = avg('protein');
+    const mealsAvg = withData.length
+        ? (withData.reduce((sum, row) => sum + row.meals, 0) / withData.length).toFixed(1)
+        : '0';
+
+    const summary = withData.length
+        ? `- ממוצע ליום עם נתונים: ${kcalAvg} קק"ל (${kcalTarget > 0 ? Math.round((kcalAvg / kcalTarget) * 100) : 0}% מהיעד)`
+            + ` · חלבון ${proteinAvg}g (${proteinTarget > 0 ? Math.round((proteinAvg / proteinTarget) * 100) : 0}% מהיעד) · ${mealsAvg} ארוחות`
+        : '- אין ימים עם נתונים בחלון הזה.';
+
+    const peak = rows.reduce((best, row) => (!best || row.kcal > best.kcal ? row : best), null);
+    const peakLine = peak && peak.kcal > 0 ? `- היום הגבוה בחלון: ${peak.date} עם ${peak.kcal} קק"ל` : '';
+
+    return [
+        '',
+        '### מגמה — 7 הימים האחרונים (כולל היום, מהמוקדם למאוחר)',
+        ...lines,
+        summary,
+        peakLine,
+    ].filter(Boolean).join('\n');
+}
+
 app.post('/api/nutrition/chat', apiRateLimiter, async (req, res, next) => {
     const requestStart = Date.now();
     metrics.totalRequests += 1;
@@ -4589,6 +4669,10 @@ app.post('/api/nutrition/chat', apiRateLimiter, async (req, res, next) => {
         const totals = day.totals && typeof day.totals === 'object' ? day.totals : {};
         const targets = day.targets && typeof day.targets === 'object' ? day.targets : {};
         const meals = Array.isArray(day.meals) ? day.meals.slice(0, 20) : [];
+
+        // מגמה מהדפדפן — עוברת ולידציה, נספרת בשרת, לא מוזרקת כטקסט חופשי.
+        const trendRows = sanitizeNutritionHistory7d(day.history7d);
+        const trendBlock = buildNutritionTrendBlock(trendRows, targets);
 
         const num = (value) => Math.round(Number(value) || 0);
         const targetLine = (label, key, unit) =>
@@ -4615,6 +4699,7 @@ ${targetLine('סוכר', 'sugar', 'g')}
 
 ### ארוחות היום (${meals.length})
 ${mealsBlock}
+${trendBlock}
 ${day.insights && String(day.insights).trim() ? `\n### תובנה קודמת של המערכת\n${truncate(String(day.insights), 700)}` : ''}
 `;
 
@@ -4638,7 +4723,7 @@ ${day.insights && String(day.insights).trim() ? `\n### תובנה קודמת ש�
         metrics.totalHistoryMessagesSent += history.length;
 
         const { reply, coreLatencyMs, attempts } = await callGemini({
-            systemInstruction: `${NUTRITION_COACH_SYSTEM_PROMPT}\n\n## נתוני התזונה של המשתמש:\n${nutritionBlock}${personalContext}`,
+            systemInstruction: `${NUTRITION_COACH_SYSTEM_PROMPT}${NUTRITION_TREND_RULES}\n\n## נתוני התזונה של המשתמש:\n${nutritionBlock}${personalContext}`,
             contents: buildConversationContents(history, cleanQuery),
             temperature: 0.6,
             maxOutputTokens: 1500,
@@ -4652,6 +4737,7 @@ ${day.insights && String(day.insights).trim() ? `\n### תובנה קודמת ש�
 
         log('info', 'Nutrition chat OK', {
             meals: meals.length,
+            trendDays: trendRows.length,
             historyUsed: history.length,
             personalChunks: personalChunks.length,
             coreLatencyMs,
