@@ -35,7 +35,7 @@
 | 23 | `POST /api/research` | 3443–3521 | `researchRateLimiter` | תרגום שאלה לאנגלית → חיפוש ב-11 מקורות → דה-דופליקציה/ניקוד → ניתוח AI | `research.js:256` |
 | 24 | `POST /api/research-chat` | 3527–3640 | `apiRateLimiter` | צ'אט על סט מחקרים נתון, עם ציטוטים `[N]`; שני מצבי פרומפט | `research-chat.js:375` |
 | 25 | `POST /api/analytics-chat` | 3646–3736 | `apiRateLimiter` | צ'אט על נתוני אנליטיקס + ידע אישי מ-BM25 | `analytics.js:1139` |
-| 26 | `POST /api/nutrition/analyze` | 3742–3853 | `apiRateLimiter` | ניתוח ארוחות חופשי → JSON תזונתי (`callGeminiJSON`) | `nutrition.js:586` |
+| 26 | `POST /api/nutrition/analyze` | 3742–3853 | `apiRateLimiter` | ניתוח ארוחות חופשי → JSON תזונתי (`callGeminiJSON`) | `nutrition.js:738` |
 | 27 | `POST /api/nutrition/chat` | 3875–3978 | `apiRateLimiter` | צ'אט תזונאי עם נתוני היום (יעדים/ארוחות/מים) + ידע אישי | `nutrition-chat.js` |
 | 28 | `POST /api/training/coach` | 4010–4090 | `apiRateLimiter` | מאמן קליסטניקס; במקביל מחפש סרטוני YouTube אם השאלה מבקשת הדגמה | `training.js:827` |
 | 29 | `POST /api/training/analyze` | 4166–4238 | `apiRateLimiter` | ניתוח התקדמות מ-10 ימים אחרונים | `training.js:604` |
@@ -135,7 +135,7 @@
 > `callGeminiWithRetry` (1314) הוא הזרוע של לולאת הכלים: הוא שולח `tools`, אוסף `functionCalls`,
 > מריץ כל כלי דרך `runAskTool` ומזרים `onDelta`/`onToolCall` ל-`/api/ask`. פונקציות שכבת הכלים
 > (`ASK_TOOL_SPECS`, `runAskTool`, `toFunctionResponse`, `parseBrowserResults`, `buildAskToolsPayload`)
-> יושבות ב-`ask-tools.js` (302 שורות) ולא ב-`server.js`.
+> יושבות ב-`ask-tools.js` (308 שורות) ולא ב-`server.js`.
 
 > פונקציות עזר נוספות ללא לוגיקה עסקית: `metrics` (257), `GeminiError`/`ResearchError`/`ValidationError` (319–348), אובייקט `knowledge` (511).
 
@@ -576,7 +576,7 @@ ${JARVIS_PERSONA}
 ### 4.4 Function calling — הכלים של `/api/ask`
 
 `/api/ask` שולח `functionDeclarations` ומאפשר למודל להחליט בעצמו אם להפעיל כלי לפני שהוא עונה.
-ההצהרות, ההרצה ובניית ה-`functionResponse` יושבות ב-`ask-tools.js` (302 שורות) — מודול טהור; כל
+ההצהרות, ההרצה ובניית ה-`functionResponse` יושבות ב-`ask-tools.js` (308 שורות) — מודול טהור; כל
 יכולת (דפדפן, YouTube, מאגר ידע) מוזרקת מ-`getAskToolDeps`, ולכן אפשר לבדוק אותו בלי רשת ובלי מפתח.
 
 | כלי | `run(args, deps)` | `summarize(result)` | מקור הנתונים |
@@ -601,6 +601,13 @@ ${JARVIS_PERSONA}
 מגבלות הטקסט בתוך `ask-tools.js`: שאילתה 300 תווים, כותרת 200, תקציר 400, קטע 1,200; עד 5 תוצאות
 ווב, 8 סרטונים ו-4 קטעים. כלי לא מוכר או `query` חסר מוחזרים כשגיאה למודל — לא כתקלת שרת.
 תשובה שנענתה מנתוני כלים לא נכנסת ל-`askCache`.
+
+> **הפרומפט של `web_search` מחייב תשובה, לא רשימת קישורים (2026-10-28):** ה-`description` של הכלי
+> (שהוא הפרומפט שהמודל רואה ב-`functionDeclarations`) מנחה במפורש לפתוח במשפט-שניים של תשובה ישירה
+> בטקסט רגיל — למשל "מזג האוויר בלוס אנג׳לס הוא 24°C ושמשי" — לציין חוסר/סתירה במידע, ורק אחר כך
+> להוסיף מקורות כבולטים בפורמט `[כותרת](https://…)`. "תשובה שהיא רק רשימת קישורים נחשבת כישלון"
+> מופיע там כניסוח מחייב. אין לכך אכיפה בצד שרת — זו הנחיה בלבד, ולכן `test/ask-tools.test.js`
+> בודק שהיא לא נמחקה מהפרומפט בעתיד.
 
 ### 4.5 SSE — חוזה האירועים של `/api/ask`
 
@@ -641,7 +648,7 @@ ${JARVIS_PERSONA}
 | `express-rate-limit` | 33 | `node_modules` |
 | `dotenv` | 34 | `node_modules` (`.config()` טוען `.env` מהתיקייה הראשית) |
 | `./gemini-fallback` | 1033, 1458, 1849 | מודול מקומי — שרשרת fallback בין מודלים |
-| `./ask-tools` | 47 | מודול מקומי — הצהרות הכלים, `runAskTool`, `toFunctionResponse` (302 שורות, מוזרק כולו) |
+| `./ask-tools` | 47 | מודול מקומי — הצהרות הכלים, `runAskTool`, `toFunctionResponse` (308 שורות, מוזרק כולו) |
 | `child_process` | 3569 | מודול מובנה — הרצת `node browser.js "<query>"` בתוך `browseWithChrome` |
 | `rebrowser-playwright` | — | לא נטען ב-`server.js` — בשימוש ב-`browser.js` בלבד |
 
@@ -679,12 +686,12 @@ ${JARVIS_PERSONA}
 
 | קובץ | שורות | מה הוא עושה |
 |---|---|---|
-| `app.js` | 1891 | ליבת האפליקציה הראשית (`index.html`): צ'אט `/api/ask` (SSE — `consumeAskStream`, `appendStreamBubble`, צ'יפי כלים), היסטוריה, מיקרופון, מצלמה + `/api/vision`, TTS, פולינג `/api/metrics`. |
-| `neural.js` | 476 | אנימציית "מוח חלקיקים" כפול (כדור בפאנל + רקע) עם `prefers-reduced-motion`. |
+| `app.js` | 1947 | ליבת האפליקציה הראשית (`index.html`): צ'אט `/api/ask` (SSE — `consumeAskStream`, `appendStreamBubble`, צ'יפי כלים), היסטוריה, מיקרופון, מצלמה + `/api/vision`, TTS, פולינג `/api/metrics`. `renderReplyHtml` הופך קישורים ללחיצים בכל שלושת המסלולים (בועה חדשה, בועה סטרימית, `commitStreamedBubble`). |
+| `neural.js` | 485 | אנימציית "מוח חלקיקים" כפול (כדור בפאנל + רקע) עם `prefers-reduced-motion`; `resize()` עוצר את הלופ כשה-container מוסתר (`display:none` → 0×0) ומחזיר אותו כשהוא חוזר. |
 | `landing.js` | 299 | עמוד הנחיתה: כדור חלקיקים על קנבס, כפתורי CTA, שמירת שאלה ממתינה ב-`sessionStorage`. |
 | `landing.js.backup` | 64 | גיבוי ישן שאינו נטען. |
 | `training.js` | 1019 | עמוד אימון: יצירת אימון (`/api/training/generate`), צ'ק-ליסט, סטטיסטיקות, שמירה ב-`localStorage` (`jarvis_training_v1`), ניתוח (`/api/training/analyze`), צ'אט מאמן + FAB (`/api/training/coach`). |
-| `nutrition.js` | 816 | מעקב תזונה יומי: ארוחות, סה"כ מול יעדים, מים, תובנות; `/api/nutrition/analyze`; `localStorage` (`jarvis_nutrition_v2`). |
+| `nutrition.js` | 969 | מעקב תזונה יומי: ארוחות, סה"כ מול יעדים, מים, תובנות; `/api/nutrition/analyze`; `localStorage` (`jarvis_nutrition_v2`). `renderProgress` מזין את 4 הטבעות ב-`#daily-progress` (kcal/protein/carbs/fats מול `TARGETS`), קובע להן מצב (`is-empty`/`is-low`/`is-high`/`is-done`/`is-over`) ובונה את משפט הסיכום מתחתן (`progressSentence`). |
 | `nutrition-chat.js` | 305 | צ'אט תזונאי צף (FAB + חלון) ששולח את נתוני היום ל-`/api/nutrition/chat`, עם היסטוריה מקומית. |
 | `analytics.js` | 1601 | דשבורד אנליטיקס: טבלה/פילטרים, ייבוא YouTube/TikTok/Instagram, צ'אט `/api/analytics-chat`, מודל Mega Prompt; `localStorage` (`jarvis_analytics_v1`, `jarvis_analytics_chat_v1`). |
 | `research.js` | 343 | עמוד מחקר: שאילתה → `/api/research`, רינדור מאמרים וסיכום, היסטוריית חיפושים ב-`localStorage`. |
@@ -695,14 +702,14 @@ ${JARVIS_PERSONA}
 
 | קובץ | שורות | מה הוא עושה |
 |---|---|---|
-| `main.css` | 1975 | עיצוב האפליקציה הראשית (`index.html`) — HUD קינמטי בזהב/טורקיז, כולל `.tool-trace`/`.tool-chip` לצ'יפי הכלים. |
-| `mobile.css` | 289 | אובריידים למובייל לאפליקציה הראשית (`max-width: 1024px`). |
+| `main.css` | 1979 | עיצוב האפליקציה הראשית (`index.html`) — HUD קינמטי בזהב/טורקיז, כולל `.tool-trace`/`.tool-chip` לצ'יפי הכלים. |
+| `mobile.css` | 351 | אובריידים למובייל לאפליקציה הראשית (`max-width: 1024px`): **המוח מוסתר לגמרי** — `.brain-sidebar`, `#sidebar-brain` ו-`.brain-canvas` הם `display: none`, כך ש-`#chat-log` מקבל את כל העמודה (`flex: 1`). הפאנל חוזר רק למצלמה (`--brain-camera-h: min(46dvh, 420px)`), דרך `.brain-sidebar.mobile-visible` ש-`app.js` מוסיף/מסיר ב-`startCamera`/`stopCamera` ועם `:has(#sidebar-camera.active)` כגיבוי ללא JS. |
 | `hud-theme.css` | 316 | טוקנים ופרימיטיבים משותפים (רקע, צבעים, כרטיסים/כפתורים) ל-4 עמודי המודולים. |
 | `hud-chat.css` | 389 | רכיב צ'אט צף משותף: `hud-chat-fab` + חלון שיחה (נטען ב-nutrition/analytics/research). |
 | `landing.css` | 422 | עמוד הנחיתה — Stark Industries HUD. |
 | `landing.css.backup` | 301 | גיבוי ישן שאינו נטען. |
 | `training.css` | 1929 | עמוד האימון + חלון הצ'אט של המאמן. |
-| `nutrition.css` | 1140 | עמוד התזונה (טבלאות, יעדים, טפסים). |
+| `nutrition.css` | 1356 | עמוד התזונה (טבלאות, יעדים, טפסים) + בלוק 13: טבעות HUD (`progress-grid`/`progress-ring`/`ring-value` עם `drop-shadow`, מצבי `is-*`) והסיכום שמתחתן. |
 | `analytics.css` | 2826 | דשבורד האנליטיקס + מעטפת `.hud-chat-window--analytics` לחלון הצ'אט. |
 | `research.css` | 2186 | עמוד המחקר + מודל הצ'אט וההיסטוריה. |
 
@@ -753,10 +760,13 @@ ${JARVIS_PERSONA}
 4. ~~**`.env.example` לא מסונכרן**~~ **נסגר (2026-10-28):** `.env.example` מתעד עכשיו את הליבה, את מפתחות השירות (`YOUTUBE_API_KEY`, `SEMANTIC_SCHOLAR_KEY`, `CORE_API_KEY`) ואת כל משתני `/api/ask` — `ASK_CACHE_*`, `ASK_STREAM_*`, `ASK_TOOLS_*`, `ASK_TOOL_TIMEOUT_MS` (בשורות מוערות). המודל עודכן ל-`gemini-3.8-flash` בהתאם ל-`CONFIG`. שאר 40+ המשתנים מופיעים רק בטבלה ב-§6.
 5. **סודות בקוד מקור** — `whatsapp-bot.js` מכיל מזהה מופע וטוקן של Green API Hardcoded (שורות 9–10 בקובץ). יש להעביר ל-`.env` ולסובב את הטוקן; הקובץ לא נטען מהשרת אבל נמצא ב-Git.
 6. **קבצי גיבוי/שאריות בריפו** — `server.js.broken`, `landing.js.backup`, `landing.css.backup`, `landing.html.backup`, ותיקיית `.aider.tags.cache.v4` (מטמון SQLite של aider). אינם נטענים ע"י השרת.
-7. ~~אין בדיקות אוטומטיות~~ **נסגר (2026-10-28):** נוסף `test/smoke.test.js` (`node:test`, ללא תלות חדשה) ו-`npm test` מריץ `node --test` על שני קבצים. הבדיקות מרימות את השרת על פורט פנוי עם `GEMINI_API_KEY` דמה (אין עלות טוקנים) ומכסות: תחביר של כל קובצי ה-JS (כולל `ask-tools.js`), `/api/health`, `/api/metrics`, `/api/knowledge`, `/api/mega-prompt`, הדפים `/` ו-`/app`, היעדרות שלושת ה-endpoints שנמחקו, ווולידציית קלט (`/api/ask` → 400/413, `/api/training/analyze` → 400). נוספו גם בדיקות לחוזה ה-SSE (`text/event-stream`, `delta` שמסתכם ל-`reply`, `done` אחרון, JSON כשלא ביקשו סטרימינג) וליחידות של שכבת הכלים (`test/ask-tools.test.js`). סה"כ 27 בדיקות. `npm run check` נשאר לבדיקת תחביר מהירה של `server.js` בלבד.
+7. ~~אין בדיקות אוטומטיות~~ **נסגר (2026-10-28):** נוסף `test/smoke.test.js` (`node:test`, ללא תלות חדשה) ו-`npm test` מריץ `node --test` על שני קבצים. הבדיקות מרימות את השרת על פורט פנוי עם `GEMINI_API_KEY` דמה (אין עלות טוקנים) ומכסות: תחביר של כל קובצי ה-JS (כולל `ask-tools.js`), `/api/health`, `/api/metrics`, `/api/knowledge`, `/api/mega-prompt`, הדפים `/` ו-`/app`, היעדרות שלושת ה-endpoints שנמחקו, ווולידציית קלט (`/api/ask` → 400/413, `/api/training/analyze` → 400). נוספו גם בדיקות לחוזה ה-SSE (`text/event-stream`, `delta` שמסתכם ל-`reply`, `done` אחרון, JSON כשלא ביקשו סטרימינג) וליחידות של שכבת הכלים (`test/ask-tools.test.js`). סה"כ 28 בדיקות. `npm run check` נשאר לבדיקת תחביר מהירה של `server.js` בלבד.
 8. **ניתוב "חפש/מצא" הישן מקדים את הכלים** — `/api/ask` מנתב בקשה שמכילה `חפש`/`מצא`/`search`/`google` ל-YouTube או ל-`browser.js` **לפני** Gemini (נתיב ישן מלפני ה-Function Calling). בשאלות כאלה המודל לא נקרא, אין אירועי `tool` בבועה, והתשובה היא פלט הסקרייפר. זה גם מה שמאפשר לבדיקות ה-SSE לרוץ בלי טוקנים (`prompt: 'חפש'` נעצר בוולידציה).
 9. **צ'יפי הכלים קיימים רק במסלול ה-SSE** — הבקשה הלא-סטרימינג מחזירה `toolsUsed` ב-JSON, אבל `public/js/app.js` מצייר צ'יפים רק מאירועי `tool`, ולכן שם הם לא מוצגים. כמו כן הצ'יפים אינם נשמרים ב-`jarvis_history_v1` — הם תצוגה חיה בלבד.
 10. **מדדי הכלים נחשפים רק דרך metrics** — `totalAskToolCalls` / `totalAskToolErrors` (ו-`totalAskStreamRequests`) מוחזרים ב-`/api/health` וב-`/api/metrics`; אין התראה או סף על אחוז כשל של כלים.
+11. ~~`.typing-indicator` היה גלוי תמיד~~ **תוקן (2026-10-28):** ל-`.typing-indicator` ב-`main.css` היה `display: flex` בלי שומר `[hidden]` (בניגוד ל-`.progress-bar`, `.mic-status` ו-`.modal` ששלושתם מוגנים), ולכן שלוש הנקודות הופיעו גם כשלא הייתה בקשה בתהליך ואכלו ~30px מעל שורת הקלט בכל רוחב מסך. נוסף `.typing-indicator[hidden] { display: none; }` ליד שאר כלליו (630).
+12. ~~קישורים בתשובות Function Calling הוצגו כטקסט רגיל~~ **תוקן (2026-10-28):** `renderReplyHtml` ב-`app.js` ידע להמיר רק `[כותרת](url)`; כתובות עירומות וקישורי `<url>` — מה שהמודל מדביק אחרי כלי `web_search` — נשארו טקסט מת. עכשיו הפונקציה מזהה שלושה סוגים (Markdown, `<url>`, URL עירום), מוציאה סימן פיסוק סוגר וסוגריים לא מאוזנים אל מחוץ לקישור, ומייצרת `<a href target="_blank" rel="noopener noreferrer">`; התווית וה-`href` מוצאים מהטקסט כטוקנים ועוברים `escapeHtml` בנפרד, כך ש-`&`, `"` ו-`'` לא נשברים ולא נפתחת הזרקת HTML. אומת בדפדפן אמיתי (Chromium/Playwright, תשובת SSE מדומה): 4/4 קישורים לחיצים — כולל `https://x.test/?a=1&b=2` שנשמר עם ה-`&`, ונקודה סוגרת שנשארה מחוץ לעוגן.
+13. ~~תשובות זמן אמת (מזג אוויר, מחירים) חזרו כרשימת קישורים בלבד~~ **תוקן בפרומפט (2026-10-28):** ה-`description` של `web_search` ב-`ask-tools.js` דורש עכשיו משפט-שניים של תשובה ישירה **לפני** המקורות, יחד עם ניסוח מפורש ש"תשובה שהיא רק רשימת קישורים נחשבת כישלון". אין אכיפה בקוד — ההנחיה תלויה במודל, ולכן `test/ask-tools.test.js` מקפיא אותה מפני מחיקה שקטה.
 
 ---
 
@@ -765,11 +775,24 @@ ${JARVIS_PERSONA}
 - `node --check server.js` — עובר (תחביר תקין).
 - הרמת השרת בפועל (`PORT=4023`) — `GET /api/health` החזיר `status: ok`, `model: gemini-3.8-flash`, `knowledgeFiles: 8`.
 - ~~קריאה ל-`POST /api/training/analyze` החזירה `500` עם `ReferenceError`~~ — **בוטל ב-2026-10-28:** ה-endpoint עובד (`TRAINING_ANALYZE_SYSTEM_PROMPT` מוגדר ב-module scope); ראה §9.1.
-- `npm test` — 27/27 עוברות (smoke + יחידות שכבת הכלים), כולל בדיקות חוזה ה-SSE.
+- `npm test` — 28/28 עוברות (smoke + יחידות שכבת הכלים, כולל בדיקת הפרומפט של `web_search`), כולל בדיקות חוזה ה-SSE.
 - **SSE + כלים, בדיקה חיה (2026-10-28):** בקשה על `/api/ask` עם `stream: true` —
   שאלת YouTube הפיקה שני אירועי `tool` שהסתיימו ב-`✅ 4 סרטונים`, ושאלת מחירים הפיקה שלושה;
   `totalAskToolCalls` ב-`/api/health` עלה 0→2 ואז 2→5, ובלי כלים `trace.hidden` נשאר `true`.
   אומת גם מסלול ה-JSON (בלי `stream`) — אותה תשובה, בלי אירועי `tool`.
 - מספרי השורות במסמך נבדקו מול `server.js` (גרסה בת 5,630 שורות) ומול ספירת השורות בפועל של כל קובץ ב-`public/js` ו-`public/css`. השורות של נתיב ה-ask, `/api/health`, `/api/metrics`, ה-rate limiters ופונקציות ה-ask נבדקו מחדש ב-2026-10-28; השאר טרם רועננו.
+- **פריסת המובייל (2026-10-28, מעודכן):** נמדד בדפדפן אמיתי (Chromium דרך Playwright) על `/app`, גובה כל אלמנט ב-`getBoundingClientRect`:
+
+  | מסך | מוח: baseline (flex 2/5) | מוח: רצועה 25dvh | מוח: **עכשיו (מוסתר)** | `#chat-log`: baseline | 25dvh | **עכשיו** |
+  |---|---|---|---|---|---|
+  | 390×844 | 303px (35.9%) | 200px (23.7%) | **0px (0%)** | 357px | 489px | **695px** |
+  | 360×800 | 286px (35.8%) | 176px (22.0%) | **0px (0%)** | 332px | 471px | **653px** |
+  | 320×568 | 193px (34.0%) | 125px (22.0%) | **0px (0%)** | 193px | 290px | **421px** |
+  | 412×915 | 331px (36.2%) | 200px (21.9%) | **0px (0%)** | 400px | 560px | **766px** |
+  | 844×390 (רוחב) | 140px (35.9%) | 94px (24.1%) | **0px (0%)** | 66px | 141px | **241px** |
+
+  ב-390×844 `.brain-sidebar` / `#sidebar-brain` / `#brain-canvas` מחזירים `display: none` ו-0px, וה-`#chat-log` גדל ל-695px (+206px מול הרצועה של 200px, +338px מול ה-baseline); ב-360×800 ל-653px (+182px). אין גלילת עמוד באף מסך (`documentElement.scrollHeight` = `innerHeight`), והשורה התחתונה (קלט 47px + footer 26px) נכנסת בלי חיתוך. `canvas` במובייל גם לא מצייר (`painted = 0` פיקסלים אטומים) — `resize()` ב-`neural.js` עוצר את הלופ כשה-container מוסתר.
+  המצלמה עדיין מקבלת רצועה: ב-390×844 הפאנל 388px (`min(46dvh, 420px)`), הפריים 270px וכפתור "נתח סצנה" גלוי; ב-360×800 פאנל 368px ופריים 248px. הפאנל מוצג דרך `.mobile-visible` (שם ש-`app.js` מוסיף ב-`startCamera` ומסיר ב-`stopCamera`) וגם `:has(#sidebar-camera.active)`. הדסקטופ (1440×900) לא נגוע: `mobile.css` לא חל — סיידבר 320px בעמודה נפרדת, קנבס 280×532 עם 43,443 פיקסלים מצוירים (האנימציה ממשיכה לרוץ), `#chat-log` 670px.
+- **קישורים בתשובות (2026-10-28):** הדפדפן האמיתי קיבל תשובת `/api/ask` מדומה (SSE `delta`+`done`, כשבקשות הדפדפן עוקפות את ה-Service Worker) שהכילה ארבעה סוגי קישור — `[Weather.com](https://weather.com/la)`, כתובת עירומה שנגמרת בנקודה, `<https://example.com/angle>` ו-`https://x.test/?a=1&b=2`. כל הארבעה רונדרו כעוגנים עם `target="_blank"`, `rel="noopener noreferrer"`, `href` נקי מהנקודה ומהסוגריים, וה-`&` נשמר.
 
 _עודכן: 2026-10-28_
