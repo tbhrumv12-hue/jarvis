@@ -116,6 +116,15 @@
             const w = Math.max(1, Math.floor(rect.width));
             const h = Math.max(1, Math.floor(rect.height));
 
+            // A hidden canvas (display:none — the phone layout hides the panel sphere) measures
+            // 0×0. Stop the loop instead of burning a frame every 16ms on a bitmap nobody sees,
+            // and start again when the container gets its size back.
+            if (rect.width < 1 || rect.height < 1) {
+                stop();
+                return;
+            }
+            if (!state.isPaused) start();
+
             state.width = w;
             state.height = h;
             state.dpr = Math.min(window.devicePixelRatio || 1, 2);
