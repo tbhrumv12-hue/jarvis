@@ -15,7 +15,7 @@
 
     /* ─── Base Layout ─── */
     html, body {
-        height: 100dvh;
+        height: var(--app-height, 100dvh);
         overflow: hidden;
         width: 100vw;
         position: fixed;
@@ -30,12 +30,14 @@
     .hud-container {
         display: flex;
         flex-direction: column;
-        height: 100dvh;
+        /* visualViewport height: shrinks when the soft keyboard opens so the
+           composer stays visible (app.js keeps --app-height in sync) */
+        height: var(--app-height, 100dvh);
         gap: 6px;
-        padding-top: max(8px, env(safe-area-inset-top));
-        padding-bottom: max(8px, env(safe-area-inset-bottom));
-        padding-left: max(8px, env(safe-area-inset-left));
-        padding-right: max(8px, env(safe-area-inset-right));
+        padding-top: max(var(--space-2), var(--safe-top));
+        padding-bottom: max(var(--space-2), var(--safe-bottom));
+        padding-left: max(var(--space-2), var(--safe-left));
+        padding-right: max(var(--space-2), var(--safe-right));
     }
     /* ─── Header ─── */
     header {
@@ -206,7 +208,9 @@
         flex: 1;
         min-width: 0;
         padding: 8px 12px;
-        font-size: 0.9rem;
+        /* never below 16px: iOS Safari zooms the whole page on focus */
+        font-size: var(--fs-body);
+        line-height: var(--lh-tight);
         border-radius: 8px;
     }
 

@@ -107,6 +107,9 @@
         // Streaming (SSE)
         askAbort: null,
 
+        // Viewport (visualViewport → --app-height)
+        viewportRaf: null,
+
         loadValue: 0,
     };
 
@@ -1862,7 +1865,54 @@
     }
 
     // ==============================
-    // 22. INIT
+    // 22. VIEWPORT (soft keyboard / safe area)
+    // ==============================
+
+    // Neither iOS Safari nor Android Chrome shrinks the layout viewport when the
+    // soft keyboard opens: 100dvh keeps its height and the composer ends up
+    // *behind* the keyboard. visualViewport reports the really visible box, so we
+    // publish it on <html> as --app-height (used by .hud-container / body height)
+    // and --kb-inset (keyboard height, for future layouts).
+    function readViewportMetrics() {
+        const vv = window.visualViewport;
+        const visualHeight = vv ? vv.height : window.innerHeight;
+        const layoutHeight = window.innerHeight || visualHeight;
+        return {
+            height: Math.max(0, Math.round(visualHeight)),
+            keyboard: Math.max(0, Math.round(layoutHeight - visualHeight)),
+        };
+    }
+
+    function applyViewportMetrics() {
+        state.viewportRaf = null;
+        const root = document.documentElement;
+        if (!root) return;
+        const metrics = readViewportMetrics();
+        if (metrics.height > 0) root.style.setProperty('--app-height', `${metrics.height}px`);
+        root.style.setProperty('--kb-inset', `${metrics.keyboard}px`);
+        // The shell just changed height — keep the newest message in view.
+        if (state.autoScroll) scrollChatToBottom();
+    }
+
+    // resize/scroll fire dozens of times while the keyboard animates; one frame
+    // per burst is enough and keeps the scroll smooth.
+    function scheduleViewportMetrics() {
+        if (state.viewportRaf) return;
+        state.viewportRaf = window.requestAnimationFrame(applyViewportMetrics);
+    }
+
+    function initViewportSync() {
+        applyViewportMetrics();
+        window.addEventListener('resize', scheduleViewportMetrics);
+        window.addEventListener('orientationchange', scheduleViewportMetrics);
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', scheduleViewportMetrics);
+            window.visualViewport.addEventListener('scroll', scheduleViewportMetrics, { passive: true });
+        }
+    }
+
+    // ==============================
+    // 23. INIT
     // ==============================
 
     function init() {
@@ -1885,6 +1935,9 @@
         tickClock();
         setInterval(tickClock, 1000);
         setInterval(updateFooterStats, 2000);
+
+        // Keep the composer above the iOS/Android soft keyboard
+        initViewportSync();
 
         loadVoices();
         if (el.ttsToggle) el.ttsToggle.addEventListener('click', toggleTts);
@@ -1919,6 +1972,7 @@
 
         window.addEventListener('beforeunload', () => {
             abortAskStream();
+            if (state.viewportRaf) cancelAnimationFrame(state.viewportRaf);
             if (state.metricsTimer) clearInterval(state.metricsTimer);
             if (state.autoSendTimer) clearTimeout(state.autoSendTimer);
             if (state.typingTimer) clearInterval(state.typingTimer);

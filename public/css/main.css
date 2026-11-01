@@ -12,49 +12,10 @@
     padding: 0;
 }
 
-:root {
-    --bg-deep: #04070d;
-    --bg-mid: #080d16;
-    --panel-bg: rgba(10, 18, 30, 0.72);
-    --panel-bg-solid: #0d1520;
-
-    --panel-border: rgba(79, 195, 247, 0.20);
-    --panel-border-strong: rgba(79, 195, 247, 0.50);
-    --gold-border: rgba(212, 175, 55, 0.40);
-    --gold-border-strong: rgba(212, 175, 55, 0.75);
-
-    --primary: #4fc3f7;
-    --primary-dim: #2a7ea3;
-    --primary-bright: #82d8ff;
-
-    /* Turquoise accent (used by the "Turquoise Dominance" overrides) */
-    --turquoise: #4dd0c4;
-    --turquoise-bright: #8af5ea;
-
-    --gold: #d4af37;
-    --gold-bright: #f4d47c;
-    --gold-dim: #8b6f1e;
-
-    --accent-mint: #64ffda;
-    --danger: #ff3d57;
-    --accent-copper: #ff6b35;
-
-    --text-main: #c8e4f5;
-    --text-dim: #7a96a8;
-    --text-bright: #ffffff;
-
-    --grid-line: rgba(79, 195, 247, 0.06);
-    --glow-soft: 0 0 12px rgba(79, 195, 247, 0.35);
-    --glow-strong: 0 0 24px rgba(79, 195, 247, 0.55);
-    --glow-gold: 0 0 14px rgba(212, 175, 55, 0.45);
-    --glow-gold-strong: 0 0 26px rgba(212, 175, 55, 0.7);
-
-    --font-display: 'Rajdhani', 'Orbitron', sans-serif;
-    --font-mono: 'JetBrains Mono', 'Share Tech Mono', monospace;
-
-    --hud-pad: 14px;
-    --hud-gap: 12px;
-}
+/* Design tokens live in /css/tokens.css (loaded first on every page).
+   This file must NOT declare colours, fonts, radii or spacing — it only
+   consumes tokens. --primary / --panel-* / --text-* are legacy aliases
+   defined in tokens.css and are scheduled for migration in P1. */
 
 /* ---------- Base ---------- */
 html, body {
@@ -65,13 +26,13 @@ html, body {
 body {
     background-color: var(--bg-deep);
     background-image:
-        radial-gradient(ellipse at 20% 0%, rgba(79, 195, 247, 0.09) 0%, transparent 55%),
+        radial-gradient(ellipse at 20% 0%, rgba(77, 208, 196, 0.09) 0%, transparent 55%),
         radial-gradient(ellipse at 80% 100%, rgba(212, 175, 55, 0.06) 0%, transparent 55%),
         linear-gradient(var(--grid-line) 1px, transparent 1px),
         linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size: 100% 100%, 100% 100%, 48px 48px, 48px 48px;
     color: var(--text-main);
-    font-family: var(--font-mono);
+    font-family: var(--font-body);
     font-size: 14px;
     line-height: 1.5;
     display: flex;
@@ -97,7 +58,9 @@ body {
     display: grid;
     grid-template-rows: 64px 3px 1fr 34px;
     gap: 8px;
-    height: 100vh;
+    /* --app-height is kept in sync with visualViewport by app.js so the
+       layout (and the composer) survives the iOS/Android soft keyboard */
+    height: var(--app-height, 100vh);
     padding: var(--hud-pad);
 }
 
@@ -308,11 +271,11 @@ header {
 
 .status-online {
     color: var(--accent-mint);
-    text-shadow: 0 0 8px rgba(100, 255, 218, 0.6);
+    text-shadow: 0 0 8px rgba(74, 222, 128, 0.6);
 }
 .status-offline {
     color: var(--danger);
-    text-shadow: 0 0 8px rgba(255, 61, 87, 0.6);
+    text-shadow: 0 0 8px rgba(255, 92, 92, 0.6);
 }
 
 /* Icon buttons */
@@ -341,11 +304,11 @@ header {
 #tts-toggle[aria-pressed="true"] {
     color: var(--danger);
     border-color: var(--danger);
-    box-shadow: 0 0 10px rgba(255, 61, 87, 0.5);
+    box-shadow: 0 0 10px rgba(255, 92, 92, 0.5);
 }
 
 #camera-btn[aria-pressed="true"] {
-    background: rgba(255, 61, 87, 0.15);
+    background: rgba(255, 92, 92, 0.15);
     border-color: var(--danger);
     color: var(--danger);
     animation: cameraBtnPulse 2s ease-in-out infinite;
@@ -364,15 +327,15 @@ header {
 }
 
 @keyframes cameraBtnPulse {
-    0%, 100% { box-shadow: 0 0 10px rgba(255, 61, 87, 0.4); }
-    50%      { box-shadow: 0 0 22px rgba(255, 61, 87, 0.8); }
+    0%, 100% { box-shadow: 0 0 10px rgba(255, 92, 92, 0.4); }
+    50%      { box-shadow: 0 0 22px rgba(255, 92, 92, 0.8); }
 }
 
 /* ---------- Load Bar ---------- */
 .load-bar {
     position: relative;
     height: 3px;
-    background: rgba(79, 195, 247, 0.08);
+    background: rgba(77, 208, 196, 0.08);
     overflow: hidden;
     clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 100%, 0 100%);
 }
@@ -403,7 +366,7 @@ header {
     flex-direction: column;
     overflow: hidden;
     box-shadow:
-        inset 0 0 40px rgba(79, 195, 247, 0.05),
+        inset 0 0 40px rgba(77, 208, 196, 0.05),
         inset 0 0 60px rgba(212, 175, 55, 0.02),
         0 0 30px rgba(0, 0, 0, 0.5);
     position: relative;
@@ -423,13 +386,13 @@ header {
 #chat-log::-webkit-scrollbar-track { background: transparent; }
 #chat-log::-webkit-scrollbar-thumb {
     background: linear-gradient(180deg,
-        rgba(79, 195, 247, 0.35) 0%,
+        rgba(77, 208, 196, 0.35) 0%,
         rgba(212, 175, 55, 0.35) 100%);
     border-radius: 3px;
 }
 #chat-log::-webkit-scrollbar-thumb:hover {
     background: linear-gradient(180deg,
-        rgba(79, 195, 247, 0.6) 0%,
+        rgba(77, 208, 196, 0.6) 0%,
         rgba(212, 175, 55, 0.6) 100%);
 }
 
@@ -499,7 +462,7 @@ header {
     padding: 2px 9px;
     border: 1px solid var(--primary-dim);
     border-radius: 2px;
-    background: rgba(79, 195, 247, 0.07);
+    background: rgba(77, 208, 196, 0.07);
     color: var(--primary-bright);
     font-family: var(--font-mono);
     font-size: 0.66rem;
@@ -536,15 +499,15 @@ header {
 .msg .body a {
     pointer-events: auto !important;
     cursor: pointer !important;
-    color: #4dd0c4 !important;
+    color: var(--turquoise) !important;
     text-decoration: underline !important;
     text-underline-offset: 3px;
     transition: color 0.15s ease, text-shadow 0.15s ease;
 }
 
 .msg .body a:hover {
-    color: #64ffda !important;
-    text-shadow: 0 0 8px rgba(100, 255, 218, 0.5);
+    color: var(--turquoise-bright) !important;
+    text-shadow: 0 0 8px rgba(77, 208, 196, 0.5);
 }
 
 .msg .body a:active {
@@ -554,14 +517,14 @@ header {
 .msg.jarvis {
     align-self: flex-end;
     background: linear-gradient(135deg,
-        rgba(79, 195, 247, 0.10) 0%,
-        rgba(79, 195, 247, 0.04) 100%);
+        rgba(77, 208, 196, 0.10) 0%,
+        rgba(77, 208, 196, 0.04) 100%);
     border-right: 2px solid var(--primary);
-    box-shadow: -3px 0 14px rgba(79, 195, 247, 0.10);
+    box-shadow: -3px 0 14px rgba(77, 208, 196, 0.10);
 }
 .msg.jarvis .msg-tag {
     color: var(--primary-bright);
-    text-shadow: 0 0 6px rgba(79, 195, 247, 0.5);
+    text-shadow: 0 0 6px rgba(77, 208, 196, 0.5);
 }
 
 .msg.user {
@@ -580,7 +543,7 @@ header {
 /* Progress bar */
 .progress-bar {
     height: 2px;
-    background: rgba(79, 195, 247, 0.08);
+    background: rgba(77, 208, 196, 0.08);
     margin: 0 20px 6px;
     overflow: hidden;
     border-radius: 1px;
@@ -596,7 +559,7 @@ header {
         var(--gold) 70%,
         transparent 100%);
     animation: progressSlide 1.4s ease-in-out infinite;
-    box-shadow: 0 0 8px rgba(79, 195, 247, 0.6);
+    box-shadow: 0 0 8px rgba(77, 208, 196, 0.6);
 }
 
 @keyframes progressSlide {
@@ -611,7 +574,7 @@ header {
     gap: 6px;
     padding: 10px 16px;
     margin: 0 20px 6px;
-    background: rgba(79, 195, 247, 0.06);
+    background: rgba(77, 208, 196, 0.06);
     border-right: 2px solid var(--primary);
     border-radius: 2px;
     width: fit-content;
@@ -653,8 +616,10 @@ header {
     border: 1px solid var(--panel-border);
     padding: 11px 15px;
     color: var(--text-main);
-    font-family: var(--font-mono);
-    font-size: 0.92rem;
+    font-family: var(--font-body);
+    /* 16px is the iOS threshold: anything smaller makes Safari zoom on focus */
+    font-size: var(--fs-body);
+    line-height: var(--lh-tight);
     border-radius: 2px;
     outline: none;
     transition: all 0.25s ease;
@@ -679,9 +644,10 @@ header {
 }
 
 #send-btn {
-    background: linear-gradient(135deg, var(--gold) 0%, var(--primary-dim) 100%);
-    border: 1px solid rgba(212, 175, 55, 0.6);
-    color: #04070d;
+    /* action colour = turquoise (folded in from the deleted !important block) */
+    background: linear-gradient(135deg, var(--turquoise-bright) 0%, var(--turquoise) 45%, var(--turquoise-deep, #2f9a90) 100%);
+    border: 1px solid rgba(77, 208, 196, 0.55);
+    color: var(--bg-deep);
     font-family: var(--font-display);
     font-weight: 700;
     font-size: 0.85rem;
@@ -695,7 +661,7 @@ header {
     position: relative;
     overflow: hidden;
     text-shadow: 0 1px 0 rgba(255, 255, 255, 0.2);
-    box-shadow: 0 0 12px rgba(212, 175, 55, 0.3);
+    box-shadow: 0 0 12px rgba(77, 208, 196, 0.3);
 }
 #send-btn::before {
     content: '';
@@ -710,7 +676,7 @@ header {
 }
 #send-btn:hover::before { transform: translateX(100%); }
 #send-btn:hover {
-    box-shadow: 0 0 24px rgba(212, 175, 55, 0.7);
+    box-shadow: 0 0 24px rgba(77, 208, 196, 0.7);
     filter: brightness(1.12);
 }
 #send-btn:active { transform: translateY(1px); }
@@ -749,7 +715,7 @@ header {
     box-shadow: var(--glow-gold);
 }
 .mic-btn[aria-pressed="true"] {
-    background: rgba(255, 61, 87, 0.18);
+    background: rgba(255, 92, 92, 0.18);
     border-color: var(--danger);
     color: var(--danger);
     animation: micPulse 1.6s ease-in-out infinite;
@@ -770,8 +736,8 @@ header {
 }
 
 @keyframes micPulse {
-    0%, 100% { box-shadow: 0 0 12px rgba(255, 61, 87, 0.5); }
-    50%      { box-shadow: 0 0 26px rgba(255, 61, 87, 0.9); }
+    0%, 100% { box-shadow: 0 0 12px rgba(255, 92, 92, 0.5); }
+    50%      { box-shadow: 0 0 26px rgba(255, 92, 92, 0.9); }
 }
 @keyframes micRipple {
     0%   { transform: scale(0.9); opacity: 0.8; }
@@ -799,8 +765,8 @@ header {
     gap: 10px;
     padding: 8px 16px;
     margin: 0 16px 8px;
-    background: rgba(255, 61, 87, 0.08);
-    border: 1px solid rgba(255, 61, 87, 0.35);
+    background: rgba(255, 92, 92, 0.08);
+    border: 1px solid rgba(255, 92, 92, 0.35);
     border-radius: 2px;
     font-size: 0.78rem;
     letter-spacing: 2px;
@@ -815,7 +781,7 @@ header {
     color: var(--danger);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    text-shadow: 0 0 6px rgba(255, 61, 87, 0.6);
+    text-shadow: 0 0 6px rgba(255, 92, 92, 0.6);
 }
 
 @keyframes micStatusIn {
@@ -881,10 +847,10 @@ header {
     border-radius: 50%;
     background:
         radial-gradient(circle at 50% 50%,
-            rgba(79, 195, 247, 0.04) 0%,
+            rgba(77, 208, 196, 0.04) 0%,
             transparent 60%);
     filter:
-        drop-shadow(0 0 20px rgba(79, 195, 247, 0.25))
+        drop-shadow(0 0 20px rgba(77, 208, 196, 0.25))
         drop-shadow(0 0 40px rgba(212, 175, 55, 0.12));
     position: relative;
     z-index: 1;
@@ -953,7 +919,7 @@ header {
         10px 100%, 0 calc(100% - 10px), 0 10px
     );
     box-shadow:
-        0 0 20px rgba(79, 195, 247, 0.15),
+        0 0 20px rgba(77, 208, 196, 0.15),
         0 0 20px rgba(212, 175, 55, 0.15),
         inset 0 0 30px rgba(0, 0, 0, 0.6);
 }
@@ -975,7 +941,7 @@ header {
     gap: 6px;
     padding: 4px 9px;
     background: rgba(5, 10, 18, 0.85);
-    border: 1px solid rgba(255, 61, 87, 0.4);
+    border: 1px solid rgba(255, 92, 92, 0.4);
     font-size: 0.6rem;
     letter-spacing: 2px;
     color: #ff8a99;
@@ -1000,9 +966,9 @@ header {
     color: var(--primary-bright);
     background: rgba(5, 10, 18, 0.85);
     padding: 3px 7px;
-    border: 1px solid rgba(79, 195, 247, 0.4);
+    border: 1px solid rgba(77, 208, 196, 0.4);
     font-weight: 700;
-    text-shadow: 0 0 4px rgba(79, 195, 247, 0.5);
+    text-shadow: 0 0 4px rgba(77, 208, 196, 0.5);
 }
 .camera-fps {
     top: 10px;
@@ -1113,7 +1079,7 @@ header {
 
 /* Vision button */
 .vision-btn {
-    background: linear-gradient(135deg, rgba(212, 175, 55, 0.15), rgba(79, 195, 247, 0.08));
+    background: linear-gradient(135deg, rgba(212, 175, 55, 0.15), rgba(77, 208, 196, 0.08));
     border: 1px solid var(--gold-border-strong);
     color: var(--gold-bright);
     font-family: var(--font-display);
@@ -1185,7 +1151,7 @@ header {
     font-size: 0.78rem;
     letter-spacing: 1px;
     text-transform: uppercase;
-    box-shadow: 0 6px 30px rgba(255, 61, 87, 0.4);
+    box-shadow: 0 6px 30px rgba(255, 92, 92, 0.4);
     transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
     clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 100%, 0 100%);
     min-width: 280px;
@@ -1276,12 +1242,12 @@ footer {
 
 .sys-value.warning {
     color: var(--accent-copper);
-    text-shadow: 0 0 6px rgba(255, 107, 53, 0.5);
+    text-shadow: 0 0 6px rgba(251, 191, 36, 0.5);
 }
 
 .sys-value.ok {
     color: var(--accent-mint);
-    text-shadow: 0 0 6px rgba(100, 255, 218, 0.5);
+    text-shadow: 0 0 6px rgba(74, 222, 128, 0.5);
 }
 
 .footer-clock {
@@ -1314,8 +1280,6 @@ footer {
 }
 
 @media (max-width: 600px) {
-    :root { --hud-pad: 8px; --hud-gap: 8px; }
-
     header { padding: 0 12px; }
     .hud-stats .stat-item:nth-child(3),
     .hud-stats .stat-item:nth-child(4) { display: none; }
@@ -1371,7 +1335,7 @@ footer {
     background: rgba(10, 18, 30, 0.96);
     border: 1px solid var(--gold-border-strong);
     clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 14px), calc(100% - 14px) 100%, 14px 100%, 0 calc(100% - 14px), 0 14px);
-    box-shadow: 0 0 60px rgba(212, 175, 55, 0.25), 0 0 100px rgba(79, 195, 247, 0.15);
+    box-shadow: 0 0 60px rgba(212, 175, 55, 0.25), 0 0 100px rgba(77, 208, 196, 0.15);
     display: flex;
     flex-direction: column;
     animation: modalContentIn 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -1423,12 +1387,12 @@ footer {
     box-shadow: var(--glow-gold);
 }
 .modal-icon-btn.danger {
-    border-color: rgba(255, 61, 87, 0.6);
+    border-color: rgba(255, 92, 92, 0.6);
     color: var(--danger);
 }
 .modal-icon-btn.danger:hover {
-    background: rgba(255, 61, 87, 0.15);
-    box-shadow: 0 0 14px rgba(255, 61, 87, 0.5);
+    background: rgba(255, 92, 92, 0.15);
+    box-shadow: 0 0 14px rgba(255, 92, 92, 0.5);
 }
 
 .modal-body {
@@ -1489,7 +1453,7 @@ footer {
 }
 .history-item.jarvis {
     border-right-color: var(--primary);
-    background: linear-gradient(90deg, rgba(79, 195, 247, 0.06), transparent);
+    background: linear-gradient(90deg, rgba(77, 208, 196, 0.06), transparent);
 }
 .history-item:hover {
     background: rgba(10, 18, 30, 0.9);
@@ -1538,9 +1502,9 @@ footer {
 }
 
 .modal-primary-btn {
-    background: linear-gradient(135deg, var(--gold) 0%, var(--primary-dim) 100%);
-    border: 1px solid rgba(212, 175, 55, 0.6);
-    color: #04070d;
+    background: linear-gradient(135deg, var(--turquoise) 0%, var(--turquoise-deep, #2f9a90) 100%);
+    border: 1px solid rgba(77, 208, 196, 0.55);
+    color: var(--bg-deep);
     font-family: var(--font-display);
     font-weight: 700;
     font-size: 0.75rem;
@@ -1782,15 +1746,15 @@ header h1 {
 .boot-overlay {
     position: fixed;
     inset: 0;
-    background: #04070d;
+    background: #04070d;   /* deliberately blacker than --hud-bg: this is the void before boot */
     z-index: 99999;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 20px;
-    font-family: 'JetBrains Mono', monospace;
-    color: #4dd0c4;
+    font-family: var(--font-mono);
+    color: var(--turquoise);
     transition: opacity 0.8s ease;
 }
 
@@ -1803,7 +1767,7 @@ header h1 {
     font-size: 32px;
     font-weight: 700;
     letter-spacing: 8px;
-    color: #d4af37;
+    color: var(--gold);
     text-shadow: 0 0 20px rgba(212, 175, 55, 0.6);
     animation: boot-flicker 0.6s ease-in-out;
 }
@@ -1823,7 +1787,7 @@ header h1 {
 
 .boot-bar-fill {
     height: 100%;
-    background: linear-gradient(90deg, #4dd0c4, #d4af37);
+    background: linear-gradient(90deg, var(--turquoise), var(--gold));
     width: 0%;
     box-shadow: 0 0 12px rgba(77, 208, 196, 0.8);
     transition: width 0.3s ease;
@@ -1838,7 +1802,7 @@ header h1 {
 
 .boot-percent {
     font-size: 14px;
-    color: #4dd0c4;
+    color: var(--turquoise);
     letter-spacing: 1px;
 }
 
@@ -1922,58 +1886,4 @@ footer {
     #mic-btn[aria-pressed="true"] {
         animation: none !important;
     }
-}/* ═══════════════════════════════════════════════════════
-   J.A.R.V.I.S — TURQUOISE DOMINANCE
-   ═══════════════════════════════════════════════════════ */
-
-header h1 {
-    color: var(--turquoise) !important;
-    text-shadow: 0 0 12px rgba(77, 208, 196, 0.6) !important;
-}
-
-.brand .reticle span {
-    border-color: var(--turquoise) !important;
-    /* rings must stay hollow — only recolor the border */
-    background: transparent !important;
-}
-
-.brand .reticle-dot {
-    border-color: var(--turquoise) !important;
-    background: var(--turquoise) !important;
-}
-
-.hud-icon-btn:hover {
-    box-shadow: 0 0 20px rgba(77, 208, 196, 0.7) !important;
-}
-
-#send-btn,
-.submit-btn {
-    background: linear-gradient(135deg, var(--turquoise), #6fe0d5) !important;
-    color: #04070d !important;
-    box-shadow: 0 0 16px rgba(77, 208, 196, 0.4);
-}
-
-#send-btn:hover,
-.submit-btn:hover {
-    box-shadow: 0 0 28px rgba(77, 208, 196, 0.8) !important;
-}
-
-.stat-value.status-online {
-    color: var(--turquoise) !important;
-    text-shadow: 0 0 8px rgba(77, 208, 196, 0.5);
-}
-
-.footer-protocol,
-.footer-tag {
-    color: var(--turquoise) !important;
-}
-
-.core-status-text {
-    color: var(--turquoise) !important;
-    border-color: rgba(77, 208, 196, 0.4) !important;
-    text-shadow: 0 0 8px rgba(77, 208, 196, 0.5);
-}
-
-.metric-value {
-    color: var(--turquoise-bright, #8af5ea) !important;
 }

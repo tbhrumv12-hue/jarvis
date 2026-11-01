@@ -1,0 +1,159 @@
+/* ═══════════════════════════════════════════════════════════════════
+   J.A.R.V.I.S // DESIGN TOKENS — P0 foundations
+   Loaded FIRST by: index.html, nutrition.html, training.html,
+                    analytics.html, research.html
+   ───────────────────────────────────────────────────────────────────
+   ONE palette, ONE type scale, ONE spacing rhythm.
+
+   Colour contract (approved):
+     turquoise = action / system        gold = identity / brand
+     green     = success / online       amber = warning     red = danger
+
+   Rules for this file:
+     • values only — no component rules, never !important, so page CSS
+       can always override;
+     • legacy names (--primary, --panel-*, --text-*, --font-*) survive as
+       aliases so existing rules keep working until they are migrated
+       (P1–P3). Every alias points at a --hud-* token.
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+    /* ── Canvas ─────────────────────────────────────────────────── */
+    --hud-bg: #0a0e1a;
+    --hud-bg-1: #0d1220;
+    --hud-bg-2: #121a2c;
+    --hud-surface: rgba(15, 23, 39, 0.72);
+    --hud-surface-2: rgba(22, 33, 54, 0.62);
+
+    /* ── Action / system: turquoise ─────────────────────────────── */
+    --hud-turquoise: #4dd0c4;
+    --hud-turquoise-bright: #8af5ea;
+    --hud-turquoise-dim: rgba(77, 208, 196, 0.14);
+    --hud-turquoise-deep: #2f9a90;
+    --hud-turquoise-soft: rgba(77, 208, 196, 0.10);
+
+    /* ── Identity: gold ─────────────────────────────────────────── */
+    --hud-gold: #d4af37;
+    --hud-gold-bright: #f4d47c;
+    --hud-gold-dim: rgba(212, 175, 55, 0.14);
+    --hud-gold-deep: #8b6f1e;
+    --hud-gold-soft: rgba(212, 175, 55, 0.10);
+
+    /* ── State ──────────────────────────────────────────────────── */
+    --hud-success: #4ade80;
+    --hud-warning: #fbbf24;
+    --hud-danger: #ff5c5c;
+
+    /* ── Text ───────────────────────────────────────────────────── */
+    --hud-text: #e8ecf5;
+    --hud-text-2: #a8b2c8;
+    --hud-text-3: #6b7691;
+
+    /* ── Lines ──────────────────────────────────────────────────── */
+    --hud-line: rgba(255, 255, 255, 0.06);
+    --hud-border: rgba(77, 208, 196, 0.16);
+    --hud-border-strong: rgba(77, 208, 196, 0.42);
+    --hud-line-gold: rgba(212, 175, 55, 0.34);
+    --hud-gold-border: rgba(212, 175, 55, 0.40);
+    --hud-gold-border-strong: rgba(212, 175, 55, 0.75);
+
+    /* ── Shape ──────────────────────────────────────────────────── */
+    --hud-radius-xs: 8px;
+    --hud-radius-sm: 12px;
+    --hud-radius: 16px;
+    --hud-radius-lg: 20px;
+    --hud-radius-pill: 999px;
+
+    /* ── Depth & motion ─────────────────────────────────────────── */
+    --hud-shadow-card: 0 24px 48px -32px rgba(0, 0, 0, 0.95), 0 2px 8px rgba(0, 0, 0, 0.28);
+    --hud-shadow-lift: 0 28px 56px -30px rgba(0, 0, 0, 0.95), 0 0 22px rgba(77, 208, 196, 0.12);
+    --hud-glow-turquoise: 0 0 22px rgba(77, 208, 196, 0.32);
+    --hud-glow-gold: 0 0 22px rgba(212, 175, 55, 0.30);
+    --hud-focus: 0 0 0 3px rgba(77, 208, 196, 0.22);
+    --hud-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+    /* ── Spacing rhythm: 4 · 8 · 12 · 16 · 20 · 24 · 32 · 48 ────── */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-7: 32px;
+    --space-8: 48px;
+
+    /* ── Type ───────────────────────────────────────────────────── */
+    /* Hebrew first: Heebo carries Hebrew + Latin, Assistant is the
+       secondary/Android fallback, JetBrains Mono owns digits and Latin
+       HUD labels. Hebrew glyphs inside a Latin stack fall back to Heebo
+       instead of the OS default. */
+    --font-hebrew: 'Heebo', 'Assistant', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --font-body: var(--font-hebrew);
+    --font-display: 'Rajdhani', 'Heebo', 'Assistant', sans-serif;
+    --font-mono: 'JetBrains Mono', 'Heebo', monospace;
+    --hud-font: var(--font-display);
+    --hud-mono: var(--font-mono);
+
+    --fs-meta: 11px;
+    --fs-label: 12px;
+    --fs-title: 13px;
+    --fs-body-sm: 14px;
+    --fs-body: 16px;      /* also the iOS no-zoom threshold for inputs */
+    --fs-body-lg: 17px;
+    --fs-display: 20px;
+    --fs-display-lg: 24px;
+
+    --lh-tight: 1.25;
+    --lh-normal: 1.5;
+    --lh-relaxed: 1.65;
+
+    /* ── Touch ──────────────────────────────────────────────────── */
+    --tap-min: 44px;
+
+    /* ── Viewport & safe area ────────────────────────────────────
+       --app-height is the *visual* viewport height. app.js overwrites it
+       in px while the iOS/Android soft keyboard is open, so the composer
+       can never end up behind the keyboard. --kb-inset is that keyboard
+       height (diagnostic / future layouts). */
+    --app-height: 100dvh;
+    --kb-inset: 0px;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+
+    /* ═════════ Legacy aliases (migration surface) ═════════════
+       main.css / mobile.css still call these names. Each alias points
+       at a token above; nothing new may be written against them. */
+    --bg-deep: var(--hud-bg);
+    --bg-mid: var(--hud-bg-1);
+    --panel-bg: var(--hud-surface);
+    --panel-bg-solid: var(--hud-bg-1);
+    --panel-border: var(--hud-border);
+    --panel-border-strong: var(--hud-border-strong);
+    --gold: var(--hud-gold);
+    --gold-bright: var(--hud-gold-bright);
+    --gold-dim: var(--hud-gold-deep);
+    --gold-border: var(--hud-gold-border);
+    --gold-border-strong: var(--hud-gold-border-strong);
+    --turquoise: var(--hud-turquoise);
+    --turquoise-bright: var(--hud-turquoise-bright);
+    --turquoise-deep: var(--hud-turquoise-deep);
+    /* --primary was the old name of the action colour: now turquoise */
+    --primary: var(--hud-turquoise);
+    --primary-dim: var(--hud-turquoise-deep);
+    --primary-bright: var(--hud-turquoise-bright);
+    --accent-mint: var(--hud-success);
+    --accent-copper: var(--hud-warning);
+    --danger: var(--hud-danger);
+    --text-main: var(--hud-text);
+    --text-dim: var(--hud-text-2);
+    --text-bright: #ffffff;
+    --grid-line: rgba(77, 208, 196, 0.06);
+    --glow-soft: 0 0 12px rgba(77, 208, 196, 0.35);
+    --glow-strong: 0 0 24px rgba(77, 208, 196, 0.55);
+    --glow-gold: var(--hud-glow-gold);
+    --glow-gold-strong: 0 0 26px rgba(212, 175, 55, 0.7);
+    --hud-pad: 14px;      /* → --space-4 in P1 */
+    --hud-gap: 12px;      /* → --space-3 in P1 */
+}
