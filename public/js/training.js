@@ -41,14 +41,12 @@
         return document.getElementById(id);
     }
 
-    function escapeHtml(value) {
-        return String(value == null ? '' : value)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    }
+    // Shared helper (S2): /js/escape.js is loaded before this file. The inline
+    // fallback only triggers if a stale page is paired with a fresh bundle — the
+    // service worker may still hand out the previous HTML for one load.
+    const escapeHtml = window.JarvisEscape
+        ? window.JarvisEscape.escapeHtml
+        : (value) => String(value == null ? '' : value).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
     function formatMarkdownLight(text) {
         let html = escapeHtml(text);

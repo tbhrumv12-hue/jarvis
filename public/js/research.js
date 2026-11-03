@@ -37,10 +37,12 @@
 
     function $(sel) { return document.querySelector(sel); }
 
-    function escapeHtml(s) {
-        if (typeof s !== 'string') return '';
-        return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    }
+    // Shared helper (S2): /js/escape.js is loaded before this file. The inline
+    // fallback only triggers if a stale page is paired with a fresh bundle — the
+    // service worker may still hand out the previous HTML for one load.
+    const escapeHtml = window.JarvisEscape
+        ? window.JarvisEscape.escapeHtml
+        : (value) => String(value == null ? '' : value).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
     function formatNumber(n) {
         if (n === null || n === undefined) return '0';

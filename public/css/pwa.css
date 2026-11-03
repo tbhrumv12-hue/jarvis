@@ -1,0 +1,83 @@
+/* ============================================================
+   J.A.R.V.I.S // PWA CHROME
+   Only the "new version available" banner lives here for now.
+   Loaded by all six pages (including landing, which does not use tokens.css),
+   so the variables are declared with fallbacks rather than assumed.
+   ============================================================ */
+
+.pwa-update-banner {
+    position: fixed;
+    inset-inline: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    z-index: 9000;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid rgba(77, 208, 196, 0.45);
+    border-radius: 12px;
+    background: rgba(10, 14, 26, 0.96);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+    color: #e8ecf5;
+    font-family: "Heebo", "Segoe UI", system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+    animation: pwa-banner-in 220ms ease-out;
+}
+
+.pwa-update-banner-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.pwa-update-banner-action {
+    flex: 0 0 auto;
+    padding: 7px 14px;
+    border: 1px solid rgba(77, 208, 196, 0.55);
+    border-radius: 8px;
+    background: rgba(77, 208, 196, 0.14);
+    color: #6fe0d5;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.pwa-update-banner-action:hover,
+.pwa-update-banner-action:focus-visible {
+    background: rgba(77, 208, 196, 0.24);
+}
+
+.pwa-update-banner-close {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #8a94a8;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.pwa-update-banner-close:hover,
+.pwa-update-banner-close:focus-visible {
+    color: #e8ecf5;
+}
+
+@keyframes pwa-banner-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pwa-update-banner {
+        animation: none;
+    }
+}

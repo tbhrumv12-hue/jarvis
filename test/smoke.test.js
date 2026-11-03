@@ -241,12 +241,110 @@ test('every /api route except /api/health rejects a missing or wrong key', async
 });
 
 test('static pages are served', async () => {
-    for (const route of ['/', '/app']) {
+    for (const route of ['/', '/app', '/analytics.html', '/nutrition.html', '/research.html', '/training.html', '/offline.html']) {
         const res = await fetch(`${baseUrl}${route}`, { signal: AbortSignal.timeout(10000) });
         assert.equal(res.status, 200, `${route} should return 200`);
         assert.match(res.headers.get('content-type') || '', /text\/html/, `${route} should be HTML`);
         const html = await res.text();
         assert.ok(html.length > 0, `${route} should not be empty`);
+    }
+});
+
+test('all six pages carry the PWA shell', () => {
+    // The registration snippet used to be copy-pasted inline into five pages
+    // (training.html had none at all). Anything that renders HTML also needs the
+    // shared escaper loaded synchronously, or the module falls back to its own copy.
+    const pages = [
+        'index.html',
+        'landing.html',
+        'analytics.html',
+        'nutrition.html',
+        'research.html',
+        'training.html',
+    ];
+
+    for (const page of pages) {
+        const html = fs.readFileSync(path.join(ROOT, 'public', page), 'utf8');
+
+        assert.match(html, /<link rel="manifest" href="\/manifest\.json">/, `${page}: manifest link`);
+        assert.match(
+            html,
+            /<link rel="apple-touch-icon"[^>]*href="\/icons\/apple-touch-icon\.png"/,
+            `${page}: iOS ignores manifest icons and needs a PNG apple-touch-icon`
+        );
+        assert.match(html, /<link rel="stylesheet" href="\/css\/pwa\.css">/, `${page}: pwa.css`);
+        assert.match(html, /<script src="\/js\/pwa\.js"><\/script>/, `${page}: pwa.js`);
+        assert.ok(
+            !html.includes('navigator.serviceWorker.register'),
+            `${page}: registration belongs in /js/pwa.js only`
+        );
+
+        if (page === 'landing.html') continue; // landing.js renders no HTML
+
+        const scripts = [...html.matchAll(/<script src="(\/js\/[^"]+)"/g)].map((m) => m[1]);
+        const escapeAt = scripts.indexOf('/js/escape.js');
+        assert.ok(escapeAt !== -1, `${page}: must load /js/escape.js`);
+
+        scripts.forEach((src, index) => {
+            // api-auth.js wraps window.fetch and pwa.js must keep running even when
+            // escape.js is missing, so neither has to wait for it.
+            if (src === '/js/escape.js' || src === '/js/api-auth.js' || src === '/js/pwa.js') return;
+            assert.ok(escapeAt < index, `${page}: ${src} must load after /js/escape.js`);
+        });
+    }
+});
+
+test('service worker, offline page and manifest are served correctly', async () => {
+    const sw = await fetch(`${baseUrl}/sw.js`, { signal: AbortSignal.timeout(10000) });
+    assert.equal(sw.status, 200);
+    assert.match(sw.headers.get('content-type') || '', /javascript/);
+    // A worker served from the HTTP cache can delay an update by up to 24 hours.
+    assert.equal(sw.headers.get('cache-control'), 'no-cache');
+    assert.equal(sw.headers.get('service-worker-allowed'), '/');
+    assert.ok((await sw.text()).includes("addEventListener('fetch'"), 'sw.js should intercept fetches');
+
+    const offline = await fetch(`${baseUrl}/offline.html`, { signal: AbortSignal.timeout(10000) });
+    assert.equal(offline.status, 200);
+    assert.match(offline.headers.get('content-type') || '', /text\/html/);
+    // Rendered when the network is gone, so it cannot rely on a stylesheet that
+    // may never have been fetched.
+    assert.ok(
+        !/<link[^>]+rel="stylesheet"/.test(await offline.text()),
+        'offline.html must be self-contained'
+    );
+
+    const manifestRes = await fetch(`${baseUrl}/manifest.json`, { signal: AbortSignal.timeout(10000) });
+    assert.equal(manifestRes.status, 200);
+    const manifest = await manifestRes.json();
+    assert.equal(manifest.start_url, '/app', 'start_url must be the live app shell route');
+    assert.equal(manifest.display, 'standalone');
+    assert.ok(manifest.icons.some((icon) => icon.purpose === 'maskable'), 'Android crops a maskable icon');
+
+    for (const icon of manifest.icons) {
+        const res = await fetch(`${baseUrl}${icon.src}`, { signal: AbortSignal.timeout(10000) });
+        assert.equal(res.status, 200, `${icon.src} must exist: the install prompt fetches it`);
+    }
+});
+
+test('everything the service worker precaches is really served', async () => {
+    // caches.addAll() is atomic: a single 404 fails the install and the app loses
+    // offline mode without saying anything. The list is small, so this is cheap.
+    const source = fs.readFileSync(path.join(ROOT, 'public', 'sw.js'), 'utf8');
+    const start = source.indexOf('const PRECACHE_URLS');
+    assert.ok(start !== -1, 'sw.js should declare PRECACHE_URLS');
+
+    // The first entry is the OFFLINE_URL constant, not a literal.
+    const offlineUrl = /const OFFLINE_URL = '([^']+)'/.exec(source);
+    assert.ok(offlineUrl, 'sw.js should declare OFFLINE_URL');
+
+    const block = source.slice(start, source.indexOf('];', start));
+    const urls = [...block.matchAll(/'(\/[^']*)'|(OFFLINE_URL)/g)].map((m) => m[1] || offlineUrl[1]);
+    assert.ok(urls.length >= 5, 'PRECACHE_URLS should not be empty');
+    assert.ok(urls.includes(offlineUrl[1]), 'the offline fallback must be precached');
+
+    for (const url of urls) {
+        const res = await fetch(`${baseUrl}${url}`, { signal: AbortSignal.timeout(10000) });
+        assert.equal(res.status, 200, `${url} is precached, so it must return 200`);
     }
 });
 

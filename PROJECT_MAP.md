@@ -19,9 +19,9 @@
 | 4 | `app.use(express.json)` | 2470 | — | גוף JSON, תקרה 10MB | — |
 | 5 | `app.use(express.urlencoded)` | 2471 | — | גוף urlencoded, תקרה 10MB | — |
 | 6 | `app.use(logger)` | 2474–2483 | — | לוג לכל בקשה תחת `/api/` עם סטטוס ומשך | — |
-| 7 | `app.use(express.static)` | 2514–2518 | — | הגשת `public/` עם `index:false`, `maxAge:'1h'`, ETag | כל הדפים |
-| 10 | `GET /` | 2667–2669 | — | מגיש `public/landing.html` | דפדפן |
-| 11 | `GET /app` | 2671–2673 | — | מגיש `public/index.html` (האפליקציה הראשית) | דפדפן |
+| 7 | `app.use(express.static)` | 3288–3307 | — | הגשת `public/` עם `index:false`, `maxAge:'1h'`, ETag, ו-`setHeaders` שמחזיר `no-cache` ל-HTML, ל-`sw.js` (עם `Service-Worker-Allowed: /`) ול-`manifest.json` | כל הדפים |
+| 10 | `GET /` | 3309–3311 | — | מגיש `public/landing.html` | דפדפן |
+| 11 | `GET /app` | 3313–3315 | — | מגיש `public/index.html` (האפליקציה הראשית) | דפדפן |
 | 12 | `GET /api/health` | 3196–3234 | — | status, uptime, model, מוני metrics (כולל `totalAskToolCalls`/`totalAskToolErrors`), רשימת הכלים (`tools`), גודל אינדקס הידע, מצב ה-cache | — |
 | 13 | `GET /api/metrics` | 3236–3259 | — | מטריקות מצומצמות + `perSourceHits` + מוני סטרימינג/כלים | `app.js:637` |
 | 14 | `GET /api/knowledge` | 2740–2765 | — | מחזיר רשימת קבצי ידע + צ'אנקים/תווים | — |
@@ -697,6 +697,9 @@ ${JARVIS_PERSONA}
 | `research.js` | 343 | עמוד מחקר: שאילתה → `/api/research`, רינדור מאמרים וסיכום, היסטוריית חיפושים ב-`localStorage`. |
 | `research-chat.js` | 509 | צ'אט מחקרים: FAB, מצבי `papers`/`hybrid`, צ'יפים, ייצוא PDF, אינטגרציה עם היסטוריית שיחות. |
 | `research-chat-history.js` | 450 | שמירת שיחות מחקר ב-`localStorage` (`jarvis_research_chat_history_v1`), עד 20 שיחות, ייצוא/הדפסה. |
+| `escape.js` | 52 | `window.JarvisEscape.escapeHtml` — הפיכת `& < > " '` לישויות HTML בסריקה אחת (כדי ש-`&amp;` לא יהפוך ל-`&amp;amp;`). `null`/`undefined` → `''`, כל ערך אחר עובר `String()`; יש fast-path כשאין תווים מיוחדים. נטען **סינכרונית** לפני מודולי העמוד בחמישה דפים, וכל מודול שומר גם fallback מקומי — כי SW יכול להגיש סקריפט חדש עם HTML ישן בטעינה אחת שאחרי deploy. |
+| `pwa.js` | 92 | רישום `/sw.js` לכל ששת הדפים (עד S2 הקטע היה מועתק כאינליין בחמישה דפים, וב-`training.html` לא היה רישום בכלל). מציג באנר "גרסה חדשה זמינה" כשיש `waiting` או `updatefound` **וגם** יש כבר `controller` (בהתקנה ראשונה אין), שולח `SKIP_WAITING` ומרענן רק אחרי `controllerchange` — כדי לא ליצור לופ ריענון. נטען **לא** כ-`defer`: הוא מאזין ל-`load` ואין לו תלות ב-DOM. |
+| `offline.js` | 19 | התנהגות `offline.html`: "נסה שוב" (reload) ו"חזרה לאפליקציה" (`/app` — נטען מה-shell של ה-SW גם בלי רשת). קיים כדי ש-`offline.html` לא יישא `<script>` פנימי. |
 
 ### 7.2 `public/css`
 
@@ -711,6 +714,7 @@ ${JARVIS_PERSONA}
 | `nutrition.css` | 1356 | עמוד התזונה (טבלאות, יעדים, טפסים) + בלוק 13: טבעות HUD (`progress-grid`/`progress-ring`/`ring-value` עם `drop-shadow`, מצבי `is-*`) והסיכום שמתחתן. |
 | `analytics.css` | 2826 | דשבורד האנליטיקס + מעטפת `.hud-chat-window--analytics` לחלון הצ'אט. |
 | `research.css` | 2186 | עמוד המחקר + מודל הצ'אט וההיסטוריה. |
+| `pwa.css` | 83 | הבאנר `.pwa-update-banner` (+ `-text`/`-action`/`-close`, אנימציית כניסה ו-`prefers-reduced-motion`) שנבנה ע"י `pwa.js`. נטען בכל ששת הדפים **כולל** landing, ולכן הוא לא מסתמך על משתני `tokens.css` אלא על צבעים מפורשים, ומשתמש ב-`env(safe-area-inset-bottom)` כדי לא להיחתך ב-iOS standalone. |
 
 ---
 
@@ -724,12 +728,13 @@ ${JARVIS_PERSONA}
 | אינדקס ידע בזיכרון | `knowledge` (511–519), `loadKnowledgeBase` (688) | `chunks`, `files` (Map), `docFreq` (Map), `vocab` (Set), `avgDocLength`, `loadedAt`. נבנה באתחול (4752) ונבנה מחדש בכל upload/delete/reload (2790, 2830, 2841). |
 | Cache סטטי HTTP | `express.static` (2514–2518) | `maxAge: '1h'` + ETag; `index: false` (כדי ש-`/` יעבור דרך ה-handler). |
 | מטריקות | `metrics` (257–281) | `latencySamples` נשמר ל-50 דגימות אחרונות בלבד (`shift` ב-286); `perSourceHits` Counter פר-מקור. |
-| Service Worker | `public/sw.js` (3 שורות) | pass-through בלבד: `fetch(e.request)` — אין `caches`, אין גרסת cache, ולכן אין צורך ב"bump" בעת שינוי נכסים. |
+| Service Worker | `public/sw.js` (172) | `VERSION = 's2-1'`, שני caches: `jarvis-shell-${VERSION}` (precache) ו-`jarvis-runtime-${VERSION}`. `install` — `cache.addAll` **אטומי** על `PRECACHE_URLS` (‏`/offline.html`, `/manifest.json`, 3 אייקונים, `/css/tokens.css`, `/css/pwa.css`, `/js/escape.js`, `/js/api-auth.js`, `/js/pwa.js`) ואז `skipWaiting`; 404 בודד מפיל את כל ההתקנה במקום להשאיר shell חצי-מלא. `activate` — מוחק כל cache שאינו בצמד הנוכחי ומריץ `clients.claim`. `fetch` — `GET` בלבד; `/api/*` (case-insensitive) **לא נלכד בכלל** (Network Only, כדי לא לקבע 401/503 ולשמור על זרמי SSE); ניווט → stale-while-revalidate עם נפילה ל-`/app` → `/` → `/offline.html`; אותו-origin ופונטים של Google → stale-while-revalidate. שמות הנכסים אינם content-hashed, ולכן deploy חדש מוגש באיחור של טעינה אחת — ויש להעלות `VERSION` כשמשנים את רשימת ה-preacache. |
 | צד לקוח | `localStorage` | `jarvis_history_v1`, `jarvis_tts_enabled_v1`, `jarvis_analytics_v1`, `jarvis_analytics_chat_v1`, `jarvis_research_history_v1`, `jarvis_research_chat_history_v1`, `jarvis_nutrition_v2`, `jarvis_training_v1` |
 | צד לקוח | `sessionStorage` | `jarvis_pending_question` (העברת שאלה מהנחיתה לאפליקציה). |
 
 > מסקנה: אין שכבת caching לשאר הנתיבים — רק ה-LRU של `/api/ask` (מפתח לפי שאילתה, בלי היסטוריה
-> ובלי כלים), אינדקס הידע שנטען לזיכרון, וה-static cache של הדפדפן.
+> ובלי כלים), אינדקס הידע שנטען לזיכרון, וה-static cache של הדפדפן. ה-Service Worker (§8.3)
+> מטפל אך ורק בניווט ובנכסים סטטיים; הוא לא נוגע ב-`/api/*`.
 
 ### 8.2 Retry logic — היכן ואיך
 
@@ -748,6 +753,38 @@ ${JARVIS_PERSONA}
 | תרגום | 2000–2020 | `retries: 1`, timeout 15s, נפילה שקטה למקור במקרה כשל |
 | מקורות מחקר | 2359–2393 | **אין retry** — `Promise.allSettled` על 11 מקורות; מקור שנכשל נזרק |
 | YouTube/TikTok | 3281–3437, 4092–4163 | **אין retry** — `fetchWithTimeout` בודד; כשל מחזיר תוצאה ריקה/שגיאה ידידותית |
+
+### 8.3 PWA ואופליין (S2)
+
+`public/manifest.json` (68) — `id`/`start_url` = `/app`, `scope` = `/`, `display: standalone` עם
+`display_override: [standalone, minimal-ui]`, `theme_color`/`background_color` `#0a0e1a`, `lang: he`,
+`dir: rtl`, שלושה אייקוני PNG + `icon.svg`, אייקון `maskable` אחד, וארבעה `shortcuts` (`/app`, מחקר,
+תזונה, אימון). כל ששת הדפים מצהירים עליו ב-`<link rel="manifest">` ולצידו `apple-touch-icon`
+(`/icons/apple-touch-icon.png`, 180×180) ו-`theme-color`.
+
+| נכס | מי מגיש | הערות |
+|---|---|---|
+| `public/sw.js` | `express.static` + `setHeaders` (3300–3303) | `Cache-Control: no-cache` + `Service-Worker-Allowed: /`. בלעדיהם הדפדפן מגיש את ה-SW מהמטמון עד 24 שעות, ובדיקת עדכון מקבלת את הסקריפט של אתמול |
+| `public/manifest.json` | `express.static` + `setHeaders` (3305) | `Cache-Control: no-cache`; מניפסט מיושן ממשיך להתקין את האייקונים וה-`start_url` הקודמים |
+| `public/icons/*.png` | `scripts/generate-icons.js` (215) | 192 / 512 / maskable-512 / apple-touch-icon (180), נכתב ידנית על `zlib` בלי תלויות; הפלט דטרמיניסטי, הרצה חוזרת לא משנה בייטים |
+| `public/offline.html` (99) | precache (shell) | דף עצמאי עם `<style>` פנימי — כשאין רשת אסור שיתלה בקובץ CSS חיצוני — ו-`/js/offline.js` בלבד |
+| `public/js/pwa.js` | נטען בכל ששת הדפים | הרישום היחיד של ה-SW בריפו; אין יותר `navigator.serviceWorker.register` אינליין באף דף |
+
+**מסלול העדכון:** SW חדש מגיע ל-`installed` → `pwa.js` מציג באנר ("גרסה חדשה של J.A.R.V.I.S זמינה")
+→ לחיצה על "רענן" שולחת `{ type: 'SKIP_WAITING' }` → ה-SW מריץ `skipWaiting()` → `controllerchange`
+מרענן את העמוד. הבאנר לא מוצג בהתקנה הראשונה (אין `controller`), והריענון מותנה ב-`awaitingReload`,
+כך שאין לופ ריענון.
+
+**אופליין:** ניווט שנכשל עובר לשרשרת `/app` → `/` → `/offline.html`, וכולם נמצאים ב-runtime cache
+מהביקור המקוון הראשון. `offline.html` מציע "נסה שוב" ו"חזרה לאפליקציה" (`/app`). הגנת קצה: `/api/*`
+לא נלכד בכלל, ולכן בקשה אופליין נכשלת מיד עם `TypeError` — בדיוק כמו לפני S2, בלי תשובות מזויפות
+מהמטמון.
+
+**בדיקות:** `test/smoke.test.js` — `all six pages carry the PWA shell` (מניפסט + `pwa.js` + `pwa.css`,
+ו-`escape.js` נטען לפני מודול ה-`defer`, ואין רישום SW אינליין), `service worker, offline page and
+manifest are served correctly` (‏`no-cache`, `Service-Worker-Allowed`, `/offline.html` זמין),
+ו-`everything the service worker precaches is really served` — כל URL ב-`PRECACHE_URLS` מוחזר ב-200,
+כי `addAll` אטומי היה מפיל את כל ההתקנה על 404 בודד.
 
 ---
 

@@ -80,10 +80,12 @@
         return `${m}:${String(s).padStart(2, '0')}`;
     }
 
-    function escapeHtml(s) {
-        if (typeof s !== 'string') return '';
-        return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    }
+    // Shared helper (S2): /js/escape.js is loaded before this file. The inline
+    // fallback only triggers if a stale page is paired with a fresh bundle — the
+    // service worker may still hand out the previous HTML for one load.
+    const escapeHtml = window.JarvisEscape
+        ? window.JarvisEscape.escapeHtml
+        : (value) => String(value == null ? '' : value).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
     // ==============================
     // 4. STORAGE
@@ -308,10 +310,14 @@
         tbody.innerHTML = videos.map((v, i) => {
             const p = CONFIG.platforms[v.platform] || { icon: '❓' };
             const ratio = getRatio(v);
+            // v.id reaches this template from imported JSON (YouTube/TikTok/Instagram
+            // import and localStorage), so it is attacker-controlled text in an
+            // attribute context: `"` alone used to be enough to add a handler.
+            const rowId = escapeHtml(v.id);
                       return `
-                <tr data-id="${v.id}">
+                <tr data-id="${rowId}">
                     <td>${i + 1}</td>
-                    <td class="col-platform" title="${p.name}">${p.icon}</td>
+                    <td class="col-platform" title="${escapeHtml(p.name)}">${p.icon}</td>
                     <td>${formatDate(v.date)}</td>
                     <td class="col-title" title="${escapeHtml(v.title)}">${escapeHtml(v.title)}</td>
                     <td>${formatDuration(v.duration)}</td>
@@ -323,8 +329,8 @@
                     <td class="col-subscribers">${formatNumber(v.subscribers || 0)}</td>
                     <td class="col-ratio">${formatPercent(ratio)}</td>
                     <td class="col-actions">
-                        <button class="row-btn" data-edit="${v.id}" title="ערוך">✏️</button>
-                        <button class="row-btn danger" data-delete="${v.id}" title="מחק">🗑️</button>
+                        <button class="row-btn" data-edit="${rowId}" title="ערוך">✏️</button>
+                        <button class="row-btn danger" data-delete="${rowId}" title="מחק">🗑️</button>
                     </td>
                 </tr>
             `;
@@ -353,9 +359,17 @@
         return 'v_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
     }
 
+    // Ids are interpolated into data-id / data-edit / data-delete, so anything outside
+    // a conservative charset is dropped at the door. Imported JSON can carry `"` or `<`.
+    // Rendering is escaped as well — this is the second layer, not the only one.
+    function sanitizeVideoId(raw) {
+        const cleaned = String(raw == null ? '' : raw).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+        return cleaned || generateId();
+    }
+
     function addVideo(data) {
         const video = {
-            id: data.id || generateId(),
+            id: sanitizeVideoId(data.id),
             platform: data.platform || 'youtube',
             date: data.date || new Date().toISOString().split('T')[0],
             title: data.title || 'ללא כותרת',

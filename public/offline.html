@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0e1a">
+    <meta name="robots" content="noindex">
+    <title>J.A.R.V.I.S // אין חיבור</title>
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
+    <!-- Self-contained on purpose: this page is served by the service worker when
+         the network is gone, so it may not depend on a stylesheet that never loaded. -->
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background: #0a0e1a;
+            color: #e8ecf5;
+            font-family: "Heebo", "Segoe UI", system-ui, -apple-system, sans-serif;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        .offline-card {
+            max-width: 380px;
+            width: 100%;
+            padding: 32px 24px;
+            border: 1px solid rgba(77, 208, 196, 0.28);
+            border-radius: 16px;
+            background: rgba(15, 21, 38, 0.85);
+        }
+
+        .offline-icon {
+            font-size: 44px;
+            line-height: 1;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            margin: 0 0 10px;
+            font-size: 20px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        }
+
+        p {
+            margin: 0 0 22px;
+            font-size: 14px;
+            color: #9aa4b8;
+        }
+
+        .offline-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        button {
+            padding: 11px 18px;
+            border: 1px solid rgba(77, 208, 196, 0.5);
+            border-radius: 10px;
+            background: rgba(77, 208, 196, 0.14);
+            color: #6fe0d5;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        button:hover,
+        button:focus-visible {
+            background: rgba(77, 208, 196, 0.24);
+        }
+
+        button.secondary {
+            border-color: rgba(154, 164, 184, 0.32);
+            background: transparent;
+            color: #9aa4b8;
+        }
+    </style>
+</head>
+<body>
+    <main class="offline-card">
+        <div class="offline-icon" aria-hidden="true">⚡</div>
+        <h1>הליבה לא זמינה כרגע</h1>
+        <p>אין חיבור לרשת. הדפים והנתונים השמורים עדיין נגישים — נסה שוב כשיש קליטה.</p>
+        <div class="offline-actions">
+            <button type="button" id="offline-retry">נסה שוב</button>
+            <button type="button" class="secondary" id="offline-home">חזרה לאפליקציה</button>
+        </div>
+    </main>
+    <!-- No inline script here on purpose: the CSP set by server.js is `script-src 'self'`. -->
+    <script src="/js/offline.js" defer></script>
+</body>
+</html>

@@ -3293,6 +3293,16 @@ app.use(express.static(path.join(__dirname, 'public'), {
     // point at the old <script> list and never load public/js/api-auth.js (S1).
     setHeaders(res, filePath) {
         if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+        // The service worker must never come from the HTTP cache: browsers cap it at
+        // 24h, so an update check would be answered with yesterday's script. The
+        // Service-Worker-Allowed header lets a worker at /sw.js claim the whole origin
+        // even though it is not served from the root route.
+        if (path.basename(filePath) === 'sw.js') {
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Service-Worker-Allowed', '/');
+        }
+        // A stale manifest keeps installing the previous icons and start_url.
+        if (path.basename(filePath) === 'manifest.json') res.setHeader('Cache-Control', 'no-cache');
     }
 }));
 

@@ -6,8 +6,9 @@
     <meta name="description" content="J.A.R.V.I.S — Analytics Dashboard">
     <meta name="theme-color" content="#0a0e1a">
     <title>J.A.R.V.I.S // ANALYTICS</title>
+<link rel="manifest" href="/manifest.json">
 <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
-<link rel="apple-touch-icon" href="/icons/icon.svg">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,6 +19,7 @@
     <link rel="stylesheet" href="/css/hud-theme.css">
     <link rel="stylesheet" href="/css/analytics.css">
     <link rel="stylesheet" href="/css/hud-chat.css">
+    <link rel="stylesheet" href="/css/pwa.css">
 </head>
 <body class="analytics-page hud-page">
 
@@ -656,16 +658,11 @@ instagram	2026-09-22	Day 7 — Full Planche	10	700	45	8"></textarea>
 
     <!-- API key: must load before any module that calls /api/* (wraps window.fetch) -->
     <script src="/js/api-auth.js"></script>
+    <!-- Shared escapeHtml: every module that builds HTML needs it (S2) -->
+    <script src="/js/escape.js"></script>
     <script src="/js/analytics.js" defer></script>
-        <script>
-        // Register Service Worker for PWA
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js')
-                    .then((reg) => console.log('[PWA] SW registered:', reg.scope))
-                    .catch((err) => console.warn('[PWA] SW registration failed:', err));
-            });
-        }
-    </script>
+
+    <!-- Service worker registration + "new build ready" banner (S2) -->
+    <script src="/js/pwa.js"></script>
 </body>
 </html>

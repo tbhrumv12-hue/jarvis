@@ -61,6 +61,7 @@ npm start
 | `npm start` | מריץ את השרת (`node server.js`) |
 | `npm run check` | בדיקת תחביר ל-`server.js` בלבד |
 | `npm test` | כל הבדיקות (`node --test`): smoke של השרת + יחידה לשכבת הכלים |
+| `node scripts/generate-icons.js` | מייצר מחדש את אייקוני ה-PNG ב-`public/icons/` (פלט דטרמיניסטי, ללא תלויות) |
 
 ## בדיקות
 
@@ -72,10 +73,18 @@ npm test
 
 1. **בדיקת תחביר** לכל קובצי ה-JS (`server.js`, `ask-tools.js`, `browser.js`, `gemini-fallback.js`, `whatsapp-bot.js`, `public/sw.js`, `public/js/*.js`).
 2. **הרמת שרת אמיתית** על פורט פנוי שנבחר דינמית, והמתנה ל-`/api/health`.
-3. אימות מסלולים חיים: `/api/health`, `/api/metrics`, `/api/knowledge`, `/api/mega-prompt`, וכן הדפים `/` ו-`/app`.
+3. אימות מסלולים חיים: `/api/health`, `/api/metrics`, `/api/knowledge`, `/api/mega-prompt`, וכל ששת
+   הדפים (`/`, `/app`, `/analytics.html`, `/nutrition.html`, `/research.html`, `/training.html`)
+   בתוספת `/offline.html`.
 4. אימות שמסלולי הוולידציה דוחים קלט רע (`/api/ask` → 400/413, `/api/training/analyze` → 400).
 5. **חוזה ה-SSE של `/api/ask`** — בקשה עם `stream` מקבלת `text/event-stream` עם הכותרות הנכונות,
    `delta` שמסתכמים בדיוק ל-`reply`, `done` כאירוע אחרון, ובלי `stream` — JSON רגיל.
+6. **PWA shell** — לכל ששת הדפים יש `manifest`, `apple-touch-icon`, `pwa.css`, `/js/pwa.js`,
+   ו-`/js/escape.js` שנטען לפני מודול העמוד; ואין באף דף רישום `navigator.serviceWorker.register`
+   אינליין (הרישום היחיד הוא ב-`pwa.js`).
+7. **כותרות ו-precache** — `sw.js` מוחזר עם `no-cache` ו-`Service-Worker-Allowed: /`, `manifest.json`
+   עם `no-cache`, וכל URL ב-`PRECACHE_URLS` של ה-SW מוחזר ב-200 (אחרת `cache.addAll` האטומי מפיל
+   את ההתקנה).
 
 `test/ask-tools.test.js` בודק את שכבת הכלים ביחידה: הצהרות הפונקציה מול סכמת Gemini, פרסור הפלט
 של `browser.js`, הרצת כלי עם יכולות מוזרקות (הצלחה / כשל / כלי לא מוכר / פרמטר חסר), ובניית
@@ -95,7 +104,9 @@ gemini-fallback.js     שרשרת מודלי גיבוי + זיהוי שגיאו�
 browser.js             שליפת תוכן אתרים דרך rebrowser-playwright (מוּרץ כ-child process ע"י /api/ask)
 whatsapp-bot.js        בוט Green API עצמאי — לא נטען ע"י השרת
 knowledge/             מאגר הידע ל-BM25 (.txt/.md); קבצים אישיים git-ignored
-public/                צד הלקוח: HTML, CSS, JS, PWA (manifest.json + sw.js)
+public/                צד הלקוח: HTML, CSS, JS, PWA (manifest.json + sw.js + offline.html)
+public/icons/          אייקוני האפליקציה — icon.svg + PNG 192/512/maskable/apple-touch (180)
+scripts/               מחוללי נכסים: generate-icons.js (PNG דרך zlib, בלי תלויות)
 test/smoke.test.js     בדיקות ה-smoke (שרת אמיתי, ולידציה, חוזה ה-SSE)
 test/ask-tools.test.js בדיקות יחידה לשכבת הכלים — ללא רשת, דפדפן או מפתח
 PROJECT_MAP.md         מיפוי מפורט של כל endpoint, פונקציה וממצא תפעולי
@@ -111,6 +122,18 @@ PROJECT_MAP.md         מיפוי מפורט של כל endpoint, פונקציה 
 | תזונה | `public/nutrition.html` | ניתוח ארוחות, מאקרו, גרפי התקדמות מול יעדים (4 טבעות), צ'אט תזונתי |
 | אימונים | `public/training.html` | תוכניות אימון, מאמן AI, ניתוח התקדמות |
 | נחיתה | `public/landing.html` | דף השיווק/כניסה |
+
+### PWA ואופליין
+
+כל ששת הדפים טוענים `/js/pwa.js`, והוא הרישום היחיד של `/sw.js` בריפו (עד S2 אותו קטע היה מועתק
+כאינליין בחמישה דפים, וב-`training.html` לא היה רישום בכלל). `manifest.json` מגדיר
+`id`/`start_url` = `/app`, `scope: /`, `display: standalone`, אייקוני 192/512 + maskable + SVG
++ `apple-touch-icon`, וקיצורים למחקר/תזונה/אימון.
+
+ה-SW שומר shell קטן — `/offline.html`, המניפסט, האייקונים, `tokens.css`, `pwa.css`, `escape.js`,
+`api-auth.js`, `pwa.js` — ומגיש את כל השאר ב-stale-while-revalidate. `/api/*` **לא** נלכד בכלל, כך
+שזרמי SSE ובקשות עם `Authorization` ממשיכים לעבוד כרגיל. כשמגיעה גרסה חדשה מוצג באנר "רענן"
+בתחתית המסך (לא בהתקנה הראשונה). בלי רשת ניווט נופל ל-`/app`, ואם גם הוא לא במטמון — ל-`/offline.html`.
 
 ### API — תמצית
 

@@ -232,10 +232,12 @@
         return trimmed;
     }
 
-    function escapeHtml(str) {
-        if (typeof str !== 'string') return '';
-        return str.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    }
+    // Shared helper (S2): /js/escape.js is loaded before this file. The inline
+    // fallback only triggers if a stale page is paired with a fresh bundle — the
+    // service worker may still hand out the previous HTML for one load.
+    const escapeHtml = window.JarvisEscape
+        ? window.JarvisEscape.escapeHtml
+        : (value) => String(value == null ? '' : value).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
     // A reply carries links in three shapes: markdown `[label](url)`, an autolink `<url>` and —
     // what function calling keeps producing — a bare URL pasted after the answer. All three have

@@ -7,8 +7,9 @@
     <meta name="description" content="J.A.R.V.I.S — Research Engine מבוסס מחקרים אמיתיים">
     <title>J.A.R.V.I.S // RESEARCH</title>
 
+    <link rel="manifest" href="/manifest.json">
     <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
-    <link rel="apple-touch-icon" href="/icons/icon.svg">
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,6 +20,7 @@
     <link rel="stylesheet" href="/css/hud-theme.css">
     <link rel="stylesheet" href="/css/research.css">
     <link rel="stylesheet" href="/css/hud-chat.css">
+    <link rel="stylesheet" href="/css/pwa.css">
 </head>
 <body class="research-page hud-page">
 
@@ -188,18 +190,13 @@
 
     <!-- API key: must load before any module that calls /api/* (wraps window.fetch) -->
     <script src="/js/api-auth.js"></script>
+    <!-- Shared escapeHtml: every module that builds HTML needs it (S2) -->
+    <script src="/js/escape.js"></script>
     <script src="/js/research.js?v=2" defer></script>
-        <script src="/js/research-chat-history.js" defer></script>
+    <script src="/js/research-chat-history.js" defer></script>
     <script src="/js/research-chat.js" defer></script>
-        <script>
-        // Register Service Worker for PWA
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js')
-                    .then((reg) => console.log('[PWA] SW registered:', reg.scope))
-                    .catch((err) => console.warn('[PWA] SW registration failed:', err));
-            });
-        }
-    </script>
+
+    <!-- Service worker registration + "new build ready" banner (S2) -->
+    <script src="/js/pwa.js"></script>
 </body>
 </html>
