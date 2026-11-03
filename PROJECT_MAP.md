@@ -661,10 +661,11 @@ ${JARVIS_PERSONA}
 | קבוצה | משתנים |
 |---|---|
 | ליבה | `PORT`, `NODE_ENV`, `GEMINI_API_KEY` (חובה — אחרת השרת יוצא ב-`process.exit(1)`), `GEMINI_MODEL` |
+| בקרת גישה | `APP_API_KEY` (Bearer לכל `/api/*` חוץ מ-`/api/health`; חסר בפרודקשן → 503), `CORS_ORIGINS` (רשימת origins מופרדת בפסיקים) |
 | זמני timeout | `GEMINI_TIMEOUT_MS`, `GEMINI_TIMEOUT_CEILING_MS`, `GEMINI_VISION_TIMEOUT_MS`, `GEMINI_TRANSLATION_TIMEOUT_MS`, `YOUTUBE_TIMEOUT_MS`, `TIKTOK_TIMEOUT_MS`, `RESEARCH_TIMEOUT_MS` |
 | מפתחות שירות | `YOUTUBE_API_KEY`, `CORE_API_KEY`, `SEMANTIC_SCHOLAR_KEY` |
 | גבולות קלט | `MAX_PROMPT_LENGTH`, `MAX_RESEARCH_QUERY_LENGTH`, `MAX_IMAGE_SIZE_BYTES` |
-| Rate limiting | `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`, `VISION_RATE_LIMIT_MAX`, `RESEARCH_RATE_LIMIT_MAX` |
+| Rate limiting | `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`, `VISION_RATE_LIMIT_MAX`, `RESEARCH_RATE_LIMIT_MAX`, `RATE_LIMIT_GLOBAL_MAX` |
 | Retry | `RETRY_ON_429_DELAY_MS`, `RETRY_ON_503_DELAY_MS`, `DEFAULT_RETRIES`, `VISION_RETRIES` |
 | מאגר ידע | `KNOWLEDGE_MAX_FILE_SIZE_BYTES`, `KNOWLEDGE_CHUNK_SIZE`, `KNOWLEDGE_TOP_CHUNKS`, `KNOWLEDGE_MIN_SCORE`, `KNOWLEDGE_PERSONAL`, `KNOWLEDGE_FITNESS`, `KNOWLEDGE_INTERESTS`, `KNOWLEDGE_BUSINESS`, `KNOWLEDGE_PREFERENCES`, `KNOWLEDGE_CONTENT` |
 | זיכרון שיחה | `MAX_HISTORY_MESSAGES` |
@@ -689,7 +690,6 @@ ${JARVIS_PERSONA}
 | `app.js` | 1947 | ליבת האפליקציה הראשית (`index.html`): צ'אט `/api/ask` (SSE — `consumeAskStream`, `appendStreamBubble`, צ'יפי כלים), היסטוריה, מיקרופון, מצלמה + `/api/vision`, TTS, פולינג `/api/metrics`. `renderReplyHtml` הופך קישורים ללחיצים בכל שלושת המסלולים (בועה חדשה, בועה סטרימית, `commitStreamedBubble`). |
 | `neural.js` | 485 | אנימציית "מוח חלקיקים" כפול (כדור בפאנל + רקע) עם `prefers-reduced-motion`; `resize()` עוצר את הלופ כשה-container מוסתר (`display:none` → 0×0) ומחזיר אותו כשהוא חוזר. |
 | `landing.js` | 299 | עמוד הנחיתה: כדור חלקיקים על קנבס, כפתורי CTA, שמירת שאלה ממתינה ב-`sessionStorage`. |
-| `landing.js.backup` | 64 | גיבוי ישן שאינו נטען. |
 | `training.js` | 1019 | עמוד אימון: יצירת אימון (`/api/training/generate`), צ'ק-ליסט, סטטיסטיקות, שמירה ב-`localStorage` (`jarvis_training_v1`), ניתוח (`/api/training/analyze`), צ'אט מאמן + FAB (`/api/training/coach`). |
 | `nutrition.js` | 969 | מעקב תזונה יומי: ארוחות, סה"כ מול יעדים, מים, תובנות; `/api/nutrition/analyze`; `localStorage` (`jarvis_nutrition_v2`). `renderProgress` מזין את 4 הטבעות ב-`#daily-progress` (kcal/protein/carbs/fats מול `TARGETS`), קובע להן מצב (`is-empty`/`is-low`/`is-high`/`is-done`/`is-over`) ובונה את משפט הסיכום מתחתן (`progressSentence`). |
 | `nutrition-chat.js` | 305 | צ'אט תזונאי צף (FAB + חלון) ששולח את נתוני היום ל-`/api/nutrition/chat`, עם היסטוריה מקומית. |
@@ -707,7 +707,6 @@ ${JARVIS_PERSONA}
 | `hud-theme.css` | 316 | טוקנים ופרימיטיבים משותפים (רקע, צבעים, כרטיסים/כפתורים) ל-4 עמודי המודולים. |
 | `hud-chat.css` | 389 | רכיב צ'אט צף משותף: `hud-chat-fab` + חלון שיחה (נטען ב-nutrition/analytics/research). |
 | `landing.css` | 422 | עמוד הנחיתה — Stark Industries HUD. |
-| `landing.css.backup` | 301 | גיבוי ישן שאינו נטען. |
 | `training.css` | 1929 | עמוד האימון + חלון הצ'אט של המאמן. |
 | `nutrition.css` | 1356 | עמוד התזונה (טבלאות, יעדים, טפסים) + בלוק 13: טבעות HUD (`progress-grid`/`progress-ring`/`ring-value` עם `drop-shadow`, מצבי `is-*`) והסיכום שמתחתן. |
 | `analytics.css` | 2826 | דשבורד האנליטיקס + מעטפת `.hud-chat-window--analytics` לחלון הצ'אט. |
@@ -759,7 +758,7 @@ ${JARVIS_PERSONA}
 3. **`/api/training/save` ו-`/api/training/history` לא באמת שומרים דבר** — הראשון מחזיר `savedAt` בלבד, השני מחזיר מערך ריק. האחסון האמיתי הוא `localStorage` (`jarvis_training_v1`).
 4. ~~**`.env.example` לא מסונכרן**~~ **נסגר (2026-10-28):** `.env.example` מתעד עכשיו את הליבה, את מפתחות השירות (`YOUTUBE_API_KEY`, `SEMANTIC_SCHOLAR_KEY`, `CORE_API_KEY`) ואת כל משתני `/api/ask` — `ASK_CACHE_*`, `ASK_STREAM_*`, `ASK_TOOLS_*`, `ASK_TOOL_TIMEOUT_MS` (בשורות מוערות). המודל עודכן ל-`gemini-3.8-flash` בהתאם ל-`CONFIG`. שאר 40+ המשתנים מופיעים רק בטבלה ב-§6.
 5. **סודות בקוד מקור** — `whatsapp-bot.js` מכיל מזהה מופע וטוקן של Green API Hardcoded (שורות 9–10 בקובץ). יש להעביר ל-`.env` ולסובב את הטוקן; הקובץ לא נטען מהשרת אבל נמצא ב-Git.
-6. **קבצי גיבוי/שאריות בריפו** — `server.js.broken`, `landing.js.backup`, `landing.css.backup`, `landing.html.backup`, ותיקיית `.aider.tags.cache.v4` (מטמון SQLite של aider). אינם נטענים ע"י השרת.
+6. ~~**קבצי גיבוי/שאריות בריפו**~~ **נמחקו (2026-11-02):** `landing.html.backup`, `landing.js.backup` ו-`landing.css.backup` הוסרו מ-`public/` (הם היו untracked ומכוסים ב-`*.backup` ב-`.gitignore`). עדיין קיימים locally: `server.js.broken` ותיקיית `.aider.tags.cache.v4` — אינם נטענים ע"י השרת.
 7. ~~אין בדיקות אוטומטיות~~ **נסגר (2026-10-28):** נוסף `test/smoke.test.js` (`node:test`, ללא תלות חדשה) ו-`npm test` מריץ `node --test` על שני קבצים. הבדיקות מרימות את השרת על פורט פנוי עם `GEMINI_API_KEY` דמה (אין עלות טוקנים) ומכסות: תחביר של כל קובצי ה-JS (כולל `ask-tools.js`), `/api/health`, `/api/metrics`, `/api/knowledge`, `/api/mega-prompt`, הדפים `/` ו-`/app`, היעדרות שלושת ה-endpoints שנמחקו, ווולידציית קלט (`/api/ask` → 400/413, `/api/training/analyze` → 400). נוספו גם בדיקות לחוזה ה-SSE (`text/event-stream`, `delta` שמסתכם ל-`reply`, `done` אחרון, JSON כשלא ביקשו סטרימינג) וליחידות של שכבת הכלים (`test/ask-tools.test.js`). סה"כ 28 בדיקות. `npm run check` נשאר לבדיקת תחביר מהירה של `server.js` בלבד.
 8. **ניתוב "חפש/מצא" הישן מקדים את הכלים** — `/api/ask` מנתב בקשה שמכילה `חפש`/`מצא`/`search`/`google` ל-YouTube או ל-`browser.js` **לפני** Gemini (נתיב ישן מלפני ה-Function Calling). בשאלות כאלה המודל לא נקרא, אין אירועי `tool` בבועה, והתשובה היא פלט הסקרייפר. זה גם מה שמאפשר לבדיקות ה-SSE לרוץ בלי טוקנים (`prompt: 'חפש'` נעצר בוולידציה).
 9. **צ'יפי הכלים קיימים רק במסלול ה-SSE** — הבקשה הלא-סטרימינג מחזירה `toolsUsed` ב-JSON, אבל `public/js/app.js` מצייר צ'יפים רק מאירועי `tool`, ולכן שם הם לא מוצגים. כמו כן הצ'יפים אינם נשמרים ב-`jarvis_history_v1` — הם תצוגה חיה בלבד.

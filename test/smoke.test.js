@@ -23,6 +23,10 @@ const ROOT = path.join(__dirname, '..');
 const SERVER_ENTRY = path.join(ROOT, 'server.js');
 const BOOT_TIMEOUT_MS = 30 * 1000;
 
+// Every /api/* route requires `Authorization: Bearer <APP_API_KEY>` (S1). The server is
+// spawned with this key below and every API call in this file sends it back.
+const TEST_API_KEY = 'test-suite-api-key-0123456789abcdef';
+
 let serverProcess = null;
 let baseUrl = null;
 const serverLog = [];
@@ -78,6 +82,7 @@ before(async () => {
             ...process.env,
             PORT: String(port),
             GEMINI_API_KEY: 'test-dummy-key-not-a-real-credential',
+            APP_API_KEY: TEST_API_KEY,
             NODE_ENV: 'test',
         },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -101,9 +106,18 @@ after(async () => {
     if (serverProcess.exitCode === null) serverProcess.kill('SIGKILL');
 });
 
+const authHeaders = (extra) => Object.assign({ Authorization: `Bearer ${TEST_API_KEY}` }, extra || {});
+
+const apiGet = (route, init) => {
+    const options = Object.assign({}, init || {});
+    options.headers = authHeaders(options.headers);
+    if (!options.signal) options.signal = AbortSignal.timeout(10000);
+    return fetch(`${baseUrl}${route}`, options);
+};
+
 const postJson = (route, body) => fetch(`${baseUrl}${route}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(10000),
 });
@@ -190,15 +204,40 @@ test('GET /api/health reports a healthy kernel', async () => {
 });
 
 test('GET /api/metrics and GET /api/knowledge respond', async () => {
-    const metricsRes = await fetch(`${baseUrl}/api/metrics`, { signal: AbortSignal.timeout(10000) });
+    const metricsRes = await apiGet('/api/metrics');
     assert.equal(metricsRes.status, 200);
     const metrics = await metricsRes.json();
     assert.equal(typeof metrics.totalRequests, 'number');
 
-    const knowledgeRes = await fetch(`${baseUrl}/api/knowledge`, { signal: AbortSignal.timeout(10000) });
+    const knowledgeRes = await apiGet('/api/knowledge');
     assert.equal(knowledgeRes.status, 200);
     const knowledge = await knowledgeRes.json();
     assert.ok(Array.isArray(knowledge.files));
+});
+
+test('every /api route except /api/health rejects a missing or wrong key', async () => {
+    const noKey = await fetch(`${baseUrl}/api/metrics`, { signal: AbortSignal.timeout(10000) });
+    assert.equal(noKey.status, 401);
+    assert.match(noKey.headers.get('www-authenticate') || '', /Bearer/);
+    const body = await noKey.json();
+    assert.equal(body.code, 'UNAUTHORIZED');
+
+    const wrongKey = await fetch(`${baseUrl}/api/metrics`, {
+        headers: { Authorization: 'Bearer not-the-configured-key' },
+        signal: AbortSignal.timeout(10000),
+    });
+    assert.equal(wrongKey.status, 401);
+
+    // /api/health stays open: Render's healthcheck has no secret to send.
+    const health = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(10000) });
+    assert.equal(health.status, 200);
+
+    // Express routing is case-insensitive and percent-decodes escapes, so these
+    // spellings reach the same handlers — none of them may skip the key check.
+    for (const path of ['/API/metrics', '/Api/Metrics', '/%61pi/metrics']) {
+        const res = await fetch(`${baseUrl}${path}`, { signal: AbortSignal.timeout(10000) });
+        assert.equal(res.status, 401, `${path} must require the key`);
+    }
 });
 
 test('static pages are served', async () => {
@@ -220,7 +259,7 @@ test('removed dead endpoints stay removed', async () => {
 });
 
 test('GET /api/mega-prompt no longer advertises removed endpoints', async () => {
-    const res = await fetch(`${baseUrl}/api/mega-prompt`, { signal: AbortSignal.timeout(20000) });
+    const res = await apiGet('/api/mega-prompt');
     assert.equal(res.status, 200);
 
     const text = await res.text();
@@ -247,11 +286,10 @@ test('input validation rejects bad payloads without calling the model', async ()
 test('POST /api/ask streams deltas and a final done event over SSE', async () => {
     // "חפש" on its own short-circuits before Gemini and before browser.js, so the whole SSE path
     // is exercised without spending tokens or touching the network.
-    const res = await fetch(`${baseUrl}/api/ask`, {
+    const res = await apiGet('/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
         body: JSON.stringify({ prompt: 'חפש', stream: true }),
-        signal: AbortSignal.timeout(10000),
     });
 
     assert.equal(res.status, 200);
@@ -277,11 +315,10 @@ test('POST /api/ask streams deltas and a final done event over SSE', async () =>
 });
 
 test('?stream=1 also opts a request into SSE', async () => {
-    const res = await fetch(`${baseUrl}/api/ask?stream=1`, {
+    const res = await apiGet('/api/ask?stream=1', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: 'חפש' }),
-        signal: AbortSignal.timeout(10000),
     });
 
     assert.equal(res.status, 200);
@@ -309,6 +346,6 @@ test('a streaming request still fails fast with JSON on bad input', async () => 
 });
 
 test('unknown API routes return 404', async () => {
-    const res = await fetch(`${baseUrl}/api/definitely-not-a-route`, { signal: AbortSignal.timeout(10000) });
+    const res = await apiGet('/api/definitely-not-a-route');
     assert.equal(res.status, 404);
 });

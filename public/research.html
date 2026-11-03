@@ -186,6 +186,8 @@
         </div>
     </div>
 
+    <!-- API key: must load before any module that calls /api/* (wraps window.fetch) -->
+    <script src="/js/api-auth.js"></script>
     <script src="/js/research.js?v=2" defer></script>
         <script src="/js/research-chat-history.js" defer></script>
     <script src="/js/research-chat.js" defer></script>

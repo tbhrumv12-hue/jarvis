@@ -226,6 +226,8 @@
         </form>
     </div>
 
+    <!-- API key: must load before any module that calls /api/* (wraps window.fetch) -->
+    <script src="/js/api-auth.js"></script>
     <script src="/js/training.js" defer></script>
 </body>
 </html>

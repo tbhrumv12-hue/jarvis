@@ -30,6 +30,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const helmet = require('helmet');
 const cors = require('cors');
 const compression = require('compression');
@@ -80,6 +81,21 @@ const CONFIG = {
     port: Number(process.env.PORT) || 3000,
     environment: process.env.NODE_ENV || 'development',
 
+    // --- Access control ---------------------------------------------------------
+    // One shared key for the whole deployment. Unset in development = the API stays
+    // open (nothing to check against); unset in production = the API answers 503.
+    appApiKey: String(process.env.APP_API_KEY || '').trim(),
+    // Browser origins allowed to read API responses. Requests without an Origin
+    // header (curl, native apps, same-origin navigations) are always let through —
+    // the Bearer key is what actually protects the data.
+    corsOrigins: String(
+        process.env.CORS_ORIGINS ||
+        'http://localhost:3000,http://127.0.0.1:3000,https://jarvis-ype5.onrender.com'
+    )
+        .split(',')
+        .map((origin) => origin.trim().replace(/\/+$/, ''))
+        .filter(Boolean),
+
     geminiApiKey: String(process.env.GEMINI_API_KEY).trim(),
     geminiModel: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
     geminiTimeoutMs: Number(process.env.GEMINI_TIMEOUT_MS) || 60000, // per attempt
@@ -112,6 +128,8 @@ const CONFIG = {
 
     rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 60 * 1000,
     rateLimitMax: Number(process.env.RATE_LIMIT_MAX) || 30,
+    // Ceiling for the whole app (static assets included), per IP per minute.
+    globalRateLimitMax: Number(process.env.RATE_LIMIT_GLOBAL_MAX) || 300,
     visionRateLimitMax: Number(process.env.VISION_RATE_LIMIT_MAX) || 15,
     researchRateLimitMax: Number(process.env.RESEARCH_RATE_LIMIT_MAX) || 10,
 
@@ -3129,9 +3147,89 @@ app.use(helmet({
 }));
 
 app.use(compression());
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// === CORS — allowlist only ===
+// `cors()` used to send `Access-Control-Allow-Origin: *`, which let any page on the
+// internet read this API. Only the origins listed in CORS_ORIGINS get the header now.
+app.use(cors({
+    origin(origin, callback) {
+        // No Origin header: curl, native apps, same-origin navigations.
+        if (!origin) return callback(null, true);
+        const normalized = String(origin).trim().replace(/\/+$/, '');
+        if (CONFIG.corsOrigins.includes(normalized)) return callback(null, true);
+        log('warn', `CORS blocked origin: ${normalized}`);
+        // No ACAO header is sent, so the browser refuses to hand the body to the page.
+        return callback(null, false);
+    },
+    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    maxAge: 86400,
+}));
+
+// === API access control ===
+// Every /api/* route requires `Authorization: Bearer <APP_API_KEY>`. /api/health is
+// exempt so Render's healthcheck (and uptime monitors) keep working without a secret.
+const AUTH_EXEMPT_PATHS = new Set(['/api/health']);
+
+function timingSafeEqualStrings(a, b) {
+    const left = Buffer.from(String(a), 'utf8');
+    const right = Buffer.from(String(b), 'utf8');
+    if (left.length !== right.length) return false;
+    return crypto.timingSafeEqual(left, right);
+}
+
+function readProvidedApiKey(req) {
+    const match = /^Bearer\s+(.+)$/i.exec(String(req.get('authorization') || '').trim());
+    // A `?key=` query parameter is deliberately NOT accepted: URLs end up in logs,
+    // in Referer headers and in browser history.
+    return match ? match[1].trim() : '';
+}
+
+function requireApiKey(req, res, next) {
+    // Lower-cased and percent-decoded on purpose: Express routing is case-insensitive
+    // by default and decodes escapes, so `GET /API/metrics` and `GET /%61pi/metrics`
+    // must not slip past a check written against the literal path.
+    let requestPath = String(req.path || '');
+    try {
+        requestPath = decodeURIComponent(requestPath);
+    } catch (err) {
+        /* malformed escape — compare the raw path */
+    }
+    requestPath = requestPath.toLowerCase();
+
+    if (!requestPath.startsWith('/api/')) return next();  // pages, CSS and JS stay public
+    if (AUTH_EXEMPT_PATHS.has(requestPath)) return next();
+    if (req.method === 'OPTIONS') return next();          // preflight carries no Authorization
+
+    if (!CONFIG.appApiKey) {
+        if (CONFIG.environment === 'production') {
+            return res.status(503).json({
+                error: 'APP_API_KEY לא מוגדר בשרת — ה-API מושבת עד להגדרת מפתח.',
+                code: 'AUTH_NOT_CONFIGURED',
+            });
+        }
+        return next(); // development convenience: no key configured, nothing to check
+    }
+
+    if (timingSafeEqualStrings(readProvidedApiKey(req), CONFIG.appApiKey)) return next();
+
+    res.set('WWW-Authenticate', 'Bearer realm="J.A.R.V.I.S"');
+    return res.status(401).json({ error: 'נדרש מפתח גישה תקין.', code: 'UNAUTHORIZED' });
+}
+
+// Mounted before the body parsers on purpose: an anonymous request should never
+// cost a 256kb (let alone 10mb) parse.
+app.use(requireApiKey);
+
+// === Body parsers ===
+// 256kb is generous for JSON prompts. Only /api/vision carries a base64 image
+// (≤4MB decoded) and gets its own 5mb parser on the route itself — the old global
+// 10mb limit let any anonymous request reserve 10MB of RAM per connection.
+const jsonSmallBody = express.json({ limit: '256kb' });
+const jsonVisionBody = express.json({ limit: '5mb' });
+
+app.use((req, res, next) => (req.path === '/api/vision' ? next() : jsonSmallBody(req, res, next)));
+app.use(express.urlencoded({ extended: true, limit: '256kb' }));
    
 // === Request Logger ===
 app.use((req, res, next) => {
@@ -3170,6 +3268,19 @@ const researchRateLimiter = rateLimit({
     message: { reply: 'אדון, יותר מדי בקשות מחקר.' },
 });
 
+// Whole-app ceiling, static files included: a scraper hammering /js/*.js used to cost
+// nothing. 300/min per IP is far above a real session (a page load is ~10 requests)
+// and well below a scripted flood.
+const globalRateLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: CONFIG.globalRateLimitMax,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'אדון, יותר מדי בקשות מהכתובת הזו.' },
+});
+
+app.use(globalRateLimiter);
+
 // ==============================
 // 34. ROUTES — ROOT
 // ==============================
@@ -3177,7 +3288,12 @@ const researchRateLimiter = rateLimit({
 app.use(express.static(path.join(__dirname, 'public'), {
     index: false,
     maxAge: '1h',
-    etag: true
+    etag: true,
+    // HTML must be revalidated on every load: an hour-old cached page would still
+    // point at the old <script> list and never load public/js/api-auth.js (S1).
+    setHeaders(res, filePath) {
+        if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+    }
 }));
 
 app.get('/', (req, res) => {
@@ -3261,8 +3377,11 @@ app.get('/api/metrics', (req, res) => {
 // ==============================
 // 36. ROUTES — KNOWLEDGE
 // ==============================
+// All four knowledge routes (list / upload / delete / reload) are state-changing or
+// inline the whole knowledge base, so they share the strict per-IP limiter instead of
+// relying on the global 300/min ceiling.
 
-app.get('/api/knowledge', (req, res) => {
+app.get('/api/knowledge', apiRateLimiter, (req, res) => {
     try {
         const files = Array.from(knowledge.files.values())
             .map((f) => ({
@@ -3289,7 +3408,7 @@ app.get('/api/knowledge', (req, res) => {
     }
 });
 
-app.post('/api/knowledge/upload', (req, res) => {
+app.post('/api/knowledge/upload', apiRateLimiter, (req, res) => {
     try {
         const { name, content } = req.body || {};
 
@@ -3327,7 +3446,7 @@ app.post('/api/knowledge/upload', (req, res) => {
     }
 });
 
-app.delete('/api/knowledge/:name', (req, res) => {
+app.delete('/api/knowledge/:name', apiRateLimiter, (req, res) => {
     try {
         const safeName = path.basename(req.params.name || '');
 
@@ -3363,7 +3482,7 @@ app.delete('/api/knowledge/:name', (req, res) => {
     }
 });
 
-app.post('/api/knowledge/reload', (req, res) => {
+app.post('/api/knowledge/reload', apiRateLimiter, (req, res) => {
     try {
         loadKnowledgeBase();
         askCacheClear();
@@ -3876,7 +3995,7 @@ if (isSearchRequest) {
 // 39. ROUTES — VISION
 // ==============================
 
-app.post('/api/vision', visionRateLimiter, async (req, res, next) => {
+app.post('/api/vision', jsonVisionBody, visionRateLimiter, async (req, res, next) => {
     const requestStart = Date.now();
     metrics.totalRequests += 1;
     metrics.totalVisionRequests += 1;
@@ -5647,6 +5766,16 @@ app.use((err, req, res, next) => {
         return res.status(err.statusCode).json({ error: err.message });
     }
 
+    // body-parser rejections (payload too large, malformed JSON) carry their own
+    // `status`; without this branch an oversized body surfaced as a generic 500.
+    if (err && typeof err.status === 'number' && err.status >= 400 && err.status < 500) {
+        log('warn', `Request rejected (${err.type || 'client error'}): ${err.message}`);
+        const message = err.type === 'entity.too.large'
+            ? 'אדון, הבקשה גדולה מדי.'
+            : 'אדון, הבקשה שנשלחה אינה תקינה.';
+        return res.status(err.status).json({ error: message });
+    }
+
     log('error', 'Unhandled error', err);
     recordError(err.message || 'Unknown error');
     return res.status(500).json({ reply: 'אדון, אירעה תקלה בלתי צפויה במערכת.' });
@@ -5663,6 +5792,16 @@ const server = app.listen(CONFIG.port, () => {
     log('info', `Server: http://localhost:${CONFIG.port}`);
     log('info', `Model: ${CONFIG.geminiModel}`);
     log('info', `Environment: ${CONFIG.environment}`);
+    if (!CONFIG.appApiKey) {
+        if (CONFIG.environment === 'production') {
+            log('error', 'APP_API_KEY is not set: every /api/* route answers 503 until it is configured.');
+        } else {
+            log('warn', 'APP_API_KEY is not set: the API is open (development only).');
+        }
+    } else {
+        log('info', `API auth: Bearer key required (${CONFIG.appApiKey.length} chars)`);
+    }
+    log('info', `CORS allowlist: ${CONFIG.corsOrigins.join(', ')}`);
     log('info', `Knowledge: ${knowledge.files.size} files, ${knowledge.chunks.length} chunks, ${knowledge.vocab.size} vocab`);
     log('info', `YouTube API: ${CONFIG.youtubeApiKey ? 'configured' : 'NOT configured'}`);
     log('info', 'Research sources: 11 (Europe PMC, PubMed, OpenAlex, Semantic Scholar, CrossRef, DOAJ, bioRxiv, CORE, medRxiv, BASE, SciELO)');
