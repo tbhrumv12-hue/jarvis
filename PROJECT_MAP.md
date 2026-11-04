@@ -37,9 +37,9 @@
 | 25 | `POST /api/analytics-chat` | 3646–3736 | `apiRateLimiter` | צ'אט על נתוני אנליטיקס + ידע אישי מ-BM25 | `analytics.js:1139` |
 | 26 | `POST /api/nutrition/analyze` | 3742–3853 | `apiRateLimiter` | ניתוח ארוחות חופשי → JSON תזונתי (`callGeminiJSON`) | `nutrition.js:738` |
 | 27 | `POST /api/nutrition/chat` | 3875–3978 | `apiRateLimiter` | צ'אט תזונאי עם נתוני היום (יעדים/ארוחות/מים) + ידע אישי | `nutrition-chat.js` |
-| 28 | `POST /api/training/coach` | 4010–4090 | `apiRateLimiter` | מאמן קליסטניקס; במקביל מחפש סרטוני YouTube אם השאלה מבקשת הדגמה | `training.js:827` |
+| 28 | `POST /api/training/coach` | 4999–5103 | `apiRateLimiter` | מאמן קליסטניקס; מקבל `workout` אופציונלי ומזריק הקשר אימון + פרופיל + BM25; במקביל מחפש סרטוני YouTube אם השאלה מבקשת הדגמה | `training.js:857` |
 | 29 | `POST /api/training/analyze` | 4166–4238 | `apiRateLimiter` | ניתוח התקדמות מ-10 ימים אחרונים | `training.js:604` |
-| 30 | `POST /api/training/generate` | 4380–4481 | `apiRateLimiter` | יצירת אימון ELITE בפורמט JSON (short=40d / long=90d) | `training.js:454` |
+| 30 | `POST /api/training/generate` | 5539–5655 | `apiRateLimiter` | יצירת אימון ELITE בפורמט JSON (short=40d / long=90d); מנרמל כל תרגיל כולל `category` דרך `normalizeExerciseCategory` (5519) | `training.js:481` |
 | 31 | `POST /api/training/save` | 4488–4528 | `apiRateLimiter` | ולידציה של אימון ומחזיר `savedAt`; **לא נשמר בשרת** | לא נקרא (השמירה ב-localStorage) |
 | 32 | `GET /api/training/history` | 4534–4550 | `apiRateLimiter` | מחזיר תמיד `history: []` עם הסבר שהאחסון בדפדפן | לא נקרא |
 | 33 | `GET /api/mega-prompt` | 4557–4702 | — | בונה "Mega Prompt" טקסטואלי ממצב השרת, המטריקות והידע | `analytics.js:1207` |
@@ -155,8 +155,8 @@
 | `RESEARCH_CHAT_SYSTEM_PROMPT` | 279–291 | `/api/research-chat` במצב `papers` (4285) |
 | `RESEARCH_CHAT_HYBRID_SYSTEM_PROMPT` | 292–312 | `/api/research-chat` בכל מצב אחר (4286) |
 | `NUTRITION_COACH_SYSTEM_PROMPT` | 4552–4566 | `/api/nutrition/chat` (4641) |
-| `TRAINING_COACH_SYSTEM_PROMPT` | 4683–4701 | `/api/training/coach` (4742) |
-| `TRAINING_GENERATE_SYSTEM_PROMPT` | 5002–5136 | `/api/training/generate` (5238) |
+| `TRAINING_COACH_SYSTEM_PROMPT` | 4903–4921 | `/api/training/coach` (4999); כשיש `workout` מצטרפים `TRAINING_COACH_WORKOUT_RULES` (4924) + האימון עצמו |
+| `TRAINING_GENERATE_SYSTEM_PROMPT` | 5322–5358 | `/api/training/generate` (5539) |
 | `TRAINING_ANALYZE_SYSTEM_PROMPT` | 5142–5190 | `/api/training/analyze` (4862, 4960) |
 
 בנוסף, פרומפטים קצרים מוטבעים (inline) ב-`systemInstruction`:
@@ -362,7 +362,7 @@ ${JARVIS_PERSONA}
 ## שפה: עברית בלבד.
 ```
 
-### 3.11 `TRAINING_COACH_SYSTEM_PROMPT` (4683–4701)
+### 3.11 `TRAINING_COACH_SYSTEM_PROMPT` (4903–4921)
 
 ```text
 אתה מאמן קליסטניקס מומחה בגובה העיניים. אתה עונה על שאלות של מתבגר בן 15 וחמישה חודשים שמתאמן בקליסטניקס 4-5 פעמים בשבוע ומטרתו Full Planche + Front Lever.
@@ -386,9 +386,18 @@ ${JARVIS_PERSONA}
 ## שפה: עברית בלבד.
 ```
 
-### 3.12 `TRAINING_GENERATE_SYSTEM_PROMPT` (5002–5136)
+**תוספת מותנית — Follow-up Coach (אוקטובר 2026).** כשה-endpoint מקבל `workout` (האימון שנבנה בעמוד), ה-`systemInstruction` נבנה כך:
 
-מערך שורות שמצטרף ב-`\n` (שורה 4378). תוכן מלא:
+1. `TRAINING_COACH_WORKOUT_RULES` (4924–4936) — מתווסף **רק** עם אימון: אסור להמציא תרגילים/סטים/הערות, נימוק חייב לנבוע מהפרופיל (skill → strength → core, מנוחה 2-2.5 דק׳), התייחסות בשם התרגיל המדויק, שינוי מוצג כהצעה, מדיניות כאב (לא לאבחן, להחליף מאותה קטגוריה), ונתון חסר — לומר שאין.
+2. `buildWorkoutContextBlock` (4940) — טקסט קומפקטי: `1. Planche Lean — skill | 4 סטים × 20s hold | מנוחה 120s | הערה: … | ביצוע בפועל: … [בוצע]`, כולל `note || notes`. קפיצה ל-14 תרגילים (`trainingCoachMaxExercises`) ול-`COACH_WORKOUT_CONTEXT_CHARS` (ברירת מחדל 2500). קלט פגום מחזיר `''` בשקט — המאמן נופל למצב כללי, לא 500.
+3. `buildTrainingProfileContext` (4984) — צ'אנקים מ-`training.txt`/`fitness.txt`/`preferences.txt` בלבד (לא BM25 — השאילתה קצרה מדי), קפוא ל-`COACH_PROFILE_CHARS` (1400).
+4. `searchKnowledge(cleanQuery)` — אותו BM25 של תזונה/אנליטיקס (עד 5 צ'אנקים × 400 תווים) + מוני `totalKnowledgeLookups`/`totalKnowledgeHits`.
+5. `temperature` 0.4 כשיש אימון (0.5 בלעדיו), ו-`wantsVideo` דורש כוונת וידאו מפורשת ("סרטון"/"וידאו"/"הדגמה") כשמצורף אימון — כדי לא לשלוף YouTube על "איך עושים X" שנשאל על התוכנית.
+6. התשובה מחזירה `workoutAttached` כדי שהלקוח יידע אם ההקשר התקבל.
+
+### 3.12 `TRAINING_GENERATE_SYSTEM_PROMPT` (5322–5358)
+
+מערך שורות שמצטרף ב-`\n` (שורה 5358). כל תרגיל כולל `category` (`skill`/`strength`/`core`) ועובר ב-`normalizeExerciseCategory` (5519) לפני שהלקוח רואה אותו. תוכן מלא:
 
 ```text
 אתה מאמן קליסטניקס אישי של Ori, בן 15 וחמישה חודשים מאזור השומרון.
@@ -563,7 +572,7 @@ ${JARVIS_PERSONA}
 | `/api/analytics-chat` | `callGemini` (3703) | 0.6 | 1500 | `ANALYTICS_SYSTEM_PROMPT` + נתוני אנליטיקס + ידע |
 | `/api/nutrition/analyze` | `callGeminiJSON` (3821) | 0.3 | 8192 | `NUTRITION_SYSTEM_PROMPT` |
 | `/api/nutrition/chat` | `callGemini` (3947) | 0.6 | 1500 | `NUTRITION_COACH_SYSTEM_PROMPT` + נתוני היום + ידע |
-| `/api/training/coach` | `callGemini` (4048) | 0.5 | 1800 | `TRAINING_COACH_SYSTEM_PROMPT` |
+| `/api/training/coach` | `callGemini` (5056) | 0.5 (0.4 כשיש `workout`) | 1800 | `TRAINING_COACH_SYSTEM_PROMPT` + `TRAINING_COACH_WORKOUT_RULES` + האימון + ידע BM25 + פרופיל |
 | `/api/training/analyze` | `callGemini` (4206) | 0.4 | 2000 | `TRAINING_ANALYZE_SYSTEM_PROMPT` |
 | `/api/training/generate` | `callGemini` (4413) | 0.7 | 2500 | `TRAINING_GENERATE_SYSTEM_PROMPT` |
 | `/api/vision` | `callGeminiVision` (1229) | 0.5 | 512 | `VISION_SYSTEM_PROMPT` כחלק מ-`contents` (ללא שדה `systemInstruction`) |
@@ -690,7 +699,7 @@ ${JARVIS_PERSONA}
 | `app.js` | 1947 | ליבת האפליקציה הראשית (`index.html`): צ'אט `/api/ask` (SSE — `consumeAskStream`, `appendStreamBubble`, צ'יפי כלים), היסטוריה, מיקרופון, מצלמה + `/api/vision`, TTS, פולינג `/api/metrics`. `renderReplyHtml` הופך קישורים ללחיצים בכל שלושת המסלולים (בועה חדשה, בועה סטרימית, `commitStreamedBubble`). |
 | `neural.js` | 485 | אנימציית "מוח חלקיקים" כפול (כדור בפאנל + רקע) עם `prefers-reduced-motion`; `resize()` עוצר את הלופ כשה-container מוסתר (`display:none` → 0×0) ומחזיר אותו כשהוא חוזר. |
 | `landing.js` | 299 | עמוד הנחיתה: כדור חלקיקים על קנבס, כפתורי CTA, שמירת שאלה ממתינה ב-`sessionStorage`. |
-| `training.js` | 1019 | עמוד אימון: יצירת אימון (`/api/training/generate`), צ'ק-ליסט, סטטיסטיקות, שמירה ב-`localStorage` (`jarvis_training_v1`), ניתוח (`/api/training/analyze`), צ'אט מאמן + FAB (`/api/training/coach`). |
+| `training.js` | 1193 | עמוד אימון: יצירת אימון (`/api/training/generate`), צ'ק-ליסט, סטטיסטיקות, שמירה ב-`localStorage` (`jarvis_training_v1`), ניתוח (`/api/training/analyze`), צ'אט מאמן + FAB (`/api/training/coach`), ומאמן המשך **פנימי** מתחת לאימון (`#coach-inline`, `coachInlineMount`) ששולח את האימון עצמו. שני המשטחים חולקים `COACH_UI` + `coachSend(text, surface)` וההיסטוריה נשמרת לכל משטח בנפרד (12 הודעות). |
 | `nutrition.js` | 969 | מעקב תזונה יומי: ארוחות, סה"כ מול יעדים, מים, תובנות; `/api/nutrition/analyze`; `localStorage` (`jarvis_nutrition_v2`). `renderProgress` מזין את 4 הטבעות ב-`#daily-progress` (kcal/protein/carbs/fats מול `TARGETS`), קובע להן מצב (`is-empty`/`is-low`/`is-high`/`is-done`/`is-over`) ובונה את משפט הסיכום מתחתן (`progressSentence`). |
 | `nutrition-chat.js` | 305 | צ'אט תזונאי צף (FAB + חלון) ששולח את נתוני היום ל-`/api/nutrition/chat`, עם היסטוריה מקומית. |
 | `analytics.js` | 1601 | דשבורד אנליטיקס: טבלה/פילטרים, ייבוא YouTube/TikTok/Instagram, צ'אט `/api/analytics-chat`, מודל Mega Prompt; `localStorage` (`jarvis_analytics_v1`, `jarvis_analytics_chat_v1`). |
@@ -710,7 +719,7 @@ ${JARVIS_PERSONA}
 | `hud-theme.css` | 316 | טוקנים ופרימיטיבים משותפים (רקע, צבעים, כרטיסים/כפתורים) ל-4 עמודי המודולים. |
 | `hud-chat.css` | 389 | רכיב צ'אט צף משותף: `hud-chat-fab` + חלון שיחה (נטען ב-nutrition/analytics/research). |
 | `landing.css` | 422 | עמוד הנחיתה — Stark Industries HUD. |
-| `training.css` | 1929 | עמוד האימון + חלון הצ'אט של המאמן. |
+| `training.css` | 2027 | עמוד האימון + חלון הצ'אט של המאמן + `.coach-inline` (מאמן ההמשך שבתוך `#workout-section`, בלוק append-only בסוף הקובץ — משתמש מחדש ב-`.coach-messages`/`.coach-bubble`/`.coach-form` ומעצב רק את המעטפת). |
 | `nutrition.css` | 1356 | עמוד התזונה (טבלאות, יעדים, טפסים) + בלוק 13: טבעות HUD (`progress-grid`/`progress-ring`/`ring-value` עם `drop-shadow`, מצבי `is-*`) והסיכום שמתחתן. |
 | `analytics.css` | 2826 | דשבורד האנליטיקס + מעטפת `.hud-chat-window--analytics` לחלון הצ'אט. |
 | `research.css` | 2186 | עמוד המחקר + מודל הצ'אט וההיסטוריה. |

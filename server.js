@@ -148,6 +148,11 @@ const CONFIG = {
     maxHistoryCharsPerMessage: 2000,
     maxTotalHistoryChars: 8000,
 
+    // Follow-up coach grounding (a workout is attached to the request)
+    trainingCoachWorkoutContextChars: Number(process.env.COACH_WORKOUT_CONTEXT_CHARS) || 2500,
+    trainingCoachProfileChars: Number(process.env.COACH_PROFILE_CHARS) || 1400,
+    trainingCoachMaxExercises: 14,
+
     bm25K1: Number(process.env.BM25_K1) || 1.5,
     bm25B: Number(process.env.BM25_B) || 0.75,
 
@@ -4915,12 +4920,88 @@ const TRAINING_COACH_SYSTEM_PROMPT = `אתה מאמן קליסטניקס מומ�
 
 ## שפה: עברית בלבד.`;
 
+// Rules that apply only when the client attaches the workout it just generated.
+const TRAINING_COACH_WORKOUT_RULES = `
+
+## הקשר: האימון שנבנה כרגע
+לפניך האימון שהמערכת בנתה עבור Ori כרגע, בסעיף "האימון של Ori כרגע".
+
+### חוקים מחייבים
+1. ענה על סמך האימון הזה בלבד. כל מספר שאתה מזכיר (סטים / חזרות / מנוחה) חייב להתאים למה שכתוב בו.
+2. כששואלים "למה" — נמק מהעקרונות שבפרופיל: סדר skill → strength → core, מנוחה 2-2.5 דק׳, איכות מעל כמות, מזעור פיצויים. אל תמציא סיבות שלא נובעות מהם.
+3. כשהשאלה על תרגיל — התייחס אליו בשם המדויק שמופיע באימון.
+4. אל תשנה סטים / חזרות / סדר אלא אם ביקשו במפורש ("מה לשנות?", "תחליף"). הצג שינוי כהצעה מנומקת, לא כעובדה.
+5. דיווח על כאב או פציעה: אל תאבחן ואל תבטיח החלמה. אמור לעצור, הצע החלפה מאותה קטגוריה מתוך הפרופיל, וציין מתי לפנות לרופא/פיזיו אם הכאב חד.
+6. אם הנתון לא נמצא בהקשר — אמור בפשטות שאין לך אותו. אסור להמציא תרגילים, סטים או הערות שלא הופיעו.
+`;
+
+// Compact, hard-capped text form of the workout JSON the client sends.
+// Anything malformed is dropped silently — a bad context must never break the chat.
+function buildWorkoutContextBlock(rawWorkout) {
+    if (!rawWorkout || typeof rawWorkout !== 'object') return '';
+
+    try {
+        const exercises = Array.isArray(rawWorkout.exercises)
+            ? rawWorkout.exercises.slice(0, CONFIG.trainingCoachMaxExercises)
+            : [];
+        if (exercises.length === 0) return '';
+
+        const lines = exercises.map((ex, idx) => {
+            const name = truncate(String(ex?.name || 'תרגיל'), 60);
+            const rawCategory = String(ex?.category || '').toLowerCase().trim();
+            const category = EXERCISE_CATEGORIES.has(rawCategory) ? rawCategory : normalizeExerciseCategory('', name);
+            const sets = Math.min(30, Math.max(1, Math.round(Number(ex?.sets) || 1)));
+            const reps = truncate(String(ex?.reps || '—'), 24);
+            const rest = truncate(String(ex?.rest || '—'), 16);
+            const note = truncate(String(ex?.note || ex?.notes || '').trim(), 120);
+            const actual = truncate(String(ex?.actual || '').trim(), 40);
+
+            return `${idx + 1}. ${name} — ${category} | ${sets} סטים × ${reps} | מנוחה ${rest}`
+                + `${note ? ` | הערה: ${note}` : ''}`
+                + `${actual ? ` | ביצוע בפועל: ${actual}` : ''}`
+                + `${ex?.done ? ' [בוצע]' : ''}`;
+        });
+
+        const header = [
+            `- שם האימון: ${truncate(String(rawWorkout.title || 'ללא שם'), 80)}`,
+            rawWorkout.mode
+                ? `- סוג: ${rawWorkout.mode === 'short' ? 'קצר (40-60 דק׳)' : 'ארוך (60-90 דק׳)'}`
+                : '',
+            `- משך מתוכנן: ${Math.max(10, Math.round(Number(rawWorkout.durationMinutes) || 45))} דק׳`,
+            rawWorkout.summary ? `- סיכום מהמערכת: ${truncate(String(rawWorkout.summary), 240)}` : '',
+            `- סה"כ תרגילים: ${exercises.length}`,
+        ].filter(Boolean);
+
+        return truncate(`${header.join('\n')}\n\n${lines.join('\n')}`, CONFIG.trainingCoachWorkoutContextChars);
+    } catch (error) {
+        log('warn', 'buildWorkoutContextBlock failed:', error.message);
+        return '';
+    }
+}
+
+// The training profile is small and always relevant to a follow-up question, so it
+// is injected whole (capped) instead of relying on BM25 to surface it for short queries.
+function buildTrainingProfileContext() {
+    try {
+        const wanted = new Set(['training.txt', 'fitness.txt', 'preferences.txt']);
+        const parts = knowledge.chunks
+            .filter((c) => wanted.has(c.source))
+            .map((c) => c.text);
+
+        if (parts.length === 0) return '';
+        return `\n\n### פרופיל האימון של Ori (knowledge/):\n${truncate(parts.join('\n\n'), CONFIG.trainingCoachProfileChars)}`;
+    } catch (error) {
+        log('warn', 'buildTrainingProfileContext failed:', error.message);
+        return '';
+    }
+}
+
 app.post('/api/training/coach', apiRateLimiter, async (req, res, next) => {
     const requestStart = Date.now();
     metrics.totalRequests += 1;
 
     try {
-        const { query, history: rawHistory } = req.body || {};
+        const { query, history: rawHistory, workout: rawWorkout } = req.body || {};
 
         if (!query || typeof query !== 'string' || query.trim().length < 2) {
             metrics.totalErrors += 1;
@@ -4937,7 +5018,26 @@ app.post('/api/training/coach', apiRateLimiter, async (req, res, next) => {
 
         log('info', `Training coach: "${truncate(cleanQuery, 80)}"`);
 
-        const wantsVideo = /סרטון|וידאו|youtube|יוטיוב|הדגמה|איך עושים|איך לעשות|טכניקה/i.test(cleanQuery);
+        const workoutBlock = buildWorkoutContextBlock(rawWorkout);
+        const workoutAttached = workoutBlock.length > 0;
+
+        // With a workout attached, "איך עושים X" is a question about the plan, not a
+        // request for a video — require an explicit video intent in that mode.
+        const wantsVideo = workoutAttached
+            ? /סרטון|וידאו|youtube|יוטיוב|הדגמה/i.test(cleanQuery)
+            : /סרטון|וידאו|youtube|יוטיוב|הדגמה|איך עושים|איך לעשות|טכניקה/i.test(cleanQuery);
+
+        metrics.totalKnowledgeLookups += 1;
+        const personalChunks = searchKnowledge(cleanQuery);
+        if (personalChunks.length > 0) metrics.totalKnowledgeHits += 1;
+
+        const personalContext = personalChunks.length > 0
+            ? `\n\n### ידע אישי רלוונטי:\n${personalChunks.map((c) => `- ${truncate(c.text, 400)}`).join('\n')}`
+            : '';
+        const profileContext = buildTrainingProfileContext();
+        const workoutContext = workoutAttached
+            ? `\n${TRAINING_COACH_WORKOUT_RULES}\n\n### האימון של Ori כרגע:\n${workoutBlock}`
+            : '';
 
         const geminiPromise = (async () => {
             const normalizedHistory = Array.isArray(rawHistory)
@@ -4954,9 +5054,9 @@ app.post('/api/training/coach', apiRateLimiter, async (req, res, next) => {
                 : cleanQuery;
 
             return callGemini({
-                systemInstruction: TRAINING_COACH_SYSTEM_PROMPT,
+                systemInstruction: `${TRAINING_COACH_SYSTEM_PROMPT}${workoutContext}${personalContext}${profileContext}`,
                 contents: buildConversationContents(history, userPrompt),
-                temperature: 0.5,
+                temperature: workoutAttached ? 0.4 : 0.5,
                 maxOutputTokens: 1800,
                 timeoutMs: CONFIG.geminiTimeoutMs,
                 retries: CONFIG.defaultRetries,
@@ -4981,12 +5081,17 @@ app.post('/api/training/coach', apiRateLimiter, async (req, res, next) => {
             totalRoundTripMs,
             videos: videos.length,
             wantsVideo,
+            workoutAttached,
+            workoutChars: workoutBlock.length,
+            profileChars: profileContext.length,
+            personalChunks: personalChunks.length,
             attempts: geminiResult.attempts,
         });
 
         return res.json({
             reply: geminiResult.reply,
             videos,
+            workoutAttached,
             latencyMs: geminiResult.coreLatencyMs,
             roundTripMs: totalRoundTripMs,
             attempts: geminiResult.attempts,
@@ -5327,6 +5432,7 @@ const TRAINING_GENERATE_SYSTEM_PROMPT = [
     '  "exercises": [',
     '    {',
     '      "name": "שם התרגיל בעברית",',
+    '      "category": "skill | strength | core",',
     '      "sets": 4,',
     '      "reps": "8-10",',
     '      "rest": "90s",',
@@ -5348,6 +5454,7 @@ const TRAINING_GENERATE_SYSTEM_PROMPT = [
     '7. התאם תרגילים לפי הציוד שיש לו (מקבילים, משקולות, רצועה, מגנזיום) — בלי טבעות, בלי אפוד משקל.',
     '8. אם הבקשה כללית מדי — בחר תרגילי ELITE שמתאימים למטרות שלו (Planche, Front Lever, Handstand).',
     '9. **בכל שילוב קטגוריות — חלק שווה.** אל תיתן הכל מקטגוריה אחת.',
+    '10. **category חובה לכל תרגיל**: "skill" לשליטה/איזומטריה (Planche, Front Lever, Handstand, OAHS), "strength" לדינמי (מתח, מקבילים, עליות כוח, דחיפות), "core" לליבה ו-PPT (Dragon Flag, Hollow Body, PPT Drills).',
 ].join('\n');
 
 // ==============================
@@ -5403,6 +5510,30 @@ const TRAINING_ANALYZE_SYSTEM_PROMPT = [
     '   {"summary":"אין נתונים לניתוח, אדוני.","strengths":[],"weaknesses":[],"recommendations":[],"next_focus":""}',
     '7. אסור טקסט מחוץ ל-JSON. אסור code block. אסור שדות נוספים. אסור שדות חסרים.',
 ].join('\n');
+
+// Exercise categories are part of the training profile (knowledge/training.txt):
+// skill / strength / core. The model is asked for the field, but it is validated
+// here so the client can never receive an unknown value.
+const EXERCISE_CATEGORIES = new Set(['skill', 'strength', 'core']);
+
+function normalizeExerciseCategory(rawCategory, name) {
+    const explicit = String(rawCategory || '').toLowerCase().trim();
+    if (EXERCISE_CATEGORIES.has(explicit)) return explicit;
+
+    // Best-effort fallback: the model occasionally omits the field, and Hebrew-only
+    // names fall through to 'strength' (the current default).
+    const n = String(name || '').toLowerCase();
+    if (/dragon|hollow|ppt|pelvic|l-sit hold|leg raise|toes to bar|knee raise|ab wheel|side plank|rotation/.test(n)) {
+        return 'core';
+    }
+    if (/push-?ups?|pull-?ups?|dips?|rows?|muscle ?-?ups?|curls?|pulls?|raises?|negatives?|explosive|press(es)?|swings?|pulldowns?/.test(n)) {
+        return 'strength';
+    }
+    if (/planche|lever|handstand|oahs|one arm|isometric|hold|lean|tuck|straddle|flag|balance|shift/.test(n)) {
+        return 'skill';
+    }
+    return 'strength';
+}
 
 app.post('/api/training/generate', apiRateLimiter, async (req, res, next) => {
     const requestStart = Date.now();
@@ -5489,6 +5620,7 @@ ${durationHint}
                 : (cleanMode === 'long' ? 90 : 40),
             exercises: workout.exercises.map((ex) => ({
                 name: typeof ex.name === 'string' ? ex.name : 'תרגיל',
+                category: normalizeExerciseCategory(ex.category, ex.name),
                 sets: typeof ex.sets === 'number' ? ex.sets : (parseInt(ex.sets, 10) || 3),
                 reps: ex.reps != null ? String(ex.reps) : '8-10',
                 rest: ex.rest != null ? String(ex.rest) : '60s',

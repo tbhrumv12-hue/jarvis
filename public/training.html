@@ -137,6 +137,40 @@
                     <span>שמור וסיים</span>
                 </button>
             </div>
+
+            <!-- === Follow-up Coach — scoped to THIS workout === -->
+            <div id="coach-inline" class="coach-inline" hidden>
+                <header class="coach-inline-header">
+                    <div class="coach-inline-title">
+                        <span class="coach-inline-icon">🥋</span>
+                        <div>
+                            <h3 class="coach-inline-heading">מאמן האימון</h3>
+                            <p class="coach-inline-context" id="coach-inline-context">שאל שאלות על האימון הזה</p>
+                        </div>
+                    </div>
+                    <button type="button" id="coach-inline-toggle" class="coach-inline-toggle"
+                            aria-expanded="true" aria-controls="coach-inline-body">−</button>
+                </header>
+
+                <div id="coach-inline-body" class="coach-inline-body">
+                    <div id="coach-inline-messages" class="coach-messages coach-inline-messages"
+                         role="log" aria-live="polite" aria-label="שיחה על האימון"></div>
+
+                    <form id="coach-inline-form" class="coach-form coach-inline-form" autocomplete="off">
+                        <input
+                            type="text"
+                            id="coach-inline-input"
+                            class="coach-input"
+                            placeholder="למה התרגיל הזה ראשון?"
+                            maxlength="500"
+                            aria-label="שאלה על האימון"
+                        >
+                        <button type="submit" id="coach-inline-send" class="coach-send" aria-label="שלח">
+                            <span>↑</span>
+                        </button>
+                    </form>
+                </div>
+            </div>
         </section>
 
         <!-- === Today's Workouts === -->

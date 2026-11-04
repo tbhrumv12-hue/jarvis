@@ -29,9 +29,32 @@
 
     const coachState = {
         open: false,
-        loading: false,
-        history: [],
     };
+
+    // The follow-up coach has two surfaces that share the same render/send code:
+    //   floating → the FAB (general coach, no workout attached)
+    //   inline   → the panel under the generated workout (workout attached)
+    const COACH_UI = {
+        floating: {
+            messages: 'coach-messages',
+            input: 'coach-input',
+            send: 'coach-send',
+            history: [],
+            loading: false,
+            workout: null,
+        },
+        inline: {
+            messages: 'coach-inline-messages',
+            input: 'coach-inline-input',
+            send: 'coach-inline-send',
+            history: [],
+            loading: false,
+            workout: null,
+        },
+    };
+
+    const COACH_HISTORY_LIMIT = 12;
+    const COACH_CONTEXT_MAX_EXERCISES = 14;
 
     // ─────────────────────────────────────────────────────────────
     // DOM helpers
@@ -185,7 +208,7 @@
             sets: Math.max(1, Math.round(toNumber(raw.sets, 3))),
             reps: String(raw.reps || '—').trim(),
             rest: String(raw.rest || '2 דק׳').trim(),
-            note: String(raw.note || '').trim(),
+            note: String(raw.note || raw.notes || '').trim(),
             done: false,
             actual: '',
         };
@@ -209,6 +232,33 @@
             summary: String(raw.summary || '').trim(),
             durationMinutes: Math.max(10, Math.round(toNumber(raw.durationMinutes, 45))),
             exercises,
+        };
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Workout context → server (follow-up coach)
+    // ─────────────────────────────────────────────────────────────
+
+    function buildWorkoutPayload(workout) {
+        if (!workout || !Array.isArray(workout.exercises) || workout.exercises.length === 0) {
+            return null;
+        }
+
+        return {
+            title: String(workout.title || '').slice(0, 120),
+            summary: String(workout.summary || '').slice(0, 400),
+            mode: state.mode,
+            durationMinutes: workout.durationMinutes,
+            exercises: workout.exercises.slice(0, COACH_CONTEXT_MAX_EXERCISES).map((ex) => ({
+                name: ex.name,
+                category: ex.category,
+                sets: ex.sets,
+                reps: ex.reps,
+                rest: ex.rest,
+                note: ex.note,
+                done: Boolean(ex.done),
+                actual: ex.actual,
+            })),
         };
     }
 
@@ -470,6 +520,7 @@
             const workout = normalizeWorkout(payload.workout || payload);
             state.currentWorkout = workout;
             renderWorkout(workout);
+            coachInlineMount(workout);
 
             console.log('[Training] workout generated:', workout.title, workout.exercises.length, 'exercises');
         } catch (err) {
@@ -543,6 +594,9 @@
 
             if (saveStore(store)) {
                 state.currentWorkout = null;
+
+                // The workout is history now — the follow-up coach must not quote it.
+                coachInlineHide();
 
                 const section = $('workout-section');
                 if (section) section.hidden = true;
@@ -664,13 +718,13 @@
     // COACH CHAT — Floating AI
     // ═════════════════════════════════════════════════════════════
 
-    function coachScroll() {
-        const container = $('coach-messages');
+    function coachScroll(surface = COACH_UI.floating) {
+        const container = $(surface.messages);
         if (container) container.scrollTop = container.scrollHeight;
     }
 
-    function coachRenderUser(text) {
-        const container = $('coach-messages');
+    function coachRenderUser(text, surface = COACH_UI.floating) {
+        const container = $(surface.messages);
         if (!container) return;
         const empty = container.querySelector('.coach-empty');
         if (empty) empty.remove();
@@ -679,18 +733,18 @@
         div.className = 'coach-message coach-message-user';
         div.innerHTML = `<div class="coach-bubble">${escapeHtml(text)}</div>`;
         container.appendChild(div);
-        coachScroll();
+        coachScroll(surface);
     }
 
-    function coachRenderLoading() {
-        const container = $('coach-messages');
+    function coachRenderLoading(surface = COACH_UI.floating) {
+        const container = $(surface.messages);
         if (!container) return;
         const empty = container.querySelector('.coach-empty');
         if (empty) empty.remove();
 
         const div = document.createElement('div');
         div.className = 'coach-message coach-message-coach';
-        div.id = 'coach-loading';
+        div.setAttribute('data-coach-loading', '1');
         div.innerHTML = `
             <div class="coach-bubble">
                 <div class="coach-typing">
@@ -699,18 +753,20 @@
             </div>
         `;
         container.appendChild(div);
-        coachScroll();
+        coachScroll(surface);
     }
 
-    function coachRemoveLoading() {
-        const el = $('coach-loading');
+    function coachRemoveLoading(surface = COACH_UI.floating) {
+        const container = $(surface.messages);
+        if (!container) return;
+        const el = container.querySelector('[data-coach-loading]');
         if (el) el.remove();
     }
 
-    function coachRenderReply(reply, videos) {
-        const container = $('coach-messages');
+    function coachRenderReply(reply, videos, surface = COACH_UI.floating) {
+        const container = $(surface.messages);
         if (!container) return;
-        coachRemoveLoading();
+        coachRemoveLoading(surface);
 
         const div = document.createElement('div');
         div.className = 'coach-message coach-message-coach';
@@ -754,24 +810,24 @@
             </div>
         `;
         container.appendChild(div);
-        coachScroll();
+        coachScroll(surface);
     }
 
-    function coachRenderError(msg) {
-        const container = $('coach-messages');
+    function coachRenderError(msg, surface = COACH_UI.floating) {
+        const container = $(surface.messages);
         if (!container) return;
-        coachRemoveLoading();
+        coachRemoveLoading(surface);
         const div = document.createElement('div');
         div.className = 'coach-message coach-message-coach';
         div.innerHTML = `<div class="coach-bubble" style="color: var(--danger); border-color: rgba(255,92,92,0.3);">❌ ${escapeHtml(msg)}</div>`;
         container.appendChild(div);
-        coachScroll();
+        coachScroll(surface);
     }
 
-    function coachSetLoading(on) {
-        coachState.loading = on;
-        const btn = $('coach-send');
-        const input = $('coach-input');
+    function coachSetLoading(on, surface = COACH_UI.floating) {
+        surface.loading = on;
+        const btn = $(surface.send);
+        const input = $(surface.input);
         if (btn) btn.disabled = on;
         if (input) input.disabled = on;
     }
@@ -798,37 +854,42 @@
         coachState.open = false;
     }
 
-    async function coachSend(text) {
+    async function coachSend(text, surface = COACH_UI.floating) {
         const trimmed = String(text || '').trim();
 
-        if (coachState.loading) return;
+        if (surface.loading) return;
         if (trimmed.length < 2) return;
         if (trimmed.length > 500) {
-            coachRenderError('השאלה ארוכה מדי (מקסימום 500 תווים)');
+            coachRenderError('השאלה ארוכה מדי (מקסימום 500 תווים)', surface);
             return;
         }
 
-        coachRenderUser(trimmed);
+        coachRenderUser(trimmed, surface);
 
-        const input = $('coach-input');
+        const input = $(surface.input);
         if (input) input.value = '';
 
-        coachState.history.push({ role: 'user', content: trimmed });
-        if (coachState.history.length > 6) {
-            coachState.history = coachState.history.slice(-6);
+        surface.history.push({ role: 'user', content: trimmed });
+        if (surface.history.length > COACH_HISTORY_LIMIT) {
+            surface.history.splice(0, surface.history.length - COACH_HISTORY_LIMIT);
         }
 
-        coachSetLoading(true);
-        coachRenderLoading();
+        // Only the inline surface attaches the workout; the FAB stays a general coach.
+        const body = {
+            query: trimmed,
+            history: surface.history.slice(0, -1),
+        };
+        const workoutPayload = buildWorkoutPayload(surface.workout);
+        if (workoutPayload) body.workout = workoutPayload;
+
+        coachSetLoading(true, surface);
+        coachRenderLoading(surface);
 
         try {
             const res = await fetch('/api/training/coach', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    query: trimmed,
-                    history: coachState.history.slice(0, -1),
-                }),
+                body: JSON.stringify(body),
             });
 
             let payload = null;
@@ -847,24 +908,138 @@
                 throw new Error('תגובת שרת חסרה שדה reply');
             }
 
-            coachRenderReply(payload.reply, payload.videos || []);
+            coachRenderReply(payload.reply, payload.videos || [], surface);
 
-            coachState.history.push({ role: 'assistant', content: payload.reply });
-            if (coachState.history.length > 6) {
-                coachState.history = coachState.history.slice(-6);
+            surface.history.push({ role: 'assistant', content: payload.reply });
+            if (surface.history.length > COACH_HISTORY_LIMIT) {
+                surface.history.splice(0, surface.history.length - COACH_HISTORY_LIMIT);
             }
         } catch (err) {
             console.error('[Training Coach] failed:', err);
-            coachRenderError(err.message || 'שגיאה בשליחת ההודעה');
-            coachState.history = coachState.history.slice(0, -1);
+            coachRenderError(err.message || 'שגיאה בשליחת ההודעה', surface);
+            surface.history.pop();
         } finally {
-            coachSetLoading(false);
+            coachSetLoading(false, surface);
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Inline coach (scoped to the workout that is on screen)
+    // ─────────────────────────────────────────────────────────────
+
+    const INLINE_SUGGESTIONS = [
+        'למה הסדר הזה של התרגילים?',
+        'כמה לנוח בין סטים?',
+        'איך אני משתפר בתרגיל הראשון?',
+        'כאב בכתף — מה להחליף?',
+    ];
+
+    function coachInlineRenderEmpty() {
+        const container = $('coach-inline-messages');
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        const empty = document.createElement('div');
+        empty.className = 'coach-empty';
+
+        const title = document.createElement('p');
+        title.className = 'coach-empty-title';
+        title.textContent = 'שאל אותי על האימון שבנינו';
+
+        const text = document.createElement('p');
+        text.className = 'coach-empty-text';
+        text.textContent = 'אני מכיר את התרגילים, הסטים וההערות — ואת הפרופיל שלך.';
+
+        const list = document.createElement('div');
+        list.className = 'coach-suggestions';
+
+        INLINE_SUGGESTIONS.forEach((suggestion) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'coach-suggestion';
+            btn.setAttribute('data-text', suggestion);
+            btn.textContent = suggestion;
+            list.appendChild(btn);
+        });
+
+        empty.appendChild(title);
+        empty.appendChild(text);
+        empty.appendChild(list);
+        container.appendChild(empty);
+    }
+
+    function coachInlineReset() {
+        COACH_UI.inline.history.splice(0, COACH_UI.inline.history.length);
+        COACH_UI.inline.loading = false;
+
+        const input = $('coach-inline-input');
+        if (input) input.value = '';
+
+        coachInlineRenderEmpty();
+    }
+
+    function coachInlineMount(workout) {
+        const panel = $('coach-inline');
+        if (!panel || !workout) return;
+
+        const previous = COACH_UI.inline.workout;
+        COACH_UI.inline.workout = workout;
+        panel.hidden = false;
+
+        // A different workout is a different conversation.
+        if (previous !== workout) coachInlineReset();
+
+        const contextEl = $('coach-inline-context');
+        if (contextEl) {
+            contextEl.textContent = `על: ${workout.title} · ${workout.exercises.length} תרגילים · ${workout.durationMinutes} דק׳`;
+        }
+    }
+
+    function coachInlineHide() {
+        const panel = $('coach-inline');
+        if (panel) panel.hidden = true;
+        COACH_UI.inline.workout = null;
+        coachInlineReset();
+    }
+
+    function coachInlineToggle() {
+        const body = $('coach-inline-body');
+        const btn = $('coach-inline-toggle');
+        if (!body || !btn) return;
+
+        body.hidden = !body.hidden;
+        btn.textContent = body.hidden ? '+' : '−';
+        btn.setAttribute('aria-expanded', String(!body.hidden));
     }
 
     function coachBind() {
         const fab = $('coach-fab');
         if (fab) fab.addEventListener('click', coachOpen);
+
+        // ── Inline coach (workout-scoped) ──
+        const inlineForm = $('coach-inline-form');
+        if (inlineForm) {
+            inlineForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const input = $('coach-inline-input');
+                if (input) coachSend(input.value, COACH_UI.inline);
+            });
+        }
+
+        const inlineToggle = $('coach-inline-toggle');
+        if (inlineToggle) inlineToggle.addEventListener('click', coachInlineToggle);
+
+        // Suggestions are rendered dynamically, so delegate instead of binding once.
+        const inlineMessages = $('coach-inline-messages');
+        if (inlineMessages) {
+            inlineMessages.addEventListener('click', (e) => {
+                const suggestion = e.target.closest('.coach-suggestion');
+                if (!suggestion) return;
+                const text = suggestion.getAttribute('data-text') || '';
+                if (text) coachSend(text, COACH_UI.inline);
+            });
+        }
 
         const closeBtn = $('coach-close');
         if (closeBtn) closeBtn.addEventListener('click', coachClose);
@@ -924,6 +1099,7 @@
         if (regenBtn) {
             regenBtn.addEventListener('click', () => {
                 state.currentWorkout = null;
+                coachInlineHide();
                 const section = $('workout-section');
                 if (section) section.hidden = true;
                 generateWorkout();

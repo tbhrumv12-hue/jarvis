@@ -447,3 +447,60 @@ test('unknown API routes return 404', async () => {
     const res = await apiGet('/api/definitely-not-a-route');
     assert.equal(res.status, 404);
 });
+
+test('/api/training/coach rejects an unusable query before calling the model', async () => {
+    const empty = await postJson('/api/training/coach', {});
+    assert.equal(empty.status, 400);
+
+    const blank = await postJson('/api/training/coach', { query: '  ' });
+    assert.equal(blank.status, 400);
+
+    const tooLong = await postJson('/api/training/coach', { query: 'x'.repeat(501) });
+    assert.equal(tooLong.status, 400);
+
+    // A malformed workout must not turn a valid question into a 5xx: it is simply
+    // ignored, and validation (not the model) answers these.
+    const badWorkout = await postJson('/api/training/coach', {
+        query: ' ',
+        workout: { exercises: 'not-an-array' },
+    });
+    assert.equal(badWorkout.status, 400);
+});
+
+test('training.html ships the inline follow-up coach under the workout', async () => {
+    const res = await fetch(`${baseUrl}/training.html`, { signal: AbortSignal.timeout(10000) });
+    assert.equal(res.status, 200);
+    const html = await res.text();
+
+    for (const hook of ['id="coach-inline"', 'coach-inline-messages', 'coach-inline-form', 'coach-inline-input']) {
+        assert.ok(html.includes(hook), `training.html is missing ${hook}`);
+    }
+
+    // It has to live inside #workout-section, after the action buttons, so it
+    // disappears with the section and survives re-renders of the exercise list.
+    const panelAt = html.indexOf('id="coach-inline"');
+    assert.ok(panelAt > html.indexOf('class="workout-actions"'), 'panel must follow the workout actions');
+    assert.ok(panelAt < html.indexOf("Today's Workouts"), 'panel must stay inside the workout section');
+});
+
+test('training.js keeps the coach surfaces and the workout payload in sync', () => {
+    const js = fs.readFileSync(path.join(ROOT, 'public', 'js', 'training.js'), 'utf8');
+
+    for (const token of ['COACH_UI', 'buildWorkoutPayload', 'coachInlineMount', 'coachInlineHide', 'coachInlineReset']) {
+        assert.ok(js.includes(token), `training.js is missing ${token}`);
+    }
+
+    // One send path, two surfaces.
+    assert.match(js, /async function coachSend\(text, surface/);
+    assert.match(js, /coachSend\([^)]*COACH_UI\.inline\)/);
+    // The server normalizes `notes`; the client must not silently drop the text.
+    assert.match(js, /raw\.note \|\| raw\.notes/);
+});
+
+test('/api/training/generate asks for and normalizes an exercise category', () => {
+    const server = fs.readFileSync(SERVER_ENTRY, 'utf8');
+
+    assert.ok(server.includes('"category": "skill | strength | core"'), 'generate prompt must request category');
+    assert.ok(server.includes('normalizeExerciseCategory'), 'generate must normalize category');
+    assert.match(server, /EXERCISE_CATEGORIES/);
+});

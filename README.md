@@ -76,7 +76,9 @@ npm test
 3. אימות מסלולים חיים: `/api/health`, `/api/metrics`, `/api/knowledge`, `/api/mega-prompt`, וכל ששת
    הדפים (`/`, `/app`, `/analytics.html`, `/nutrition.html`, `/research.html`, `/training.html`)
    בתוספת `/offline.html`.
-4. אימות שמסלולי הוולידציה דוחים קלט רע (`/api/ask` → 400/413, `/api/training/analyze` → 400).
+4. אימות שמסלולי הוולידציה דוחים קלט רע (`/api/ask` → 400/413, `/api/training/analyze` → 400,
+   `/api/training/coach` → 400), ושמאמן ההמשך קיים בעמוד (`#coach-inline` בתוך `#workout-section`)
+   ונשלח עם `workout` בנתיב שליחה אחד לשני המשטחים.
 5. **חוזה ה-SSE של `/api/ask`** — בקשה עם `stream` מקבלת `text/event-stream` עם הכותרות הנכונות,
    `delta` שמסתכמים בדיוק ל-`reply`, `done` כאירוע אחרון, ובלי `stream` — JSON רגיל.
 6. **PWA shell** — לכל ששת הדפים יש `manifest`, `apple-touch-icon`, `pwa.css`, `/js/pwa.js`,
@@ -120,7 +122,7 @@ PROJECT_MAP.md         מיפוי מפורט של כל endpoint, פונקציה 
 | אנליטיקס | `public/analytics.html` | נתוני YouTube/TikTok וצ'אט עליהם |
 | מחקר | `public/research.html` | חיפוש ב-11 מקורות אקדמיים + ניתוח עם ציטוטים `[N]` |
 | תזונה | `public/nutrition.html` | ניתוח ארוחות, מאקרו, גרפי התקדמות מול יעדים (4 טבעות), צ'אט תזונתי |
-| אימונים | `public/training.html` | תוכניות אימון, מאמן AI, ניתוח התקדמות |
+| אימונים | `public/training.html` | תוכניות אימון, מאמן AI, מאמן המשך על האימון שנבנה (פאנל מתחת לאימון), ניתוח התקדמות |
 | נחיתה | `public/landing.html` | דף השיווק/כניסה |
 
 ### PWA ואופליין
@@ -145,7 +147,7 @@ PROJECT_MAP.md         מיפוי מפורט של כל endpoint, פונקציה 
 | `POST` | `/api/research`, `/api/research-chat` | מחקר אקדמי וצ'אט על סט מחקרים |
 | `POST` | `/api/analytics-chat`, `/api/youtube/fetch`, `/api/tiktok/fetch` | אנליטיקס |
 | `POST` | `/api/nutrition/analyze`, `/api/nutrition/chat` | תזונה |
-| `POST` | `/api/training/coach`, `/api/training/analyze`, `/api/training/generate` | אימונים |
+| `POST` | `/api/training/coach`, `/api/training/analyze`, `/api/training/generate` | אימונים — `coach` מקבל `workout` אופציונלי ומזריק את האימון + פרופיל + ידע; `generate` מחזיר `category` לכל תרגיל |
 | `POST/DELETE` | `/api/knowledge/upload`, `/api/knowledge/reload`, `/api/knowledge/:name` | ניהול מאגר הידע |
 
 ### Function calling ב-`/api/ask`
